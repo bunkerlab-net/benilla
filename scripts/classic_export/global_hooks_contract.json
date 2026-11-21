@@ -1,0 +1,550 @@
+{
+  "format": "cmangos-8ec338a1-global-hook-contract-v1",
+  "row_limit": 4096,
+  "tables": {
+    "spell_area": {
+      "columns": {
+        "spell": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "area": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "quest_start": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "quest_start_active": {
+          "type": "tinyint unsigned",
+          "nullable": false
+        },
+        "quest_end": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "condition_id": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "aura_spell": {
+          "type": "mediumint",
+          "nullable": false
+        },
+        "racemask": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "gender": {
+          "type": "tinyint unsigned",
+          "nullable": false
+        },
+        "autocast": {
+          "type": "tinyint unsigned",
+          "nullable": false
+        }
+      },
+      "keys": [
+        "spell",
+        "area",
+        "quest_start",
+        "quest_start_active",
+        "aura_spell",
+        "racemask",
+        "gender"
+      ],
+      "scope": "complete_raw_cursor"
+    },
+    "spell_chain": {
+      "columns": {
+        "spell_id": {
+          "type": "mediumint",
+          "nullable": false
+        },
+        "prev_spell": {
+          "type": "mediumint",
+          "nullable": false
+        },
+        "first_spell": {
+          "type": "mediumint",
+          "nullable": false
+        },
+        "rank": {
+          "type": "tinyint",
+          "nullable": false
+        },
+        "req_spell": {
+          "type": "mediumint",
+          "nullable": false
+        }
+      },
+      "keys": [
+        "spell_id"
+      ],
+      "scope": "complete_raw_cursor"
+    },
+    "spell_proc_event": {
+      "columns": {
+        "entry": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "SchoolMask": {
+          "type": "tinyint unsigned",
+          "nullable": false
+        },
+        "SpellFamilyName": {
+          "type": "smallint unsigned",
+          "nullable": false
+        },
+        "SpellFamilyMask0": {
+          "type": "bigint unsigned",
+          "nullable": false
+        },
+        "SpellFamilyMask1": {
+          "type": "bigint unsigned",
+          "nullable": false
+        },
+        "SpellFamilyMask2": {
+          "type": "bigint unsigned",
+          "nullable": false
+        },
+        "procFlags": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "procEx": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "ppmRate": {
+          "type": "float",
+          "nullable": false
+        },
+        "CustomChance": {
+          "type": "float",
+          "nullable": false
+        },
+        "Cooldown": {
+          "type": "int unsigned",
+          "nullable": false
+        }
+      },
+      "keys": [
+        "entry"
+      ],
+      "scope": "complete_raw_cursor"
+    },
+    "spell_affect": {
+      "columns": {
+        "entry": {
+          "type": "smallint unsigned",
+          "nullable": false
+        },
+        "effectId": {
+          "type": "tinyint unsigned",
+          "nullable": false
+        },
+        "SpellFamilyMask": {
+          "type": "bigint unsigned",
+          "nullable": false
+        }
+      },
+      "keys": [
+        "entry",
+        "effectId"
+      ],
+      "scope": "complete_raw_cursor"
+    },
+    "spell_threat": {
+      "columns": {
+        "entry": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "Threat": {
+          "type": "smallint",
+          "nullable": false
+        },
+        "multiplier": {
+          "type": "float",
+          "nullable": false
+        },
+        "ap_bonus": {
+          "type": "float",
+          "nullable": false
+        },
+        "InverseEffectMask": {
+          "type": "int unsigned",
+          "nullable": true
+        }
+      },
+      "keys": [
+        "entry"
+      ],
+      "scope": "complete_raw_cursor"
+    },
+    "spell_elixir": {
+      "columns": {
+        "entry": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "mask": {
+          "type": "tinyint unsigned",
+          "nullable": false
+        }
+      },
+      "keys": [
+        "entry"
+      ],
+      "scope": "complete_raw_cursor"
+    },
+    "spell_group": {
+      "columns": {
+        "Id": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "Rule": {
+          "type": "smallint unsigned",
+          "nullable": false
+        },
+        "Name": {
+          "type": "varchar(200)",
+          "nullable": false
+        }
+      },
+      "keys": [
+        "Id"
+      ],
+      "scope": "complete_raw_cursor"
+    },
+    "spell_group_spell": {
+      "columns": {
+        "Id": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "SpellId": {
+          "type": "int unsigned",
+          "nullable": false
+        }
+      },
+      "keys": [
+        "Id",
+        "SpellId"
+      ],
+      "scope": "complete_raw_cursor"
+    },
+    "conditions": {
+      "columns": {
+        "condition_entry": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "type": {
+          "type": "tinyint",
+          "nullable": false
+        },
+        "value1": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "value2": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "value3": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "value4": {
+          "type": "mediumint unsigned",
+          "nullable": false
+        },
+        "flags": {
+          "type": "tinyint unsigned",
+          "nullable": false
+        }
+      },
+      "keys": [
+        "condition_entry"
+      ],
+      "scope": "complete_raw_cursor"
+    },
+    "world_template": {
+      "columns": {
+        "map": {
+          "type": "smallint unsigned",
+          "nullable": false
+        },
+        "ScriptName": {
+          "type": "varchar(128)",
+          "nullable": false
+        }
+      },
+      "keys": [
+        "map"
+      ],
+      "scope": "complete_raw_cursor"
+    },
+    "instance_template": {
+      "columns": {
+        "map": {
+          "type": "smallint unsigned",
+          "nullable": false
+        },
+        "ScriptName": {
+          "type": "varchar(128)",
+          "nullable": false
+        }
+      },
+      "keys": [
+        "map"
+      ],
+      "scope": "complete_raw_cursor"
+    },
+    "spell_scripts": {
+      "columns": {
+        "Id": {
+          "type": "int",
+          "nullable": false
+        },
+        "ScriptName": {
+          "type": "char(64)",
+          "nullable": false
+        }
+      },
+      "keys": [
+        "Id"
+      ],
+      "scope": "complete_raw_cursor"
+    },
+    "spell_template": {
+      "columns": {
+        "Id": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "Attributes": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "procFlags": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "SpellFamilyName": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "SpellFamilyFlags": {
+          "type": "bigint unsigned",
+          "nullable": false
+        },
+        "Effect1": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "EffectApplyAuraName1": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "EffectTriggerSpell1": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "EffectItemType1": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "EffectBonusCoefficient1": {
+          "type": "float",
+          "nullable": false
+        },
+        "EffectBonusCoefficientFromAP1": {
+          "type": "float",
+          "nullable": false
+        },
+        "Effect2": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "EffectApplyAuraName2": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "EffectTriggerSpell2": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "EffectItemType2": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "EffectBonusCoefficient2": {
+          "type": "float",
+          "nullable": false
+        },
+        "EffectBonusCoefficientFromAP2": {
+          "type": "float",
+          "nullable": false
+        },
+        "Effect3": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "EffectApplyAuraName3": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "EffectTriggerSpell3": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "EffectItemType3": {
+          "type": "int unsigned",
+          "nullable": false
+        },
+        "EffectBonusCoefficient3": {
+          "type": "float",
+          "nullable": false
+        },
+        "EffectBonusCoefficientFromAP3": {
+          "type": "float",
+          "nullable": false
+        }
+      },
+      "keys": [
+        "Id"
+      ],
+      "scope": "lookup"
+    }
+  },
+  "manifest": {
+    "configuration": {
+      "BUILD_GAME_SERVER": true,
+      "BUILD_SCRIPTDEV": true,
+      "BUILD_PLAYERBOTS": false,
+      "BUILD_DEPRECATED_PLAYERBOT": false,
+      "BUILD_AHBOT": false
+    },
+    "provenance": "declared_pinned_default_source_configuration_not_observed_binary",
+    "sources": {
+      "cmake/options.cmake": "6f35dbd2225b5f59c77b797c1347e2bc7b1cd9402cf8600a84ee7df14c0a532f",
+      "CMakeLists.txt": "fd3b93b4c4c8bb7f466bf0a9a9adc5e4315ff04b6ff9e7f21eab0ec3d4d7a572",
+      "src/game/CMakeLists.txt": "55cb4668779dc86b8b4c36fe7a4cde53ae7f42a7e767c3705ca6f0da60401143",
+      "src/game/AI/ScriptDevAI/ScriptDevAIMgr.cpp": "ad6a4113dc1f31aa7059a1167b1409ffd1cfc8c8ebf2b2f73907b8598deb3592",
+      "src/game/AI/ScriptDevAI/ScriptDevAIMgr.h": "a374f90bdcc9e0046d33bf170dad5a3ef0dcd574fc077b8c50fbbf30d22ec6dd",
+      "src/game/AI/ScriptDevAI/system/ScriptLoader.cpp": "b8a1906d31a5bdbeefd3d52769186102fc6f26c138a83bb26b0edc1a978044fd",
+      "src/game/AI/ScriptDevAI/scripts/world/spell_scripts.cpp": "977f39e400ed8f3e7e2419c9a324ed6ec100512e0e002e68f999402e2611c1f1",
+      "src/game/AI/ScriptDevAI/scripts/world/npcs_special.cpp": "41da934b5b670c283939017273db4354daf9a9d441be8cf0274aea3e49d50620",
+      "src/game/AI/ScriptDevAI/scripts/battlegrounds/battlegrounds.cpp": "b6479c3ad3bfb1cc573d85c0d1bccc9983a3fd883757520436fea829f8e1e0be",
+      "src/game/AI/ScriptDevAI/scripts/eastern_kingdoms/world_eastern_kingdoms.cpp": "ce816b812706d5c5adfbe498d5338b16972021631ea676ea19476df38c740af8",
+      "src/game/Spells/Scripts/SpellScript.cpp": "6a0c091b93e60e8f12c4a1d00ef74d8a4a2ea2bd0f5b6b9bf130587ac6210ba2",
+      "src/game/Spells/Scripts/SpellScript.h": "2fbbf9a0c41c2e84d27b7b8f699f035c31f7c34e7bcb3130aff39f644dc3b5cc",
+      "src/game/Spells/SpellMgr.cpp": "d1a7064febbe3a7657e85931c4bda89a09adfabc89b7cbed23fdbffd6e37c22d",
+      "src/game/Spells/SpellStacking.cpp": "fd1bad7596a3becec7298b141bbcfc2d7bf10c4c400f5c24e922a1cad85f87af",
+      "src/game/Entities/Player.cpp": "d02d693f2575b0f47be405fe6e81e2a4e833fca8d149354d9cb8d3b458527c7e"
+    },
+    "registrations": {
+      "spell_food_animation": {
+        "kind": "aura",
+        "callbacks": [
+          "OnHeartbeat"
+        ],
+        "source": "src/game/AI/ScriptDevAI/scripts/world/spell_scripts.cpp",
+        "lines": [
+          160,
+          166,
+          456
+        ],
+        "loader": "AddSC_spell_scripts"
+      },
+      "spell_drink_animation": {
+        "kind": "aura",
+        "callbacks": [
+          "OnHeartbeat"
+        ],
+        "source": "src/game/AI/ScriptDevAI/scripts/world/spell_scripts.cpp",
+        "lines": [
+          168,
+          174,
+          457
+        ],
+        "loader": "AddSC_spell_scripts"
+      },
+      "spell_gameobject_call_for_help_on_usage": {
+        "kind": "spell",
+        "callbacks": [
+          "OnSuccessfulStart"
+        ],
+        "source": "src/game/AI/ScriptDevAI/scripts/world/spell_scripts.cpp",
+        "lines": [
+          361,
+          381,
+          469
+        ],
+        "loader": "AddSC_spell_scripts"
+      },
+      "spell_opening_capping": {
+        "kind": "spell",
+        "callbacks": [
+          "OnSuccessfulStart"
+        ],
+        "source": "src/game/AI/ScriptDevAI/scripts/battlegrounds/battlegrounds.cpp",
+        "lines": [
+          110,
+          116,
+          247
+        ],
+        "loader": "AddSC_battleground"
+      },
+      "npc_garments_of_quests": {
+        "kind": "creature",
+        "callbacks": [
+          "GetAI"
+        ],
+        "ai_callbacks": [
+          "Reset",
+          "SpellHit",
+          "WaypointReached",
+          "UpdateEscortAI"
+        ],
+        "source": "src/game/AI/ScriptDevAI/scripts/world/npcs_special.cpp",
+        "lines": [
+          568,
+          745,
+          1162,
+          1165
+        ],
+        "loader": "AddSC_npcs_special"
+      },
+      "world_map_eastern_kingdoms": {
+        "kind": "map",
+        "callbacks": [
+          "GetInstanceData"
+        ],
+        "ai_callbacks": [
+          "Initialize",
+          "OnCreatureGroupDespawn",
+          "OnCreatureCreate",
+          "OnCreatureDeath",
+          "OnObjectCreate",
+          "OnEventHappened",
+          "SetData"
+        ],
+        "source": "src/game/AI/ScriptDevAI/scripts/eastern_kingdoms/world_eastern_kingdoms.cpp",
+        "lines": [
+          28,
+          146
+        ],
+        "loader": "AddSC_world_eastern_kingdoms"
+      }
+    },
+    "player_callbacks": "ScriptDevAIMgr_per_object_slots_no_global_player_registration",
+    "bonus_owner": "spell_template_effect_coefficients_no_spell_bonus_data_loader"
+  }
+}

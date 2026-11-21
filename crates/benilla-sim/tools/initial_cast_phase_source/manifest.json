@@ -1,0 +1,197 @@
+{
+  "source_pin": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "sources": {
+    "src/game/Spells/SpellTargetDefines.h": "1a84eccb8c5494a45e188bad3a9ba30f8daae7410b2aa12a736b38548c5684bf",
+    "src/game/Spells/SpellEffectDefines.h": "175c870f4b379164de848951666d563d0164638c99b7b866f027f5af7c1c6aee",
+    "src/game/Spells/SpellTargets.cpp": "3f36dc12a742096a277ccc65779477dc867223de4afeae68f264f637ae38688b",
+    "src/game/Spells/Spell.cpp": "ebcabd3073f188541e6a1abcc82a8d0ee6d48d360dc5ab16d9e63b3e87d75201",
+    "src/game/Spells/SpellEffects.cpp": "d4335082b8b3ee60d9bc200fbb47e87887dbdbe8b78a474219b68b452744520d",
+    "src/game/Entities/Object.cpp": "410904520fe2847a855c396d9fe442065268fd4ff5bb510633c3aadb5c54665b",
+    "src/game/Spells/SpellAuras.cpp": "5e60510d23b789f8f0fb584da8f05a5be675f1cb4024ce997c989cde00105fde",
+    "src/game/Entities/Unit.cpp": "03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0",
+    "src/game/Server/DBCStructure.h": "354013c7508d7891f19a1856cd7bbafda19f18388bc20671f5692efa57ebdf50"
+  },
+  "snippets": {
+    "TargetDefines.inc": {
+      "sha256": "b532223ee16f8d44f68e6abe08c9be9aef461ec0ed07d94501019b0ea4b49353",
+      "parts": [
+        {
+          "path": "src/game/Spells/SpellTargetDefines.h",
+          "start": "enum SpellTarget\n",
+          "end": "\n#endif"
+        }
+      ]
+    },
+    "EffectDefines.inc": {
+      "sha256": "d4e2a28404d00fb6321352bccb954074f03c6437cf34d54d2b8ce0a1b047ad8d",
+      "parts": [
+        {
+          "path": "src/game/Spells/SpellEffectDefines.h",
+          "start": "enum SpellEffects\n",
+          "end": "\n#endif"
+        }
+      ]
+    },
+    "TargetTables.inc": {
+      "sha256": "631ce0f6b62f28ad807753283aa12a028162e4779c624e91a30674b4a341e4f9",
+      "parts": [
+        {
+          "path": "src/game/Spells/SpellTargets.cpp",
+          "start": "SpellTargetInfo::SpellTargetInfo(",
+          "end": "std::map<uint32, SpellTargetingData> SpellTargetMgr::spellTargetingData;"
+        }
+      ]
+    },
+    "ClassifyEffects.inc": {
+      "sha256": "c306a56f43dbebfaecd0c41d601b70ea62d79d5cc610498339a7e6a5e6111947",
+      "parts": [
+        {
+          "path": "src/game/Spells/SpellTargets.cpp",
+          "start": "        // figure out what targeting dynamic effects should use\n",
+          "end": "        // evaluate which targets should be evaluated on execution\n"
+        }
+      ]
+    },
+    "FillTargetMap.inc": {
+      "sha256": "25c24ad7285168caeb81105b01b274438980bd7c9dcbdf0c5922b08aa6f363f1",
+      "parts": [
+        {
+          "path": "src/game/Spells/Spell.cpp",
+          "method": "void Spell::FillTargetMap("
+        }
+      ]
+    },
+    "Targetless.inc": {
+      "sha256": "4638aff7989881127c851d5e30d6d2b9ad7d2dc4dceec3c0ab91e48a6d45646b",
+      "parts": [
+        {
+          "path": "src/game/Spells/Spell.cpp",
+          "method": "void Spell::DoAllTargetlessEffects("
+        }
+      ]
+    },
+    "ImmediatePhases.inc": {
+      "sha256": "5249562bbe1403629fe48e1e3071a6c5ab47a82f1795fe4ef1d535163a7ecaf9",
+      "parts": [
+        {
+          "path": "src/game/Spells/Spell.cpp",
+          "start": "    // handle none targeted effects\n",
+          "end": "    ProcSpellAuraTriggers();\n"
+        }
+      ]
+    },
+    "ExecuteEffects.inc": {
+      "sha256": "ad5a0df6cde4f7a123ce01ff9f3870f14cd1e078f1f0925d6a184e0fc20e37de",
+      "parts": [
+        {
+          "path": "src/game/Spells/Spell.cpp",
+          "method": "void Spell::ExecuteEffects("
+        }
+      ]
+    },
+    "HandleEffect.inc": {
+      "sha256": "273d91136f99ed7b3ff0d69c59381bbceda8f675417937a7f0c8ca8f71fecfe9",
+      "parts": [
+        {
+          "path": "src/game/Spells/Spell.cpp",
+          "method": "void Spell::HandleEffect("
+        },
+        {
+          "path": "src/game/Spells/Spell.cpp",
+          "method": "bool Spell::IsEffectWithImplementedMultiplier("
+        }
+      ]
+    },
+    "EffectTable.inc": {
+      "sha256": "0879631ce637b249919164230f2688a43546717b3552157819ace64a2c867d04",
+      "parts": [
+        {
+          "path": "src/game/Spells/SpellEffects.cpp",
+          "start": "pEffect SpellEffects[MAX_SPELL_EFFECTS] =\n",
+          "end": "void Spell::EffectEmpty("
+        }
+      ]
+    },
+    "EffectHandlers.inc": {
+      "sha256": "1807872e35ee1a1afe500848142e97c26406da03be2418c063f9c29adea102d1",
+      "parts": [
+        {
+          "path": "src/game/Spells/SpellEffects.cpp",
+          "method": "void Spell::EffectEmpty("
+        },
+        {
+          "path": "src/game/Spells/SpellEffects.cpp",
+          "method": "void Spell::EffectProficiency("
+        },
+        {
+          "path": "src/game/Spells/SpellEffects.cpp",
+          "method": "void Spell::EffectApplyAura("
+        }
+      ]
+    },
+    "EffectAmount.inc": {
+      "sha256": "61a4f4ee0e12eeaff515d181cf52c86d4eda41941cd7df9458b52b3038157f77",
+      "parts": [
+        {
+          "path": "src/game/Entities/Object.cpp",
+          "method": "int32 WorldObject::CalculateSpellEffectValue("
+        }
+      ]
+    },
+    "AuraMethods.inc": {
+      "sha256": "035a2c37d887d7fffe26cd6c57d3878e2bef96fd809ec249f2859666f070ae54",
+      "parts": [
+        {
+          "path": "src/game/Spells/SpellAuras.cpp",
+          "method": "void SpellAuraHolder::AddAura("
+        },
+        {
+          "path": "src/game/Spells/SpellAuras.cpp",
+          "method": "void SpellAuraHolder::ApplyAuraModifiers("
+        }
+      ]
+    },
+    "RegisterAuras.inc": {
+      "sha256": "609e1711a07ffcff11d3301466de37a276771f728b4055a88bcd27d23547fcba",
+      "parts": [
+        {
+          "path": "src/game/Entities/Unit.cpp",
+          "start": "    for (int32 i = 0; i < MAX_EFFECT_INDEX; ++i)\n        if (Aura* aur = holder->GetAuraByEffectIndex(SpellEffectIndex(i)))\n            AddAuraToModList(aur);\n",
+          "end": "    DETAIL_FILTER_LOG(LOG_FILTER_SPELL_CAST, \"Holder of spell %u now is in use\", holder->GetId());"
+        }
+      ]
+    },
+    "SimpleValue.inc": {
+      "sha256": "c920e492ab7f5a827152cb79c81c715f61db3df080345bee7f2bea335544b62e",
+      "parts": [
+        {
+          "path": "src/game/Server/DBCStructure.h",
+          "start": "        int32 CalculateSimpleValue(SpellEffectIndex eff) const",
+          "end": "\n",
+          "after_start": true
+        }
+      ]
+    },
+    "CacheValue.inc": {
+      "sha256": "ba9e21d601aeaef3954720791ddcc5a202aa87bbc168f461bb784c602a8a8d0b",
+      "parts": [
+        {
+          "path": "src/game/Spells/Spell.cpp",
+          "start": "        m_currentBasePoints[i] = m_spellInfo->CalculateSimpleValue(SpellEffectIndex(i));",
+          "end": "\n",
+          "after_start": true
+        }
+      ]
+    },
+    "HolderCreate.inc": {
+      "sha256": "2fc6abc0a5e40762e2bb9a53b8d0935dfa155d128cc428e7bf64e5828f6d6dba",
+      "parts": [
+        {
+          "path": "src/game/Spells/Spell.cpp",
+          "start": "        // Only unit caster to be passed here\n",
+          "end": "    if (affectiveCaster && affectiveCaster != unit && m_caster)\n"
+        }
+      ]
+    }
+  }
+}

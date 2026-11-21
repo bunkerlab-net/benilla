@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// CMaNGOS 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f
+// Selected compatibility policy: cmangos-buildpolypath-zero-distance-v1
+// Original cold undefined branch is NOT an oracle result. Full unchanged context:
+// warm_cache_source_fragments.test-fixture (BuildPolyPath, constructor, lookup bodies).
+// ORIGINAL CALLER PREFIX, PathFinder.cpp:410-415
+    float distToStartPoly, distToEndPoly;
+    float startPoint[VERTEX_SIZE] = {startPos.y, startPos.z, startPos.x};
+    float endPoint[VERTEX_SIZE] = {endPos.y, endPos.z, endPos.x};
+
+    dtPolyRef startPoly = getPolyByLocation(startPoint, &distToStartPoly);
+    dtPolyRef endPoly = getPolyByLocation(endPoint, &distToEndPoly);
+
+
+// REPAIRED CALLER PREFIX: sole semantic amendment
+    float distToStartPoly = 0.0f, distToEndPoly = 0.0f;
+    float startPoint[VERTEX_SIZE] = {startPos.y, startPos.z, startPos.x};
+    float endPoint[VERTEX_SIZE] = {endPos.y, endPos.z, endPos.x};
+
+    dtPolyRef startPoly = getPolyByLocation(startPoint, &distToStartPoly);
+    dtPolyRef endPoly = getPolyByLocation(endPoint, &distToEndPoly);

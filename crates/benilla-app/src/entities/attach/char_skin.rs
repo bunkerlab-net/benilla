@@ -94,11 +94,16 @@ pub(super) fn resolve_char_look(
     None
 }
 
-/// The `mpq://` URL of a baked NPC atlas under `Textures\BakedNpcTextures\`.
+/// A character texture's address mode: `CGxTexFlags(3, 0, 0, ...)` at `0x4795ed` (bake), `0x4782a5`
+/// (hair) and `0x4781dd` (extra skin) clears the U and V wrap bits (`0x58a980`), so both clamp.
+const CHAR_TEXTURE_WRAP: (bool, bool) = (false, false);
+
+/// The `mpq://` URL of a baked NPC atlas under `Textures\BakedNpcTextures\`, its name resolved as
+/// `TextureCreate` resolves one (`0x449d90`): a bare bake name is the `.blp` or `.tga` there.
 fn baked_npc_url(bake_name: &str) -> String {
-    format!(
-        "mpq://textures/bakednpctextures/{}",
-        bake_name.replace('\\', "/").to_ascii_lowercase()
+    benilla_assets::texture_url(
+        &format!("Textures\\BakedNpcTextures\\{bake_name}"),
+        CHAR_TEXTURE_WRAP,
     )
 }
 
@@ -381,12 +386,10 @@ pub(super) fn build_char_skin_materials(
             let hair_part = parts
                 .iter()
                 .find(|p| p.char_slot == Some(CharSkinSlot::Hair))?;
-            let tex = asset_server.load::<Image>(format!(
-                "mpq://{}",
-                path.replace('\\', "/").to_ascii_lowercase()
-            ));
+            let tex =
+                asset_server.load::<Image>(benilla_assets::texture_url(path, CHAR_TEXTURE_WRAP));
             mats.char_variants(tex, hair_part.blend, hair_part.two_sided)
-                .map(&quint)
+                .map(quint)
         });
 
     // The cape: the cloak's ItemDisplayInfo `model_texture[0]`, a BLP under
@@ -403,7 +406,7 @@ pub(super) fn build_char_skin_materials(
                 tex_name.to_ascii_lowercase()
             ));
             mats.char_variants(tex, part.blend, part.two_sided)
-                .map(&quint)
+                .map(quint)
         });
 
     // The extra skin (tauren fur, M2 type 8): CharSections section 0 `TextureName[1]` by
@@ -413,19 +416,35 @@ pub(super) fn build_char_skin_materials(
         .tables
         .skin_extra_texture(look.race, look.sex, look.skin)
         .map_or((None, None), |path| {
-            let tex = asset_server.load::<Image>(format!(
-                "mpq://{}",
-                path.replace('\\', "/").to_ascii_lowercase()
-            ));
+            let tex =
+                asset_server.load::<Image>(benilla_assets::texture_url(path, CHAR_TEXTURE_WRAP));
             let mut quint_for = |two_sided: bool| {
                 let part = parts.iter().find(|p| {
                     p.char_slot == Some(CharSkinSlot::SkinExtra) && p.two_sided == two_sided
                 })?;
                 mats.char_variants(tex.clone(), part.blend, part.two_sided)
-                    .map(&quint)
+                    .map(quint)
             };
             (quint_for(false), quint_for(true))
         });
 
     (body, hair, object, skin_extra)
+}
+
+#[cfg(test)]
+mod baked_url_tests {
+    use super::baked_npc_url;
+
+    /// A server's bare bake name resolves as `TextureCreate` resolves it (`0x449d90`): the same
+    /// atlas as the spelled-out `.blp`.
+    #[test]
+    fn a_bare_bake_name_is_the_atlas_the_blp_spelling_names() {
+        let blp = "mpq://textures/bakednpctextures/northwindbutcher@cc.blp";
+        assert_eq!(baked_npc_url("Northwindbutcher"), blp);
+        assert_eq!(baked_npc_url("Northwindbutcher.blp"), blp);
+        assert_eq!(
+            baked_npc_url("CREATURE\\Sub\\Bake.BLP"),
+            "mpq://textures/bakednpctextures/creature/sub/bake@cc.blp"
+        );
+    }
 }

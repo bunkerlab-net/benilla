@@ -51,9 +51,9 @@ struct Record {
 struct Entry {
     /// `[+0xE00]`, the SoundEntries id; 0 is free.
     id: u32,
-    /// Deviation: the reference marks an unresolvable kit by negating the id (`[+0xE00] = -id`),
-    /// so the owner's next `$DSL` re-registers into a fresh entry every cycle; a flag keeps it in
-    /// place without the churn. Both are silent.
+    /// Deviation: a flag keeps an unresolvable kit in place without the churn, because the
+    /// reference marks it by negating the id (`[+0xE00] = -id`), so the owner's next `$DSL`
+    /// re-registers into a fresh entry every cycle. Both are silent.
     failed: bool,
     /// `[+0xC00]`'s active set, in claim order.
     records: Vec<Record>,
@@ -674,8 +674,8 @@ mod tests {
     /// `(sounding, withheld)` indices.
     fn walk(pool: &AmbientEmitterPool, live: impl Fn(usize) -> bool) -> (Vec<usize>, Vec<usize>) {
         let (mut sounding, mut withheld) = (Vec::new(), Vec::new());
-        for e in 0..POOL_ENTRIES {
-            match cap_step(pool.entries[e].entitled(), sounding.len()) {
+        for (e, entry) in pool.entries.iter().enumerate() {
+            match cap_step(entry.entitled(), sounding.len()) {
                 CapStep::Skip => {}
                 CapStep::Retire => withheld.push(e),
                 CapStep::Service => {

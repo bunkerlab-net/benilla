@@ -1,0 +1,513 @@
+{
+  "source_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "classic_db_revision": "ec4f596146be6467ea93c57397858e329e2db852",
+  "classic_db_rows_consumed": false,
+  "compatibility_policy": "cmangos-buildpolypath-zero-distance-v1",
+  "original_cold_execution": false,
+  "wander_endpoint_repair_applied": false,
+  "compiler": "14.2.0",
+  "target": "x86_64-linux-gnu",
+  "source_intervals": [
+    {
+      "name": "PathType.inc",
+      "source": "src/game/MotionGenerators/PathFinder.h",
+      "first_byte": 2091,
+      "last_byte_exclusive": 2716,
+      "first_line": 61,
+      "last_line": 70,
+      "sha256": "1a1252b462fb537d1131b77cf40bec29c30c637d656e286046f7a55563f523fc",
+      "compiled": true
+    },
+    {
+      "name": "UnitState.inc",
+      "source": "src/game/Entities/Unit.h",
+      "first_byte": 10867,
+      "last_byte_exclusive": 15822,
+      "first_line": 329,
+      "last_line": 403,
+      "sha256": "d11f38fcfd3bc89a8febbe6704ee73f5f6c2060a7408faa14cad07847cf0eb78",
+      "compiled": true
+    },
+    {
+      "name": "ShortTimeTracker.inc",
+      "source": "src/shared/Util/Timer.h",
+      "first_byte": 4134,
+      "last_byte_exclusive": 4650,
+      "first_line": 145,
+      "last_line": 162,
+      "sha256": "7a85a57bb92b1ee166040efdb939102a29848cdfef741828ee47fc7ca60f4668",
+      "compiled": true
+    },
+    {
+      "name": "RandomDecl.inc",
+      "source": "src/game/MotionGenerators/RandomMovementGenerator.h",
+      "first_byte": 975,
+      "last_byte_exclusive": 2317,
+      "first_line": 27,
+      "last_line": 59,
+      "sha256": "6b55b0d89bf8f57bee2a99a872a974b74572461be8657cac2f89a440a79727af",
+      "compiled": true
+    },
+    {
+      "name": "WanderDecl.inc",
+      "source": "src/game/MotionGenerators/RandomMovementGenerator.h",
+      "first_byte": 2641,
+      "last_byte_exclusive": 3189,
+      "first_line": 70,
+      "last_line": 82,
+      "sha256": "9f20b16ad6933599eb3881ec48646cda20ed612b6de3424694c5c237ba003684",
+      "compiled": true
+    },
+    {
+      "name": "HomeDecl.inc",
+      "source": "src/game/MotionGenerators/HomeMovementGenerator.h",
+      "first_byte": 991,
+      "last_byte_exclusive": 1716,
+      "first_line": 29,
+      "last_line": 53,
+      "sha256": "1108ca71efa1fe03c623553a777bb378148536f91c01a18ce391d31c8904371a",
+      "compiled": true
+    },
+    {
+      "name": "MediumDecl.inc",
+      "source": "src/game/MotionGenerators/MovementGenerator.h",
+      "first_byte": 2498,
+      "last_byte_exclusive": 4776,
+      "first_line": 67,
+      "last_line": 117,
+      "sha256": "853e73ae8ed5da4d2d180c84f20df5d02b73088f71e5c4fdb41e5df2cee3f2bf",
+      "compiled": true
+    },
+    {
+      "name": "RandomInitialize.inc",
+      "source": "src/game/MotionGenerators/RandomMovementGenerator.cpp",
+      "first_byte": 997,
+      "last_byte_exclusive": 1796,
+      "first_line": 25,
+      "last_line": 49,
+      "sha256": "e1aed237db6ab609744560ab237c418ce2cd71871c1ea30438dc02d07aff3bd2",
+      "compiled": true
+    },
+    {
+      "name": "RandomFinalize.inc",
+      "source": "src/game/MotionGenerators/RandomMovementGenerator.cpp",
+      "first_byte": 1798,
+      "last_byte_exclusive": 2370,
+      "first_line": 51,
+      "last_line": 67,
+      "sha256": "bc3fe1fa9f76a475f8c7e74cd93906f86c852a7d24332a524aebfb0d68a1fe57",
+      "compiled": true
+    },
+    {
+      "name": "RandomInterrupt.inc",
+      "source": "src/game/MotionGenerators/RandomMovementGenerator.cpp",
+      "first_byte": 2372,
+      "last_byte_exclusive": 2507,
+      "first_line": 69,
+      "last_line": 74,
+      "sha256": "4ea57bd44adaa0b62764181bb6a696bfd882de2a8b52e8a778a8b5564611cadc",
+      "compiled": true
+    },
+    {
+      "name": "RandomReset.inc",
+      "source": "src/game/MotionGenerators/RandomMovementGenerator.cpp",
+      "first_byte": 2509,
+      "last_byte_exclusive": 2623,
+      "first_line": 76,
+      "last_line": 81,
+      "sha256": "d13ad96bfa50085b8a6c4c666d4d30461493ef9b0fd7302855bd5875aabf08ad",
+      "compiled": true
+    },
+    {
+      "name": "WanderConstructor.inc",
+      "source": "src/game/MotionGenerators/RandomMovementGenerator.cpp",
+      "first_byte": 5385,
+      "last_byte_exclusive": 5710,
+      "first_line": 177,
+      "last_line": 182,
+      "sha256": "d97d70ee1807baa19988f9db802ce052798b12e966c167d66f2cdecc4bda52d6",
+      "compiled": true
+    },
+    {
+      "name": "WanderInterrupt.inc",
+      "source": "src/game/MotionGenerators/RandomMovementGenerator.cpp",
+      "first_byte": 5966,
+      "last_byte_exclusive": 6220,
+      "first_line": 192,
+      "last_line": 198,
+      "sha256": "e4d52a9b796c65e02d053539e6b5a41840046db84bd97119d4122890bcc7eb5b",
+      "compiled": true
+    },
+    {
+      "name": "WanderFinalize.inc",
+      "source": "src/game/MotionGenerators/RandomMovementGenerator.cpp",
+      "first_byte": 5712,
+      "last_byte_exclusive": 5964,
+      "first_line": 184,
+      "last_line": 190,
+      "sha256": "dd06730c5a3283a42a2a7f7db6cee45bb86ebd258dfbfe0aafc110b1343c8e8d",
+      "compiled": true
+    },
+    {
+      "name": "HomeInitialize.inc",
+      "source": "src/game/MotionGenerators/HomeMovementGenerator.cpp",
+      "first_byte": 1005,
+      "last_byte_exclusive": 1264,
+      "first_line": 26,
+      "last_line": 34,
+      "sha256": "ee206aa07e740657cd9eeb9581ecd27b5abe7d14d50d88373050f3429bf1f63a",
+      "compiled": true
+    },
+    {
+      "name": "HomeReset.inc",
+      "source": "src/game/MotionGenerators/HomeMovementGenerator.cpp",
+      "first_byte": 1266,
+      "last_byte_exclusive": 1324,
+      "first_line": 36,
+      "last_line": 38,
+      "sha256": "a53b7af883b9817d8554c99117fee7a73e27dc6bbd3b905d63202630cd8d366d",
+      "compiled": true
+    },
+    {
+      "name": "HomeSetTarget.inc",
+      "source": "src/game/MotionGenerators/HomeMovementGenerator.cpp",
+      "first_byte": 1326,
+      "last_byte_exclusive": 2905,
+      "first_line": 40,
+      "last_line": 80,
+      "sha256": "120348ac21218f52a8e5a2ae4d45289a88d06fb3d19df43a1e245eee2872b927",
+      "compiled": true
+    },
+    {
+      "name": "HomeUpdate.inc",
+      "source": "src/game/MotionGenerators/HomeMovementGenerator.cpp",
+      "first_byte": 2907,
+      "last_byte_exclusive": 3067,
+      "first_line": 82,
+      "last_line": 86,
+      "sha256": "2b890b4ae46264c855c10c7ef5c103aa34ad6986ad80c74ea981e64fc8cee4a9",
+      "compiled": true
+    },
+    {
+      "name": "HomeFinalize.inc",
+      "source": "src/game/MotionGenerators/HomeMovementGenerator.cpp",
+      "first_byte": 3069,
+      "last_byte_exclusive": 3896,
+      "first_line": 88,
+      "last_line": 111,
+      "sha256": "c30aaa0ab7e79c23b4989e6e5250a24e38cd8367d2b12205a2a8b71be4faf97c",
+      "compiled": true
+    },
+    {
+      "name": "DirectClean.inc",
+      "source": "src/game/MotionGenerators/MotionMaster.cpp",
+      "first_byte": 5271,
+      "last_byte_exclusive": 5625,
+      "first_line": 160,
+      "last_line": 177,
+      "sha256": "d60de414ae2e0019f77d30917573c83928f02a0fe4f5a4710859570e83dd9aa4",
+      "compiled": true
+    },
+    {
+      "name": "DelayedClean.inc",
+      "source": "src/game/MotionGenerators/MotionMaster.cpp",
+      "first_byte": 5627,
+      "last_byte_exclusive": 6110,
+      "first_line": 179,
+      "last_line": 201,
+      "sha256": "ba629064303a367b1a7454a52a4fc7d98d62fe4401156bd9739b90d61282fc0d",
+      "compiled": true
+    },
+    {
+      "name": "DirectExpire.inc",
+      "source": "src/game/MotionGenerators/MotionMaster.cpp",
+      "first_byte": 6112,
+      "last_byte_exclusive": 7144,
+      "first_line": 203,
+      "last_line": 240,
+      "sha256": "2cf2b0703bd4238ec9a1ef52925d136c6611fecaba1081dd081eb94627eb100e",
+      "compiled": true
+    },
+    {
+      "name": "DelayedExpire.inc",
+      "source": "src/game/MotionGenerators/MotionMaster.cpp",
+      "first_byte": 7146,
+      "last_byte_exclusive": 7785,
+      "first_line": 242,
+      "last_line": 271,
+      "sha256": "80f91108b76f0e96a07d4dbd73ab993a28dbcbbbb5c1700e081e7a62e8822ae1",
+      "compiled": true
+    },
+    {
+      "name": "Mutate.inc",
+      "source": "src/game/MotionGenerators/MotionMaster.cpp",
+      "first_byte": 19898,
+      "last_byte_exclusive": 20466,
+      "first_line": 599,
+      "last_line": 620,
+      "sha256": "1d0308237a033897c905f7ebb82db9d559d59a87ec8eab6a15fe834494d5a96c",
+      "compiled": true
+    },
+    {
+      "name": "MoveHome.inc",
+      "source": "src/game/MotionGenerators/MotionMaster.cpp",
+      "first_byte": 8519,
+      "last_byte_exclusive": 8979,
+      "first_line": 295,
+      "last_line": 309,
+      "sha256": "d9d55ea079e0fec5c117849a824c8a768c5d82ff768a5eac341727ec4ce248e1",
+      "compiled": true
+    },
+    {
+      "name": "UpdateMotion.inc",
+      "source": "src/game/MotionGenerators/MotionMaster.cpp",
+      "first_byte": 4106,
+      "last_byte_exclusive": 5269,
+      "first_line": 113,
+      "last_line": 158,
+      "sha256": "2d2d4053a3379e1e13a6ea7d47ad621f26cbc997cb775ab244200bd7c572fc61",
+      "compiled": true
+    },
+    {
+      "name": "ClearMotion.inc",
+      "source": "src/game/MotionGenerators/MotionMaster.h",
+      "first_byte": 5025,
+      "last_byte_exclusive": 5243,
+      "first_line": 120,
+      "last_line": 126,
+      "sha256": "0f925de0b2728995761fbe18062e7ade35851ec3f0d15d9ee6d03968a3f44467",
+      "compiled": true
+    },
+    {
+      "name": "ExpireMotion.inc",
+      "source": "src/game/MotionGenerators/MotionMaster.h",
+      "first_byte": 5244,
+      "last_byte_exclusive": 5446,
+      "first_line": 127,
+      "last_line": 133,
+      "sha256": "a83ffc7686f61bb8bf844e78ecbc149f75bb7d756872f95a0483a34ecfea1e21",
+      "compiled": true
+    },
+    {
+      "name": "PathConstructor.inc",
+      "source": "src/game/MotionGenerators/PathFinder.cpp",
+      "first_byte": 1198,
+      "last_byte_exclusive": 2271,
+      "first_line": 35,
+      "last_line": 54,
+      "sha256": "da7f564d03d352b68d725ee8df36cd5650bacb9f3056daa9b516766be3275a57",
+      "compiled": true
+    },
+    {
+      "name": "SelectNav.inc",
+      "source": "src/game/MotionGenerators/PathFinder.cpp",
+      "first_byte": 3596,
+      "last_byte_exclusive": 4704,
+      "first_line": 81,
+      "last_line": 110,
+      "sha256": "3ef4ee6fac2fa03e202b80080f0eae4eac19c3593e450ed015dd441a7637aa6c",
+      "compiled": true
+    },
+    {
+      "name": "Calculate.inc",
+      "source": "src/game/MotionGenerators/PathFinder.cpp",
+      "first_byte": 5172,
+      "last_byte_exclusive": 7156,
+      "first_line": 122,
+      "last_line": 180,
+      "sha256": "5745a0c799aa4389c978a58b2649c3d62d0a115cd28114ed1ae300f890192dc8",
+      "compiled": true
+    },
+    {
+      "name": "GetPathPolyByPosition.inc",
+      "source": "src/game/MotionGenerators/PathFinder.cpp",
+      "first_byte": 11018,
+      "last_byte_exclusive": 11961,
+      "first_line": 306,
+      "last_line": 335,
+      "sha256": "97b654a62a8c1b353f81a9f21a7bb8ac60c7fe476b68bf987467d08dd0618db3",
+      "compiled": true
+    },
+    {
+      "name": "GetPolyByLocation.inc",
+      "source": "src/game/MotionGenerators/PathFinder.cpp",
+      "first_byte": 11963,
+      "last_byte_exclusive": 14142,
+      "first_line": 337,
+      "last_line": 384,
+      "sha256": "c0c96d9f85af0e592f954f62a8cad251dd4a3f5319c15e12b2063b4ba26670ba",
+      "compiled": true
+    },
+    {
+      "name": "BuildShortcut.inc",
+      "source": "src/game/MotionGenerators/PathFinder.cpp",
+      "first_byte": 38154,
+      "last_byte_exclusive": 38596,
+      "first_line": 1005,
+      "last_line": 1021,
+      "sha256": "97808dc87a7e9eb3e4c8bd8739fc8679c7a4a6184a8c4883fe93c960e5b9ea42",
+      "compiled": true
+    },
+    {
+      "name": "NormalizePath.inc",
+      "source": "src/game/MotionGenerators/PathFinder.cpp",
+      "first_byte": 37548,
+      "last_byte_exclusive": 38152,
+      "first_line": 988,
+      "last_line": 1003,
+      "sha256": "c7f8e41d5340edbd04eb273a74ebaaf4111b784ced03f7d326e818a43a32b991",
+      "compiled": true
+    },
+    {
+      "name": "HaveTile.inc",
+      "source": "src/game/MotionGenerators/PathFinder.cpp",
+      "first_byte": 41789,
+      "last_byte_exclusive": 42373,
+      "first_line": 1122,
+      "last_line": 1139,
+      "sha256": "2e632b300595d543e31405df0a32cf3de5259c3d7c668bf087e6609f20049e17",
+      "compiled": true
+    },
+    {
+      "name": "BuildPolyPath.context.inc",
+      "source": "src/game/MotionGenerators/PathFinder.cpp",
+      "first_byte": 14144,
+      "last_byte_exclusive": 30415,
+      "first_line": 386,
+      "last_line": 793,
+      "sha256": "bffb90aead1540752ff5771d43e4fd96cbf34385a04c4ea1d29a3903748b1de6",
+      "compiled": false
+    },
+    {
+      "name": "BuildPointPath.context.inc",
+      "source": "src/game/MotionGenerators/PathFinder.cpp",
+      "first_byte": 30417,
+      "last_byte_exclusive": 37546,
+      "first_line": 795,
+      "last_line": 986,
+      "sha256": "286f02c02b141215e061cc78b53e7f14ccd98863bd10c422ee09549f07c54547",
+      "compiled": false
+    },
+    {
+      "name": "BuildPolyPath.original-prefix.inc",
+      "source": "src/game/MotionGenerators/PathFinder.cpp",
+      "first_byte": 14144,
+      "last_byte_exclusive": 19295,
+      "first_line": 386,
+      "last_line": 521,
+      "sha256": "f823afb0a4f1926ad79c9e0d81b5ce913cf95e79b848b02dd879ca2b50526842",
+      "compiled": false
+    },
+    {
+      "name": "SearchBounds.inc",
+      "source": "src/game/MotionGenerators/PathFinder.h",
+      "first_byte": 1948,
+      "last_byte_exclusive": 2090,
+      "first_line": 58,
+      "last_line": 59,
+      "sha256": "5332577beec706265768579588590264b9d1f43767e9eb10c1af8890cf0959d6",
+      "compiled": true
+    },
+    {
+      "name": "Pi.inc",
+      "source": "src/shared/Common.h",
+      "first_byte": 7811,
+      "last_byte_exclusive": 7868,
+      "first_line": 212,
+      "last_line": 214,
+      "sha256": "5eb4c8979c4f47363c0d939db51282ef84c45b5a60c7c8232312a52932882ef1",
+      "compiled": true
+    },
+    {
+      "name": "Clear.inc",
+      "source": "src/game/MotionGenerators/PathFinder.h",
+      "first_byte": 6746,
+      "last_byte_exclusive": 6850,
+      "first_line": 146,
+      "last_line": 150,
+      "sha256": "01efd04904d591175536a2b0aa44f6daa6f17253b5de004dc4e9878d55cd4bac",
+      "compiled": true
+    },
+    {
+      "name": "InterruptMoving.inc",
+      "source": "src/game/Entities/Unit.cpp",
+      "first_byte": 364719,
+      "last_byte_exclusive": 364994,
+      "first_line": 9923,
+      "last_line": 9936,
+      "sha256": "6c26d48d1a0e7971478e4d05d77c2476a8d8a6af68336015fd1e7157ef0683a9",
+      "compiled": true
+    },
+    {
+      "name": "LaunchStart.prefix.inc",
+      "source": "src/game/Movement/MoveSplineInit.cpp",
+      "first_byte": 1895,
+      "last_byte_exclusive": 2924,
+      "first_line": 52,
+      "last_line": 75,
+      "sha256": "2759d4940f39f349e6bac66dcfaf34b086029d045c1a92be18ba2065e012ac0c",
+      "compiled": true
+    },
+    {
+      "name": "CombatCapture.inc",
+      "source": "src/game/Entities/Unit.cpp",
+      "first_byte": 302495,
+      "last_byte_exclusive": 302627,
+      "first_line": 7981,
+      "last_line": 7982,
+      "sha256": "d5b71cefe3018cccfc92febfa1678d664f22b418695c2de8df330711e344e5ff",
+      "compiled": true
+    },
+    {
+      "name": "Position.inc",
+      "source": "src/game/Entities/Object.h",
+      "first_byte": 9426,
+      "last_byte_exclusive": 10302,
+      "first_line": 286,
+      "last_line": 302,
+      "sha256": "e1c1a7b6570d8ff1dd13b2078d9a1d32ccab000db01f58d04f7e3bc6f1489d95",
+      "compiled": true
+    },
+    {
+      "name": "Location.inc",
+      "source": "src/game/Movement/MoveSpline.h",
+      "first_byte": 1186,
+      "last_byte_exclusive": 1536,
+      "first_line": 38,
+      "last_line": 46,
+      "sha256": "5a27c57db68dbe99192585b2696893f605fedbac9b87fb6db59f2efffd1e82af",
+      "compiled": true
+    },
+    {
+      "name": "GetDistance.context.inc",
+      "source": "src/game/Entities/Object.cpp",
+      "first_byte": 44170,
+      "last_byte_exclusive": 45037,
+      "first_line": 1283,
+      "last_line": 1308,
+      "sha256": "aa31c4801b54e6b13c9629f4d4e4b311a30ffca0cb464630f708eed2dd58f1a2",
+      "compiled": false
+    }
+  ],
+  "source_manifest_sha256": "a2f3ef44a3b820e72d910952ecf8248ef7ef3912462697c34a1faf3b446775ca",
+  "geometry_fixtures_sha256": {
+    "params.test-fixture": "35fdd6bd0b83c83b7abd44fd9f9588d061f725bad9a269c4e701c92171cd4e94",
+    "quad.test-fixture": "39e711075734514744a2e095d52100dfc309dc53ee3e795d35b7f1dfbcb01ffe"
+  },
+  "tile_lifetime_profile": "unchanged-original-empirical; existing dtMeshTile raw-storage lifetime caveat",
+  "external_leaves": [
+    "owner flags, positions, squared DIST_CALC_NONE distance, lifecycle callbacks",
+    "constructor-enabled source query selection and filter",
+    "spline ComputePosition and Launch duration",
+    "Home event and addon callbacks",
+    "collision and real world membership not claimed"
+  ],
+  "excluded": [
+    "production admission",
+    "world data compiler",
+    "actual world membership",
+    "full spline interpolation or packet output",
+    "cross-polygon routes",
+    "original undefined cold parity"
+  ]
+}

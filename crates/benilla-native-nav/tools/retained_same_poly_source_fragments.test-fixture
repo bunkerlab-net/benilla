@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// CMaNGOS 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f
+// One live PathFinder and source1024 query, including all retained tail slots.
+// The first entry uses the unchanged cold_same_poly source package and selected +0 repair.
+// Every later entry requires active>0 and executes ORIGINAL caller locals, without repair.
+// Source lookup bodies, terminal methods, G3D/Detour and licenses are in the guarded
+// point_path_source_fragments.test-fixture and cold_same_poly_source_fragments.test-fixture.
+// ORIGINAL DEFINED RETAINED CALLER PREFIX
+    float distToStartPoly, distToEndPoly;
+    float startPoint[VERTEX_SIZE] = {startPos.y, startPos.z, startPos.x};
+    float endPoint[VERTEX_SIZE] = {endPos.y, endPos.z, endPos.x};
+
+    dtPolyRef startPoly = getPolyByLocation(startPoint, &distToStartPoly);
+    dtPolyRef endPoly = getPolyByLocation(endPoint, &distToEndPoly);
+
+
+// ORIGINAL FAR PREDICATE
+    bool farFromPoly = (distToStartPoly > 7.0f || distToEndPoly > 7.0f);
+
+// ORIGINAL SAME-POLYGON TERMINAL
+    // start and end are on same polygon
+    // just need to move in straight line
+    if (startPoly == endPoly)
+    {
+        DEBUG_FILTER_LOG(LOG_FILTER_PATHFINDING, "++ BuildPolyPath :: (startPoly == endPoly)\n");
+
+        BuildShortcut(); // todo move in straight line is different than build shortcut!
+
+        m_pathPolyRefs[0] = startPoly;
+        m_polyLength = 1;
+
+        m_type = farFromPoly ? PATHFIND_INCOMPLETE : PATHFIND_NORMAL;
+        DEBUG_FILTER_LOG(LOG_FILTER_PATHFINDING, "++ BuildPolyPath :: path type %d\n", m_type);
+        return;
+    }

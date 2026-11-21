@@ -1,0 +1,1934 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
+//! UnitAI.cpp:39-140,283-348,778-803,890-911,934-1011.
+use super::*;
+use std::collections::BTreeMap;
+
+pub const UNIT_STATE_MELEE: u32 = 1;
+pub const UNIT_STATE_AI_ROOT: u32 = 0x2000_0000;
+pub const UNIT_STATE_NO_COMBAT_MOVEMENT: u32 = 0x0100_0000;
+pub const UNIT_FLAG_COMBAT: u32 = 0x0008_0000;
+const CROWD_CONTROL_FLAGS: u32 = 0x00c4_0000;
+const IMMOBILIZED: u32 = 0x2000_001a;
+const CANNOT_REACT: u32 = 0x0020_240e;
+const AURA_INTERRUPT_FLAG_DISMOUNT: u32 = 0x0000_0040; // SpellDefines.h:368.
+const AURA_INTERRUPT_FLAG_MOUNTING: u32 = 0x0002_0000; // SpellDefines.h:379.
+
+/// Values computed by SelectLevel/UpdateEntry, never guessed from MinLevelHealth.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct SourceUnitVitals {
+    pub health: u32,
+    pub max_health: u32,
+    pub mana: u32,
+    pub max_mana: u32,
+    pub has_mana: bool,
+    pub energy: u32,
+    pub max_energy: u32,
+}
+/// Creature.cpp:1426-1475 retains create resources and the other power fields.
+#[derive(Clone, Debug, Serialize)]
+pub struct SourceUnitPowerFields {
+    pub level: u32,
+    pub create_health: u32,
+    pub create_mana: u32,
+    pub auxiliary_current: Option<[u32; 3]>,
+    pub auxiliary_maximum: Option<[u32; 3]>,
+}
+
+/// Unit.h:454-461. Unit.cpp:359 initializes m_Visibility to VISIBILITY_ON.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SourceUnitVisibilityMode {
+    Off = 0,
+    #[default]
+    On = 1,
+    GroupStealth = 2,
+    GroupInvisibility = 3,
+    GroupNoDetect = 4,
+    RemoveCorpse = 5,
+}
+
+/// Object.cpp:1171; ObjectVisibility.h:46-51,89-92; ObjectVisibility.cpp:35-41.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SourceUnitVisibility {
+    pub mode: SourceUnitVisibilityMode,
+    pub mask: u32,
+    pub values: [i32; 32],
+    /// ObjectVisibility.h:90,92; ObjectVisibility.cpp:35,38 initialize both to zero.
+    pub detect_mask: u32,
+    pub detect_values: [i32; 32],
+    /// ObjectVisibility.h:39-44,96; ObjectVisibility.cpp:41 initializes both slots to zero.
+    pub stealth_detect: [u32; 2],
+    /// ObjectVisibility.h:39-44,95; ObjectVisibility.cpp:40 zeroes both strengths.
+    pub stealth_strength: [u32; 2],
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SourceUnitFields {
+    pub entry: u32,
+    pub faction: u32,
+    pub static_flags: [u32; 4],
+    pub has_ai: bool,
+    pub can_fly: bool,
+    #[serde(skip)]
+    pub can_walk: bool,
+    #[serde(skip)]
+    pub can_swim: bool,
+    #[serde(skip)]
+    pub mmap_extra_flags: u32,
+    pub neutral_to_all: Option<bool>,
+    pub can_aggro: Option<bool>,
+    pub force_attacking: bool,
+    pub run_during_wander: bool,
+    pub flags: u32,
+    pub state: u32,
+    pub vitals: Option<SourceUnitVitals>,
+    /// Creature.cpp:1426-1475; live SelectLevel fields have no restore owner.
+    #[serde(skip)]
+    pub power_fields: Option<SourceUnitPowerFields>,
+    /// Object.cpp:105-108 initializes the school-indexed update fields to zero.
+    #[serde(skip)]
+    pub power_cost_modifier: [i32; 7],
+    #[serde(skip)]
+    pub power_cost_multiplier: [u32; 7],
+    #[serde(skip)]
+    pub movement: Option<SourceCreatureMovement>,
+    /// Unit.h:2606; Unit.cpp:350 nulls all current-spell slots at construction.
+    #[serde(skip)]
+    pub spell_slots: SourceSpellSlots,
+    pub victim: Option<ObjectHandle>,
+    pub target: Option<ObjectHandle>,
+    pub attackers: Vec<ObjectHandle>,
+    /// Object.cpp:105-108 zeros UNIT_FIELD_CHARMEDBY and UNIT_FIELD_CREATEDBY.
+    #[serde(skip)]
+    pub control_guids: SourceControlGuids,
+    /// Creature.cpp:140 initializes these live members before LoadFromDB.
+    #[serde(skip)]
+    pub respawn_delay: u32,
+    #[serde(skip)]
+    pub respawn_time: i64,
+    #[serde(skip)]
+    pub respawn_overridden: bool,
+    #[serde(skip)]
+    pub respawn_override_once: bool,
+    /// Unit.h:2609 uses the default Position constructor, Object.h:288.
+    #[serde(skip)]
+    pub last_notified_position: [f32; 3],
+    /// Object.cpp:105-108 clears UNIT_CREATED_BY_SPELL.
+    #[serde(skip)]
+    pub unit_created_by_spell: u32,
+    #[serde(skip)]
+    pub controlled: SourceControlledUnits,
+    pub pet_kind: Option<CreaturePetKind>,
+    pub totem: bool,
+    pub beneficiary: Option<ObjectHandle>,
+    pub controlling_player: Option<ObjectHandle>,
+    pub spawner: Option<ObjectHandle>,
+    pub can_enter_combat: bool,
+    pub ignore_ranged_targets: bool,
+    pub evade_home: bool,
+    pub evade_combat: bool,
+    pub evade_timer: u32,
+    pub casting_non_melee: bool,
+    pub melee_spell: bool,
+    pub gm: bool,
+    pub no_threat: bool,
+    /// Object.cpp:105-108 zeros UNIT_FIELD_MOUNTDISPLAYID.
+    #[serde(skip)]
+    mount_display: u32,
+    /// Creature.cpp:150 initializes m_mountInfo to null.
+    #[serde(skip)]
+    pub(super) mount_info: Option<u32>,
+    pub offhand: bool,
+    pub combat_timer: u32,
+    pub pursuit_ms: u32,
+    pub last_refresh_position: Option<[u32; 4]>,
+    pub combat_tick: u32,
+    pub damage_by_others: u32,
+    pub already_called_assistance: bool,
+    pub can_call_assistance: bool,
+    pub can_check_help: bool,
+    pub call_for_help: u32,
+    pub critter: bool,
+    pub linking_event_trigger: Option<bool>,
+    /// Unit.cpp:320-321 constructs MoveSpline; MoveSpline.cpp:159-162 starts it done.
+    #[serde(skip)]
+    pub movespline: benilla_sim::source_spline::MoveSpline,
+    /// WorldObject constructor, Object.cpp:1173.
+    #[serde(skip)]
+    pub spline_debug_path: bool,
+    #[serde(skip)]
+    pub spline_outbound: Vec<SplineOutbound>,
+    /// ShortTimeTracker constructor, Timer.h:145-158.
+    #[serde(skip)]
+    pub spline_position_expiry: u32,
+    /// Common.h:59, Unit.h:2654. The default TimePoint is the epoch.
+    #[serde(skip)]
+    pub spline_last_move_ms: i64,
+    /// Unit.h:2487,2507; Unit.cpp:355,365-366. Live state has no restore path.
+    #[serde(skip)]
+    pub auras: SourceUnitAuras,
+    #[serde(skip)]
+    pub visibility: SourceUnitVisibility,
+    /// Unit.cpp:367-386. Live resistance groups and derived armor field.
+    #[serde(skip)]
+    pub resistances: SourceUnitResistances,
+    #[serde(skip)]
+    pub creature_damage: SourceCreatureDamage,
+    /// Unit.cpp:409-410 initializes every school multiplier to one.
+    #[serde(skip)]
+    pub threat_modifier: [f32; 7],
+    /// Unit.cpp:320,350; Spell.cpp:7127-7164. Events retain live Spells.
+    #[serde(skip)]
+    pub spell_starts: SourceSpellStarts,
+    #[serde(skip)]
+    pub unit_events: SourceUnitEvents,
+    /// Object.cpp:105-108 zeros unit bytes; Creature.cpp:344 binds class.
+    #[serde(skip)]
+    pub unit_class: Option<u32>,
+    #[serde(skip)]
+    /// Object.cpp:105-108 zeros form byte 2; Creature.cpp:2316 writes only stand byte 0.
+    pub shapeshift_form: u32,
+    #[serde(skip)]
+    pub stand_state: u8,
+    #[serde(skip)]
+    pub sheath_state: u8,
+    #[serde(skip)]
+    pub npc_emote_state: u32,
+    #[serde(skip)]
+    pub immunities: CreatureImmunityState,
+    /// Unit.h:2646; ObjectGuid.h:85 initializes the combo GUID empty.
+    #[serde(skip)]
+    pub combo_target: Option<ObjectHandle>,
+    /// Object.cpp:105-108 initializes UNIT_FIELD_PERSUADED to an empty GUID.
+    #[serde(skip)]
+    pub persuaded: Option<ObjectHandle>,
+    /// Object.cpp:1169-1175; Object.h:1181-1183 constructs empty cooldown maps.
+    #[serde(skip)]
+    pub cooldowns: SourceSpellCooldowns,
+    /// Unit.cpp:10270 writes model reach after Object.cpp:105-108 initializes update fields.
+    #[serde(skip)]
+    pub combat_reach: Option<u32>,
+    /// Unit.cpp:10268, Unit.h:1094. Live model operand for Cell::Visit.
+    #[serde(skip)]
+    pub bounding_radius: Option<u32>,
+    /// Object.cpp:105-108 zeros the field before Creature.cpp:433 writes one.
+    #[serde(skip)]
+    pub cast_speed: u32,
+    /// CreatureSpellList.h:84-91 constructs an empty map; Creature.cpp:2426-2460 writes its copy.
+    #[serde(skip)]
+    pub spell_list: Option<CreatureSpellList>,
+    #[serde(skip)]
+    pub spell_list_disabled: Option<bool>,
+    #[serde(skip)]
+    pub loaded_creature: SourceLoadedCreatureFields,
+    #[serde(skip)]
+    pub power_type: Option<u8>,
+}
+
+impl SourceUnitFields {
+    /// Unit.h:1447-1448 reads the live display field.
+    pub fn is_mounted(&self) -> bool {
+        self.mount_display() != 0
+    }
+
+    pub(super) fn mount_display(&self) -> u32 {
+        self.mount_display
+    }
+
+    pub(super) fn set_mount_display(
+        &mut self,
+        objects: &SourceObjects,
+        object: ObjectHandle,
+        display: u32,
+    ) -> Result<()> {
+        objects.set_update_value(
+            object,
+            UNIT_FIELD_MOUNTDISPLAYID,
+            &mut self.mount_display,
+            display,
+        )?;
+        Ok(())
+    }
+
+    /// Unit.cpp:7755-7770. The optional aura contributes only its amount.
+    pub fn mount(
+        &mut self,
+        objects: &SourceObjects,
+        object: ObjectHandle,
+        display: u32,
+        aura_amount: Option<i32>,
+        stores: &SourceSpellStores,
+    ) -> Result<bool> {
+        if display == 0
+            || (self.is_mounted()
+                && aura_amount.is_some_and(|amount| amount as u32 != self.mount_display()))
+        {
+            return Ok(false);
+        }
+        self.remove_mount_interrupting_auras(
+            objects,
+            object,
+            stores,
+            AURA_INTERRUPT_FLAG_MOUNTING,
+        )?;
+        self.set_mount_display(objects, object, display)?;
+        if self.has_mount_info(objects, object)? {
+            return Err(refuse("execution.unit.Unit_7766.SetBaseRunSpeed_owner"));
+        }
+        Ok(true)
+    }
+
+    /// Unit.cpp:7772-7787. This body does not read the aura argument.
+    pub fn unmount(
+        &mut self,
+        objects: &SourceObjects,
+        object: ObjectHandle,
+        stores: Option<&SourceSpellStores>,
+    ) -> Result<bool> {
+        if !self.is_mounted() {
+            return Ok(false);
+        }
+        if let Some(stores) = stores {
+            self.remove_mount_interrupting_auras(
+                objects,
+                object,
+                stores,
+                AURA_INTERRUPT_FLAG_DISMOUNT,
+            )?;
+        } else {
+            // Unit.cpp:5213 does not read spell data for an empty holder map.
+            require(
+                !self.auras.has_aura_holders(),
+                "execution.unit.Unit_7777.RemoveAurasWithInterruptFlags_owner",
+            )?;
+        }
+        self.set_mount_display(objects, object, 0)?;
+        if self.has_mount_info(objects, object)? {
+            return Err(refuse("execution.unit.Unit_7782.SetBaseRunSpeed_owner"));
+        }
+        Ok(true)
+    }
+
+    // Creature.h:937,1031 reads the template pointer. Unit.h:2448 returns null.
+    fn has_mount_info(&self, objects: &SourceObjects, object: ObjectHandle) -> Result<bool> {
+        Ok(self.mount_info.is_some()
+            && matches!(
+                objects.get(object)?.kind,
+                SourceObjectKind::Creature | SourceObjectKind::Pet
+            ))
+    }
+
+    fn remove_mount_interrupting_auras(
+        &mut self,
+        objects: &SourceObjects,
+        object: ObjectHandle,
+        stores: &SourceSpellStores,
+        flag: u32,
+    ) -> Result<()> {
+        let value = objects.get(object)?;
+        self.auras.remove_auras_with_interrupt_flags(
+            stores,
+            &mut SelfAuraRemoval {
+                unit: SelfAuraTarget {
+                    target: object,
+                    level: self.power_fields.as_ref().map(|power| power.level),
+                    alive: value.alive,
+                    player: value.kind == SourceObjectKind::Player,
+                    player_group: None,
+                    totem: self.totem,
+                    objects,
+                    control_guids: &self.control_guids,
+                },
+                visibility: &mut self.visibility,
+                damage: DamageAuraTarget::new(
+                    &mut self.creature_damage,
+                    &self.loaded_creature,
+                    self.flags,
+                    self.shapeshift_form,
+                ),
+            },
+            flag,
+        )
+    }
+
+    /// Unit.cpp:330,423-425; Creature.cpp:541-579. Spawn overrides belong to UpdateEntry.
+    pub fn creature(template: &CreatureAiTemplateOperands) -> Self {
+        let mut fields = Self::constructed_creature();
+        fields.apply_creature_template(template);
+        fields
+    }
+    pub(super) fn apply_creature_template(&mut self, template: &CreatureAiTemplateOperands) {
+        self.entry = template.entry;
+        self.faction = template.faction;
+        self.apply_creature_properties(
+            template.extra_flags,
+            template.inhabit_type,
+            template.pursuit_ms,
+            template.call_for_help,
+        );
+        self.apply_creature_capabilities(template.extra_flags);
+        self.static_flags = template.static_flags;
+        self.flags = template.unit_flags;
+        for application in SourceCreatureSettings::effects(template.static_flags) {
+            self.flags |= application.unit_flag();
+        }
+        self.set_creature_type(template.creature_type);
+    }
+
+    /// Creature.cpp:336 binds the template; its getters read these loaded operands.
+    pub(super) fn apply_creature_properties(
+        &mut self,
+        extra_flags: u32,
+        inhabit_type: u32,
+        pursuit_ms: u32,
+        call_for_help: u32,
+    ) {
+        self.can_fly = inhabit_type & 4 != 0;
+        self.can_walk = inhabit_type & 1 != 0;
+        self.can_swim = inhabit_type & 2 != 0;
+        self.mmap_extra_flags = extra_flags & 0x6000;
+        self.run_during_wander = extra_flags & 0x20 != 0;
+        self.pursuit_ms = pursuit_ms;
+        self.call_for_help = call_for_help;
+    }
+
+    /// Creature.cpp:463-464.
+    pub(super) fn apply_creature_capabilities(&mut self, extra_flags: u32) {
+        self.force_attacking = extra_flags & 0x80000 != 0;
+        self.can_call_assistance = extra_flags & 0x800 == 0;
+    }
+
+    /// Creature.cpp:614-615 and Creature.h:624.
+    pub(super) fn set_creature_type(&mut self, creature_type: u32) {
+        self.critter = creature_type == 8;
+    }
+    /// Unit.cpp:320-366 and Object.cpp:1169-1175 construct the live containers before LoadFromDB.
+    pub fn constructed_creature() -> Self {
+        Self {
+            entry: 0,
+            faction: 0,
+            static_flags: [0; 4],
+            has_ai: false,
+            can_fly: false,
+            can_walk: false,
+            can_swim: false,
+            mmap_extra_flags: 0,
+            neutral_to_all: None,
+            can_aggro: Some(false), // Creature.cpp:140.
+            force_attacking: false,
+            run_during_wander: false,
+            flags: 0,
+            state: 0,
+            power_fields: None,
+            power_cost_modifier: [0; 7],
+            power_cost_multiplier: [0; 7],
+            vitals: None,
+            movement: None,
+            spell_slots: SourceSpellSlots::default(),
+            victim: None,
+            target: None,
+            attackers: Vec::new(),
+            control_guids: SourceControlGuids::default(),
+            respawn_delay: 25,
+            respawn_time: 0,
+            respawn_overridden: false,
+            respawn_override_once: false,
+            last_notified_position: [0.; 3],
+            unit_created_by_spell: 0,
+            controlled: SourceControlledUnits::default(),
+            pet_kind: None,
+            totem: false,
+            beneficiary: None,
+            controlling_player: None,
+            persuaded: None,
+            spawner: None,
+            can_enter_combat: true,
+            ignore_ranged_targets: false,
+            evade_home: false,
+            evade_combat: false,
+            evade_timer: 0,
+            casting_non_melee: false,
+            gm: false,
+            melee_spell: false,
+            no_threat: false,
+            mount_display: 0,
+            mount_info: None,
+            offhand: false,
+            combat_timer: 0,
+            pursuit_ms: 0,
+            last_refresh_position: None,
+            combat_tick: 1200,
+            damage_by_others: 0,
+            already_called_assistance: false,
+            can_call_assistance: true,
+            can_check_help: true,
+            call_for_help: 0,
+            critter: false,
+            linking_event_trigger: None,
+            movespline: benilla_sim::source_spline::MoveSpline::default(),
+            spline_debug_path: false,
+            spline_outbound: Vec::new(),
+            spline_position_expiry: 0,
+            spline_last_move_ms: 0,
+            auras: SourceUnitAuras::default(),
+            visibility: SourceUnitVisibility::default(),
+            resistances: SourceUnitResistances::default(),
+            creature_damage: SourceCreatureDamage::default(),
+            threat_modifier: [1.0; 7],
+            spell_starts: SourceSpellStarts::default(),
+            unit_events: SourceUnitEvents::default(),
+            unit_class: None,
+            shapeshift_form: 0,
+            stand_state: 0,
+            sheath_state: 0,
+            npc_emote_state: 0,
+            immunities: CreatureImmunityState::default(),
+            combo_target: None,
+            cooldowns: SourceSpellCooldowns::default(),
+            combat_reach: None,
+            bounding_radius: None,
+            cast_speed: 0,
+            spell_list: None,
+            spell_list_disabled: None,
+            loaded_creature: SourceLoadedCreatureFields {
+                detection: 20f32.to_bits(), // Creature.cpp:142.
+                ..Default::default()
+            },
+            power_type: None,
+        }
+    }
+    pub fn in_combat(&self) -> bool {
+        self.flags & UNIT_FLAG_COMBAT != 0
+    }
+    pub fn crowd_controlled(&self) -> bool {
+        self.flags & CROWD_CONTROL_FLAGS != 0
+    }
+    pub fn immobilized(&self) -> bool {
+        self.state & IMMOBILIZED != 0
+    }
+    pub fn in_evade(&self) -> bool {
+        self.evade_home || self.evade_combat || self.evade_timer != 0
+    }
+    pub fn set_flag(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        mask: u32,
+        set: bool,
+    ) -> Result<()> {
+        objects.update_flags(unit, UNIT_FIELD_FLAGS, &mut self.flags, mask, set)
+    }
+    /// The existing bounded kernel already includes UpdateMaxHealth/UpdateEntry.
+    pub fn apply_initialized(&mut self, value: &benilla_sim::creature_init::InitializedCreature) {
+        self.power_fields = Some(SourceUnitPowerFields {
+            level: u32::from(value.level),
+            create_health: value.stats.create_health,
+            create_mana: value.stats.create_mana,
+            auxiliary_current: None,
+            auxiliary_maximum: None,
+        });
+        self.vitals = Some(SourceUnitVitals {
+            health: value.stats.resources.health,
+            max_health: value.stats.resources.max_health,
+            mana: value.stats.resources.mana,
+            max_mana: value.stats.resources.max_mana,
+            has_mana: value.power_type == benilla_sim::creature_init::PowerType::Mana,
+            energy: 0,
+            max_energy: 0,
+        });
+    }
+}
+#[derive(Debug, Serialize)]
+#[serde(transparent)]
+struct SourceLiveUnit {
+    fields: SourceUnitFields,
+    /// Unit.h:2615. Links and ordinals belong to the live unit, not cloned fields.
+    #[serde(skip)]
+    followers: SourceFollowers,
+}
+
+#[derive(Debug, Default)]
+pub struct SourceUnits {
+    fields: BTreeMap<ObjectHandle, SourceLiveUnit>,
+}
+impl SourceUnits {
+    /// Unit.cpp:6696-6707. Every recursive call keeps the original POV argument.
+    pub fn get_owner(
+        &self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        pov: Option<ObjectHandle>,
+        recursive: bool,
+        mut loading: impl FnMut(ObjectHandle) -> Result<bool>,
+        mut notice: impl FnMut(SourceControlNotice),
+    ) -> Result<Option<ObjectHandle>> {
+        let mut creator = |unit| {
+            let outcome = self.get(objects, unit)?.control_guids.get_creator(
+                objects,
+                unit,
+                pov,
+                &mut loading,
+            )?;
+            if let SourceControlLookup::LoggedNull(message) = outcome {
+                notice(message);
+            }
+            Ok(outcome.unit())
+        };
+        if !recursive {
+            return creator(unit);
+        }
+        fn ascending(
+            unit: ObjectHandle,
+            remaining: usize,
+            creator: &mut impl FnMut(ObjectHandle) -> Result<Option<ObjectHandle>>,
+        ) -> Result<Option<ObjectHandle>> {
+            // A path longer than the live fields inventory repeats a unit.
+            require(
+                remaining != 0,
+                "execution.relations.Unit_6703.owner_recursion_cycle",
+            )?;
+            let mut owner = creator(unit)?;
+            while let Some(current) = owner {
+                let Some(grandowner) = ascending(current, remaining - 1, creator)? else {
+                    break;
+                };
+                owner = Some(grandowner);
+            }
+            Ok(owner)
+        }
+        ascending(unit, self.fields.len(), &mut creator)
+    }
+    /// Bind the live F5.01 control operands, not a caller-selected AI identity.
+    pub fn bind_ai_selection(
+        &mut self,
+        objects: &SourceObjects,
+        selected: &SelectedCreatureAi,
+    ) -> Result<()> {
+        selected.validate(objects)?;
+        let input = selected.inputs();
+        let f = self.get_mut(objects, selected.object())?;
+        require(
+            f.entry == input.effective_entry,
+            "execution.unit_ai.effective_entry",
+        )?;
+        f.neutral_to_all = Some(input.neutral_to_all);
+        f.pet_kind = input.control.pet;
+        f.totem = input.control.totem;
+        f.set_flag(
+            objects,
+            selected.object(),
+            8,
+            input.control.player_controlled,
+        )
+    }
+    /// Unit.cpp:8605-8633, including player-controlled guardian and charm exceptions.
+    pub fn can_have_threat_list(
+        &self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+    ) -> Result<bool> {
+        let object = objects.get(unit)?;
+        if !object.alive {
+            return Ok(false);
+        }
+        let f = self.get(objects, unit)?;
+        let controlled = f.flags & 8 != 0;
+        if object.kind == SourceObjectKind::Player {
+            return Ok(!controlled);
+        }
+        if f.totem && controlled {
+            return Ok(false);
+        }
+        if object.kind == SourceObjectKind::Pet && controlled {
+            return Ok(f.pet_kind == Some(CreaturePetKind::Guardian));
+        }
+        // Unit.cpp:8630 reads the GUID's high type without resolving it.
+        if f.control_guids.charmer.is_player() {
+            return Ok(false);
+        }
+        Ok(true)
+    }
+    pub fn discard_construction(&mut self, unit: ObjectHandle) {
+        self.fields.remove(&unit);
+    }
+    pub fn register(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        fields: SourceUnitFields,
+    ) -> Result<()> {
+        require(
+            matches!(
+                objects.get(unit)?.kind,
+                SourceObjectKind::Creature | SourceObjectKind::Pet | SourceObjectKind::Player
+            ),
+            "execution.unit.not_unit",
+        )?;
+        require(
+            !self.fields.contains_key(&unit),
+            "execution.unit.duplicate_generation",
+        )?;
+        self.fields.insert(
+            unit,
+            SourceLiveUnit {
+                fields,
+                followers: SourceFollowers::default(),
+            },
+        );
+        Ok(())
+    }
+    pub fn get(&self, objects: &SourceObjects, unit: ObjectHandle) -> Result<&SourceUnitFields> {
+        Ok(&self.live(objects, unit)?.fields)
+    }
+    fn live(&self, objects: &SourceObjects, unit: ObjectHandle) -> Result<&SourceLiveUnit> {
+        objects.get(unit)?;
+        self.fields
+            .get(&unit)
+            .ok_or_else(|| refuse("execution.unit.fields_generation_missing"))
+    }
+    pub fn get_mut(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+    ) -> Result<&mut SourceUnitFields> {
+        Ok(&mut self.live_mut(objects, unit)?.fields)
+    }
+    fn live_mut(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+    ) -> Result<&mut SourceLiveUnit> {
+        objects.get(unit)?;
+        self.fields
+            .get_mut(&unit)
+            .ok_or_else(|| refuse("execution.unit.fields_generation_missing"))
+    }
+    pub fn followers(
+        &self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+    ) -> Result<&SourceFollowers> {
+        Ok(&self.live(objects, unit)?.followers)
+    }
+    pub fn followers_mut(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+    ) -> Result<&mut SourceFollowers> {
+        Ok(&mut self.live_mut(objects, unit)?.followers)
+    }
+    pub fn event_unit(&self, objects: &SourceObjects, unit: ObjectHandle) -> Result<EventAiUnit> {
+        let f = self.get(objects, unit)?;
+        let v = f
+            .vitals
+            .ok_or_else(|| refuse("execution.unit.select_level_stats_owner"))?;
+        Ok(EventAiUnit {
+            kind: objects.get(unit)?.kind,
+            entry: f.entry,
+            combat: f.in_combat(),
+            evade: f.in_evade(),
+            health: v.health,
+            max_health: v.max_health,
+            mana: v.mana,
+            max_mana: v.max_mana,
+            has_mana: v.has_mana,
+            energy: v.energy,
+            max_energy: v.max_energy,
+            victim: f.victim,
+            beneficiary: f.beneficiary,
+            controlling_player: f.controlling_player,
+            spawner: f.spawner,
+            casting_non_melee: f.casting_non_melee,
+        })
+    }
+    /// Reuse the bounded SelectLevel port only after its complete inputs and recorded rates agree.
+    pub fn initialize_supported_creature(
+        &mut self,
+        objects: &SourceObjects,
+        state: &CreatureConstruction,
+        input: &benilla_sim::creature_init::Input,
+        config: &EventAiLoaderConfig,
+    ) -> Result<()> {
+        config.validate_creature_rates(&input.rates)?;
+        let value = resolve_supported_creature_kernel(input, state)?;
+        let fields = self.get_mut(objects, state.object)?;
+        require(
+            fields.entry == value.entry,
+            "execution.unit.initialized_entry",
+        )?;
+        fields.faction = value.faction;
+        fields.flags = value.unit_flags;
+        fields.apply_initialized(&value);
+        if let Some(movement) = &mut fields.movement {
+            let benilla_sim::creature_init::Rows::Complete(models) = &input.models else {
+                return Err(refuse("execution.movement.selected_model_rates_owner"));
+            };
+            let model = models
+                .iter()
+                .find(|row| row.id == value.model.display_id)
+                .ok_or_else(|| refuse("execution.movement.selected_model_rates_owner"))?;
+            movement.bind_model_rates(&input.template, model)?;
+        }
+        Ok(())
+    }
+    pub fn inventory(&self, objects: &SourceObjects) -> Result<serde_json::Value> {
+        for unit in self.fields.keys() {
+            objects.get(*unit)?;
+        }
+        Ok(
+            serde_json::json!({"version":1,"units":self.fields.iter().collect::<Vec<_>>(),
+            "splines":self.fields.iter().map(|(unit,live)| (unit,&live.fields.movespline)).collect::<Vec<_>>(),
+            "spell_power":self.fields.iter().map(|(unit,live)| (unit,&live.fields.power_fields,live.fields.power_cost_modifier,live.fields.power_cost_multiplier)).collect::<Vec<_>>(),
+            "spline_updates":self.fields.iter().map(|(unit,live)| (unit,live.fields.spline_position_expiry,live.fields.spline_debug_path,live.fields.spline_last_move_ms,&live.fields.spline_outbound)).collect::<Vec<_>>(),
+            "followers":self.fields.iter().map(|(unit,live)| (unit,live.followers.last_ordinal(),live.followers.ids())).collect::<Vec<_>>(),
+            "restore":"execution.unit.f7_restore_owner"}),
+        )
+    }
+}
+
+/// Foreign operations are mandatory at their actual call, including aura removal before home.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnitAiCall {
+    Immobilized(bool),
+    RemoveAurasOnEvade,
+    CombatStopWithPets,
+    TriggerHome,
+    TriggerEvade,
+    Chase {
+        target: ObjectHandle,
+        target_change: bool,
+        distance_bits: u32,
+        angle_bits: u32,
+        move_further: bool,
+        walk: bool,
+    },
+    Home,
+    AddInitialThreat(ObjectHandle),
+    PropagateCombat(ObjectHandle),
+    InterruptNonCombatCasts,
+    CreatureCombatStart(ObjectHandle),
+    MeleeStart(Option<ObjectHandle>),
+    MeleeStop(Option<ObjectHandle>),
+    EnterCombat(Option<ObjectHandle>),
+    InitialSpellCooldowns,
+    TeleportCast(ObjectHandle),
+    MinimapPing,
+    GuardPosition(u32),
+    ThreatCurrent(ObjectHandle),
+    OffhandTimer,
+    AiReaction,
+    ClearCombo,
+    InterruptNonMelee,
+    InterruptMelee,
+    PlayerAttackCancel,
+    RemoveUnattackableAuras,
+    CallForHelp {
+        radius_bits: u32,
+    },
+    SendAiEventAround {
+        event: SourceAiEventType,
+        invoker: ObjectHandle,
+        radius_bits: u32,
+    },
+    CheckForHelp {
+        target: ObjectHandle,
+        radius_bits: u32,
+    },
+    DetectOrAttack(ObjectHandle),
+    ZoneUnderAttack(ObjectHandle),
+}
+impl UnitAiCall {
+    pub fn missing_owner(self) -> Refusal {
+        refuse(match self {
+            Self::Home | Self::Chase { .. } => "execution.unit_ai.f5_05_motion_owner",
+            Self::RemoveAurasOnEvade => "execution.unit_ai.f5_12_evade_aura_owner",
+            Self::InitialSpellCooldowns | Self::TeleportCast(_) => {
+                "execution.unit_ai.f5_07_spell_owner"
+            }
+            Self::GuardPosition(_) => "execution.unit_ai.f6_geometry_owner",
+            Self::CombatStopWithPets => "execution.unit_ai.combat_stop_owner",
+            Self::ThreatCurrent(_) => "execution.unit_ai.threat_current_owner",
+            Self::OffhandTimer => "execution.unit_ai.offhand_timer_owner",
+            Self::ClearCombo => "execution.unit_ai.combo_owner",
+            Self::InterruptNonMelee | Self::InterruptMelee | Self::RemoveUnattackableAuras => {
+                "execution.unit_ai.f5_07_spell_owner"
+            }
+            Self::AiReaction | Self::PlayerAttackCancel => "execution.unit_ai.presentation_owner",
+            Self::CheckForHelp { .. } => "execution.unit_ai.f5_06_assistance_owner",
+            Self::CallForHelp { .. } | Self::SendAiEventAround { .. } => {
+                "execution.event_ai.f5_06_ai_event_visitor_owner"
+            }
+            Self::DetectOrAttack(_) => "execution.unit_ai.f6_detection_owner",
+            Self::ZoneUnderAttack(_) => "execution.unit_ai.presentation_owner",
+            Self::AddInitialThreat(_) => "execution.unit_ai.threat_context_binding_owner",
+            Self::PropagateCombat(_) => "execution.unit_ai.f5_15_controller_combat_owner",
+            Self::InterruptNonCombatCasts => "execution.unit_ai.f5_07_spell_owner",
+            Self::CreatureCombatStart(_) => "execution.unit_ai.combat_start_addon_callback_owner",
+            Self::TriggerHome | Self::TriggerEvade | Self::EnterCombat(_) => {
+                "execution.unit_ai.lifecycle_callback_owner"
+            }
+            Self::Immobilized(_) => "execution.unit_ai.f5_05_immobilized_owner",
+            Self::MeleeStart(_) | Self::MeleeStop(_) | Self::MinimapPing => {
+                "execution.unit_ai.presentation_owner"
+            }
+        })
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnitAiSightQuery {
+    TargetFlying,
+    WithinVerticalRange(u32),
+    Dungeon,
+    AssistPlayer,
+    AttackOnSight,
+    Accessible,
+}
+pub fn spell_list_combat_predicate(disabled: Option<bool>, nonempty: bool) -> Result<bool> {
+    // Deviation: CreatureSpellList.h:84-91 leaves Disabled unwritten; the owner permits UnitAI.cpp:106 because both branches are false when Spells is empty.
+    match disabled {
+        Some(disabled) => Ok(!disabled && nonempty),
+        None if !nonempty => Ok(false),
+        None => Err(refuse(
+            "execution.creature_spell_lists.UnitAI_106.unwritten_disabled",
+        )),
+    }
+}
+
+pub trait UnitAiExecutionOwner {
+    // Unit.cpp:6590,6619. Only queried for an out-of-world pet accessor and a player GUID.
+    fn pet_is_loading(&mut self, _unit: ObjectHandle) -> Result<bool> {
+        unbound_pet_loading(_unit)
+    }
+    fn spell_context(&mut self) -> Result<SpellStartContext<'_>> {
+        Err(refuse("execution.spells.live_SpellStart_context_owner"))
+    }
+    fn with_unit_spell_context<T>(
+        &mut self,
+        _units: &mut SourceUnits,
+        _ais: &mut SourceCreatureAis,
+        _objects: &SourceObjects,
+        run: impl FnOnce(&mut SpellStartContext<'_>) -> Result<T>,
+    ) -> Result<T>
+    where
+        Self: Sized,
+    {
+        run(&mut self.spell_context()?)
+    }
+    fn add_main_spell(
+        &mut self,
+        _unit: ObjectHandle,
+        spell: u32,
+        ai: &mut SourceUnitAi,
+        spells: &mut std::collections::BTreeSet<u32>,
+        _units: &SourceUnits,
+        _objects: &SourceObjects,
+    ) -> Result<()> {
+        if ai.main_spell_id == 0 {
+            ai.main_spell_id = spell;
+            return Err(EventAiCallback::CalculateMainSpell(spell).missing_owner());
+        }
+        spells.insert(spell);
+        Ok(())
+    }
+    fn call(
+        &mut self,
+        _unit: ObjectHandle,
+        call: UnitAiCall,
+        _units: &mut SourceUnits,
+        _objects: &SourceObjects,
+    ) -> Result<()> {
+        match call {
+            UnitAiCall::TeleportCast(target) => {
+                self.spell_context()?.cast(
+                    _unit,
+                    Some(target),
+                    21727,
+                    SpellTriggerFlags(1),
+                    false,
+                )?;
+                Ok(())
+            }
+            UnitAiCall::InterruptNonMelee => {
+                self.spell_context()?.owner.interrupt_for_ai(_unit, false)
+            }
+            UnitAiCall::InterruptMelee => self.spell_context()?.owner.interrupt_for_ai(_unit, true),
+            _ => Err(call.missing_owner()),
+        }
+    }
+    fn execute_action(
+        &mut self,
+        _ai: &mut SourceUnitAi,
+        _action: u32,
+        _units: &mut SourceUnits,
+        _objects: &SourceObjects,
+    ) -> Result<()> {
+        Err(refuse("execution.unit_ai.execute_action_override_owner"))
+    }
+    fn sight_query(
+        &mut self,
+        _unit: ObjectHandle,
+        _who: ObjectHandle,
+        query: UnitAiSightQuery,
+    ) -> Result<bool> {
+        Err(refuse(match query {
+            UnitAiSightQuery::TargetFlying => "execution.unit_ai.f5_05_flight_state_owner",
+            UnitAiSightQuery::AssistPlayer => "execution.unit_ai.f5_06_assistance_owner",
+            _ => "execution.unit_ai.f6_sight_owner",
+        }))
+    }
+    fn add_initial_threat(
+        &mut self,
+        unit: ObjectHandle,
+        target: ObjectHandle,
+        units: &mut SourceUnits,
+        objects: &SourceObjects,
+    ) -> Result<()> {
+        self.call(unit, UnitAiCall::AddInitialThreat(target), units, objects)
+    }
+    fn has_unattackable_aura(&mut self, _unit: ObjectHandle) -> Result<bool> {
+        Err(refuse("execution.unit_ai.f5_12_attack_aura_owner"))
+    }
+    fn area(&mut self, _unit: ObjectHandle) -> Result<u32> {
+        Err(refuse("execution.unit_ai.f6_area_owner"))
+    }
+    /// C rand is process-owned, not the thread MT stream. A reached unbound call refuses.
+    fn c_rand(&mut self) -> Result<u32> {
+        Err(refuse("execution.unit_ai.process_c_rng_owner"))
+    }
+    fn spell_list_has_spells(&mut self, unit: ObjectHandle) -> Result<bool> {
+        let list = self.creature_spell_list(unit)?;
+        spell_list_combat_predicate(Some(list.disabled), !list.spells.is_empty())
+    }
+    fn creature_spell_list(&mut self, _unit: ObjectHandle) -> Result<&CreatureSpellList> {
+        Err(refuse("execution.unit_ai.spell_list_owner"))
+    }
+    fn reachable(&mut self, _unit: ObjectHandle) -> Result<bool> {
+        Err(refuse("execution.unit_ai.f5_05_motion_owner"))
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SourceUnitAi {
+    pub unit: ObjectHandle,
+    pub attack_distance: f32,
+    pub attack_angle: f32,
+    pub move_further: bool,
+    pub chase_run: bool,
+    pub visibility_distance: f32,
+    pub combat_movement_started: bool,
+    pub dismount_on_aggro: bool,
+    pub melee_enabled: bool,
+    pub combat_only_root: bool,
+    /// Source enum is retained numerically, including EventAI's unchecked enum assignments.
+    pub react_state: u32,
+    pub combat_script: bool,
+    pub order: u32,
+    // Preserve the null field in format 91; the live identity has no restore owner.
+    #[serde(rename = "current_spell")]
+    saved_current_spell: (),
+    /// UnitAI.cpp:54,352,429,436. Key in this unit's live Spell store.
+    #[serde(skip)]
+    pub current_spell: Option<u64>,
+    pub teleport_unreachable: bool,
+    pub ranged_mode: bool,
+    pub ranged_setting: u32,
+    pub chase_distance: f32,
+    pub current_ranged_mode: bool,
+    #[serde(skip)]
+    pub main_spell_id: u32,
+    #[serde(skip)]
+    pub main_spell_cost: u32,
+    #[serde(skip)]
+    pub main_spell_info: Option<u32>,
+    #[serde(skip)]
+    pub main_spell_min_range: f32,
+    #[serde(skip)]
+    pub main_attack_mask: u32,
+    pub distancing_cooldown: bool,
+    pub spell_list_cooldown: bool,
+    action_ready: Vec<bool>,
+    pub generic_timers: [SourceAiTimer; 2],
+}
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct SourceAiTimer {
+    pub id: u32,
+    pub remaining: u32,
+    pub disabled: bool,
+}
+
+impl SourceAiTimer {
+    // TimerAI.cpp:22-24 draws even for equal bounds and disabled timers.
+    pub(crate) fn construct(
+        id: u32,
+        (min, max): (u32, u32),
+        disabled: bool,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<Self> {
+        Ok(Self {
+            id,
+            remaining: random.creature_urand(min, max)?,
+            disabled,
+        })
+    }
+
+    // TimerAI.cpp:45-49 restores initialDisabled after the draw.
+    pub(crate) fn reset_initial(
+        &mut self,
+        (min, max): (u32, u32),
+        disabled: bool,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<()> {
+        self.remaining = random.creature_urand(min, max)?;
+        self.disabled = disabled;
+        Ok(())
+    }
+}
+
+impl SourceUnitAi {
+    /// UnitAI.cpp:39-61, TimerAI.h:120 value-initializes ready bits to false.
+    pub fn construct(
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        actions: u32,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<Self> {
+        objects.get(unit)?;
+        Ok(Self {
+            unit,
+            attack_distance: 0.,
+            attack_angle: 0.,
+            move_further: false,
+            chase_run: true,
+            visibility_distance: 166.,
+            combat_movement_started: false,
+            dismount_on_aggro: true,
+            melee_enabled: true,
+            combat_only_root: false,
+            react_state: 2,
+            combat_script: false,
+            order: 0,
+            saved_current_spell: (),
+            current_spell: None,
+            teleport_unreachable: false,
+            ranged_mode: false,
+            ranged_setting: 0,
+            chase_distance: 0.,
+            current_ranged_mode: false,
+            main_spell_id: 0,
+            main_spell_cost: 0,
+            main_spell_info: None,
+            main_spell_min_range: 0.,
+            main_attack_mask: 0,
+            distancing_cooldown: false,
+            spell_list_cooldown: true,
+            action_ready: vec![false; actions as usize],
+            generic_timers: [
+                SourceAiTimer::construct(2000, (0, 0), true, random)?,
+                SourceAiTimer::construct(2001, (0, 0), true, random)?,
+            ],
+        })
+    }
+    pub fn action_count(&self) -> usize {
+        self.action_ready.len()
+    }
+    pub fn action_ready(&self, index: u32) -> Result<bool> {
+        self.action_ready
+            .get(index as usize)
+            .copied()
+            .ok_or_else(|| refuse("execution.unit_ai.action_index_undefined"))
+    }
+    pub fn set_action_ready(&mut self, index: u32, value: bool) -> Result<()> {
+        *self
+            .action_ready
+            .get_mut(index as usize)
+            .ok_or_else(|| refuse("execution.unit_ai.action_index_undefined"))? = value;
+        Ok(())
+    }
+    pub(crate) fn clear_action_ready(&mut self) {
+        self.action_ready.fill(false);
+    }
+
+    // CreatureAI.cpp:49-53, inherited by ScriptedAI.
+    pub(crate) fn reset_creature_ranged_mode(&mut self) {
+        self.current_ranged_mode = self.ranged_mode;
+        self.attack_distance = self.chase_distance;
+    }
+    pub fn can_execute(&self, objects: &SourceObjects, units: &SourceUnits) -> Result<bool> {
+        let f = units.get(objects, self.unit)?;
+        Ok(objects.get(self.unit)?.alive
+            && !f.crowd_controlled()
+            && !f.evade_home
+            && f.flags & 0x22000 != 0x22000
+            && f.state & 0x500 == 0
+            && !f.casting_non_melee
+            && !self.combat_script)
+    }
+    pub fn move_in_line_of_sight(
+        &mut self,
+        who: ObjectHandle,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        config: &EventAiLoaderConfig,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        if self.react_state < 1 {
+            return Ok(());
+        }
+        let f = units.get(objects, self.unit)?;
+        if !f.can_fly
+            && owner.sight_query(self.unit, who, UnitAiSightQuery::TargetFlying)?
+            && !owner.sight_query(
+                self.unit,
+                who,
+                UnitAiSightQuery::WithinVerticalRange(if self.current_ranged_mode {
+                    15f32.to_bits()
+                } else {
+                    3f32.to_bits()
+                }),
+            )?
+        {
+            return Ok(());
+        }
+        if f.victim.is_some() && !owner.sight_query(self.unit, who, UnitAiSightQuery::Dungeon)? {
+            return Ok(());
+        }
+        if f.neutral_to_all
+            .ok_or_else(|| refuse("execution.unit_ai.faction_template_owner"))?
+        {
+            return Ok(());
+        }
+        if objects
+            .get(who)?
+            .guid
+            .is_some_and(|guid| guid.high() == HighGuid::Creature as u16)
+            && units.get(objects, who)?.in_combat()
+        {
+            owner.call(
+                self.unit,
+                UnitAiCall::CheckForHelp {
+                    target: who,
+                    radius_bits: config.check_for_help_radius()?,
+                },
+                units,
+                objects,
+            )?;
+        }
+        if self.react_state != 2 {
+            return Ok(());
+        }
+        let f = units.get(objects, self.unit)?;
+        // Creature.cpp:2271-2282, not Unit's broader CAN_NOT_REACT mask.
+        let creature = matches!(
+            objects.get(self.unit)?.kind,
+            SourceObjectKind::Creature | SourceObjectKind::Pet
+        );
+        if f.state & if creature { 0xc } else { CANNOT_REACT } != 0
+            || (!creature || !f.force_attacking) && f.flags & 0x0200_0002 != 0
+            || creature
+                && !f
+                    .can_aggro
+                    .ok_or_else(|| refuse("execution.unit_ai.f4_can_aggro_owner"))?
+        {
+            return Ok(());
+        }
+        if owner.sight_query(self.unit, who, UnitAiSightQuery::AssistPlayer)? {
+            return Ok(());
+        }
+        if !owner.sight_query(self.unit, who, UnitAiSightQuery::AttackOnSight)? {
+            return Ok(());
+        }
+        if !owner.sight_query(self.unit, who, UnitAiSightQuery::Accessible)? {
+            return Ok(());
+        }
+        owner.call(self.unit, UnitAiCall::DetectOrAttack(who), units, objects)
+    }
+    pub fn enter_combat(
+        &mut self,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        if owner.spell_list_has_spells(self.unit)? {
+            self.spell_list_cooldown = false;
+            owner.call(self.unit, UnitAiCall::InitialSpellCooldowns, units, objects)?;
+        }
+        Ok(())
+    }
+    pub fn just_died(
+        &mut self,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        self.clear_combat_root(objects, units, owner)
+    }
+    pub fn execute_actions(
+        &mut self,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        if !self.can_execute(objects, units)? {
+            return Ok(());
+        }
+        let count = self.action_ready.len();
+        for i in 0..count {
+            if self.combat_script {
+                return Ok(());
+            }
+            if self.action_ready[i] {
+                owner.execute_action(self, i as u32, units, objects)?;
+            }
+        }
+        if self.teleport_unreachable {
+            let f = units.get(objects, self.unit)?;
+            if let Some(victim) = f.victim {
+                if f.state & UNIT_STATE_NO_COMBAT_MOVEMENT == 0 && !owner.reachable(self.unit)? {
+                    owner.call(self.unit, UnitAiCall::TeleportCast(victim), units, objects)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    pub fn set_immobilized(
+        &mut self,
+        apply: bool,
+        combat_only: bool,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        if combat_only {
+            self.combat_only_root = apply;
+        }
+        let f = units.get_mut(objects, self.unit)?;
+        if apply {
+            f.state |= UNIT_STATE_AI_ROOT;
+        } else {
+            f.state &= !UNIT_STATE_AI_ROOT;
+        }
+        owner.call(self.unit, UnitAiCall::Immobilized(apply), units, objects)
+    }
+    pub fn clear_combat_root(
+        &mut self,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        if self.combat_only_root {
+            units.get_mut(objects, self.unit)?.state &= !UNIT_STATE_AI_ROOT;
+            owner.call(self.unit, UnitAiCall::Immobilized(false), units, objects)?;
+            self.combat_only_root = false;
+        }
+        Ok(())
+    }
+    pub fn enter_evade(
+        &mut self,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        self.clear_combat_root(objects, units, owner)?;
+        owner.call(self.unit, UnitAiCall::RemoveAurasOnEvade, units, objects)?;
+        owner.call(self.unit, UnitAiCall::CombatStopWithPets, units, objects)?;
+        if self.react_state != 0 && objects.get(self.unit)?.alive {
+            let call = if units.get(objects, self.unit)?.immobilized() {
+                UnitAiCall::TriggerHome
+            } else {
+                UnitAiCall::Home
+            };
+            owner.call(self.unit, call, units, objects)?;
+        }
+        owner.call(self.unit, UnitAiCall::TriggerEvade, units, objects)
+    }
+    pub fn attacked_by(
+        &mut self,
+        attacker: Option<ObjectHandle>,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        let f = units.get(objects, self.unit)?;
+        if !f.in_combat() && f.victim.is_none() {
+            self.attack_start(attacker, objects, units, owner)?;
+        }
+        Ok(())
+    }
+    pub fn attack_start(
+        &mut self,
+        target: Option<ObjectHandle>,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        let Some(target) = target else {
+            return Ok(());
+        };
+        if self.react_state == 0 {
+            return Ok(());
+        }
+        let previous = units.get(objects, self.unit)?.victim;
+        if !self.attack_unit(target, objects, units, owner)? {
+            return Ok(());
+        }
+        self.engage_in_combat(target, objects, units, owner)?;
+        self.movement_on_attack(
+            target,
+            previous.is_some_and(|v| v != target),
+            objects,
+            units,
+            owner,
+        )
+    }
+    /// Unit.cpp:6259-6336. This operation does not test faction or player-only hostility.
+    pub fn attack_unit(
+        &self,
+        target: ObjectHandle,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<bool> {
+        let unit = self.unit;
+        if unit == target {
+            return Ok(false);
+        }
+        let victim = objects.get(target)?;
+        if !objects.get(unit)?.alive || !victim.in_world || !victim.alive {
+            return Ok(false);
+        }
+        let source = units.get(objects, unit)?;
+        if objects.get(unit)?.kind == SourceObjectKind::Player && source.is_mounted() {
+            return Ok(false);
+        }
+        let target_fields = units.get(objects, target)?;
+        if if victim.kind == SourceObjectKind::Player {
+            target_fields.gm
+        } else {
+            target_fields.in_evade()
+        } {
+            return Ok(false);
+        }
+        if owner.has_unattackable_aura(unit)? {
+            owner.call(unit, UnitAiCall::RemoveUnattackableAuras, units, objects)?;
+        }
+        if let Some(previous) = units.get(objects, unit)?.victim {
+            if previous == target {
+                let mut attacked = false;
+                if self.can_execute(objects, units)? {
+                    let f = units.get_mut(objects, unit)?;
+                    attacked = f.target.is_none();
+                    objects.set_unit_target(unit, &mut f.target, Some(target))?;
+                }
+                if self.melee_enabled {
+                    self.melee_start(Some(target), objects, units, owner)?;
+                    return Ok(true);
+                }
+                return Ok(attacked);
+            }
+            self.attack_stop(true, false, false, false, objects, units, owner)?;
+        }
+        if self.can_execute(objects, units)? {
+            let f = units.get_mut(objects, unit)?;
+            objects.set_unit_target(unit, &mut f.target, Some(target))?;
+        }
+        let target_fields = units.get_mut(objects, target)?;
+        if target_fields.attackers.contains(&unit) {
+            return Ok(false);
+        }
+        target_fields.attackers.push(unit);
+        units.get_mut(objects, unit)?.victim = Some(target);
+        if units.can_have_threat_list(objects, unit)? {
+            owner.call(unit, UnitAiCall::ThreatCurrent(target), units, objects)?;
+        }
+        if units.get(objects, unit)?.offhand {
+            owner.call(unit, UnitAiCall::OffhandTimer, units, objects)?;
+        }
+        if self.melee_enabled {
+            self.melee_start(Some(target), objects, units, owner)?;
+        }
+        owner.call(unit, UnitAiCall::AiReaction, units, objects)?;
+        Ok(true)
+    }
+    pub fn melee_start(
+        &self,
+        target: Option<ObjectHandle>,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        let f = units.get_mut(objects, self.unit)?;
+        if f.state & UNIT_STATE_MELEE == 0 {
+            f.state |= UNIT_STATE_MELEE;
+            if target.is_some() {
+                owner.call(self.unit, UnitAiCall::MeleeStart(target), units, objects)?;
+            }
+        }
+        Ok(())
+    }
+    pub fn melee_stop(
+        &self,
+        target: Option<ObjectHandle>,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        RegistryAttackStop {
+            unit: self.unit,
+            objects,
+            units,
+            calls: AiAttackStopCalls(owner),
+        }
+        .melee_stop(target)
+    }
+    /// Unit.cpp:6339-6362. Target switching clears target before melee stop.
+    #[allow(clippy::too_many_arguments)]
+    pub fn attack_stop(
+        &self,
+        target_switch: bool,
+        including_cast: bool,
+        including_combo: bool,
+        client_initiated: bool,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<bool> {
+        RegistryAttackStop {
+            unit: self.unit,
+            objects,
+            units,
+            calls: AiAttackStopCalls(owner),
+        }
+        .attack_stop(
+            target_switch,
+            including_cast,
+            including_combo,
+            client_initiated,
+        )
+    }
+    pub fn movement_on_attack(
+        &self,
+        target: ObjectHandle,
+        target_change: bool,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        let f = units.get_mut(objects, self.unit)?;
+        if f.state & CANNOT_REACT != 0 {
+            return Ok(());
+        }
+        // UnitAI.cpp:340-341 calls Unmount before testing the propelled state.
+        if self.dismount_on_aggro {
+            f.unmount(objects, self.unit, None)?;
+        }
+        if f.state & 0x100 == 0 {
+            owner.call(
+                self.unit,
+                UnitAiCall::Chase {
+                    target,
+                    target_change,
+                    distance_bits: self.attack_distance.to_bits(),
+                    angle_bits: self.attack_angle.to_bits(),
+                    move_further: self.move_further,
+                    walk: false,
+                },
+                units,
+                objects,
+            )?;
+        }
+        Ok(())
+    }
+    pub fn set_melee(
+        &mut self,
+        enabled: bool,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        if enabled == self.melee_enabled {
+            return Ok(());
+        }
+        self.melee_enabled = enabled;
+        let f = units.get(objects, self.unit)?;
+        if f.in_combat() {
+            if enabled && f.state & UNIT_STATE_MELEE == 0 {
+                if f.victim.is_some() {
+                    self.melee_start(f.victim, objects, units, owner)?;
+                }
+            } else if f.state & UNIT_STATE_MELEE != 0 {
+                self.melee_stop(f.victim, objects, units, owner)?;
+            }
+        }
+        Ok(())
+    }
+    pub fn set_current_ranged(
+        &mut self,
+        enabled: bool,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        if !enabled && self.ranged_setting == 3 {
+            return Ok(());
+        }
+        self.current_ranged_mode = enabled;
+        self.attack_distance = if enabled { self.chase_distance } else { 0. };
+        let f = units.get_mut(objects, self.unit)?;
+        f.ignore_ranged_targets = !enabled && f.state & 0x18 != 0;
+        if let Some(target) = f.victim {
+            owner.call(
+                self.unit,
+                UnitAiCall::Chase {
+                    target,
+                    target_change: false,
+                    distance_bits: self.attack_distance.to_bits(),
+                    angle_bits: self.attack_angle.to_bits(),
+                    move_further: self.move_further,
+                    walk: !self.chase_run,
+                },
+                units,
+                objects,
+            )?;
+        }
+        if !enabled
+            && self.melee_enabled
+            && units.get(objects, self.unit)?.state & UNIT_STATE_MELEE == 0
+        {
+            self.melee_start(units.get(objects, self.unit)?.victim, objects, units, owner)?;
+        }
+        Ok(())
+    }
+}
+
+pub(crate) trait AttackStopCalls {
+    fn casting_non_melee(&self, live: &SourceUnitFields) -> Result<bool>;
+    fn call(
+        &mut self,
+        unit: ObjectHandle,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        call: UnitAiCall,
+    ) -> Result<()>;
+}
+
+pub(crate) struct RegistryAttackStop<'a, O> {
+    unit: ObjectHandle,
+    objects: &'a SourceObjects,
+    units: &'a mut SourceUnits,
+    calls: O,
+}
+
+impl<O: AttackStopCalls> RegistryAttackStop<'_, O> {
+    fn call(&mut self, call: UnitAiCall) -> Result<()> {
+        self.calls.call(self.unit, self.objects, self.units, call)
+    }
+
+    // Unit.cpp:6398-6407. Clear the melee state before checking the slot.
+    fn melee_stop(&mut self, victim: Option<ObjectHandle>) -> Result<()> {
+        let live = self.units.get_mut(self.objects, self.unit)?;
+        if live.state & UNIT_STATE_MELEE != 0 {
+            live.state &= !UNIT_STATE_MELEE;
+            self.call(UnitAiCall::InterruptMelee)?;
+            if victim.is_some() {
+                self.call(UnitAiCall::MeleeStop(victim))?;
+            }
+        }
+        Ok(())
+    }
+
+    // Unit.cpp:6339-6363. Keep callback and field writes in source order.
+    pub(crate) fn attack_stop(
+        &mut self,
+        target_switch: bool,
+        including_cast: bool,
+        including_combo: bool,
+        client_initiated: bool,
+    ) -> Result<bool> {
+        if including_combo {
+            self.call(UnitAiCall::ClearCombo)?;
+        }
+        if including_cast
+            && self
+                .calls
+                .casting_non_melee(self.units.get(self.objects, self.unit)?)?
+        {
+            self.call(UnitAiCall::InterruptNonMelee)?;
+        }
+        let player = (target_switch || !client_initiated)
+            && self.objects.get(self.unit)?.kind == SourceObjectKind::Player;
+        if target_switch && !player {
+            let live = self.units.get_mut(self.objects, self.unit)?;
+            self.objects
+                .set_unit_target(self.unit, &mut live.target, None)?;
+        }
+        if !client_initiated && player {
+            self.call(UnitAiCall::PlayerAttackCancel)?;
+        }
+        self.melee_stop(self.units.get(self.objects, self.unit)?.victim)?;
+        if let Some(victim) = self.units.get(self.objects, self.unit)?.victim {
+            // Unit.cpp:6358-6359. Unlink the victim before clearing the caster.
+            self.units
+                .get_mut(self.objects, victim)
+                .map_err(|_| refuse("execution.unit_ai.Unit_6358.attacked_unit_owner"))?
+                .attackers
+                .retain(|attacker| *attacker != self.unit);
+            self.units.get_mut(self.objects, self.unit)?.victim = None;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+}
+
+struct AiAttackStopCalls<'a, O>(&'a mut O);
+
+impl<O: UnitAiExecutionOwner> AttackStopCalls for AiAttackStopCalls<'_, O> {
+    fn casting_non_melee(&self, live: &SourceUnitFields) -> Result<bool> {
+        Ok(live.casting_non_melee)
+    }
+
+    fn call(
+        &mut self,
+        unit: ObjectHandle,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        call: UnitAiCall,
+    ) -> Result<()> {
+        if call == UnitAiCall::InterruptMelee && !units.get(objects, unit)?.melee_spell {
+            return Ok(());
+        }
+        self.0.call(unit, call, units, objects)
+    }
+}
+
+pub(crate) struct CastAttackStopCalls<'a>(&'a SourceSpellStores);
+
+pub(crate) type CastAttackStop<'a> = RegistryAttackStop<'a, CastAttackStopCalls<'a>>;
+
+impl<'a> CastAttackStop<'a> {
+    pub(crate) fn new(
+        unit: ObjectHandle,
+        objects: &'a SourceObjects,
+        units: &'a mut SourceUnits,
+        stores: &'a SourceSpellStores,
+    ) -> Self {
+        Self {
+            unit,
+            objects,
+            units,
+            calls: CastAttackStopCalls(stores),
+        }
+    }
+
+    pub(crate) fn object(&self) -> Result<&'a SourceObject> {
+        self.objects.get(self.unit)
+    }
+
+    // Spell.cpp:3796 calls InterruptSpell with Unit.h:1958's withDelayed=true.
+    pub(crate) fn interrupt_autorepeat(&self) -> Result<()> {
+        let live = self.units.get(self.objects, self.unit)?;
+        if live.spell_slots.current(SpellSlot::AutoRepeat).is_none() {
+            return Ok(());
+        }
+        require(
+            self.object()?.kind != SourceObjectKind::Player,
+            "execution.spells.Unit_4310.SendAutoRepeatCancel_owner",
+        )?;
+        Err(refuse(
+            "execution.spells.Spell_3796.InterruptSpell_autorepeat_owner",
+        ))
+    }
+
+    pub(crate) fn is_client_controlled(&self) -> Result<bool> {
+        let live = self.units.get(self.objects, self.unit)?;
+        Ok(live
+            .control_guids
+            .is_client_controlled(live.flags, self.object()?, None))
+    }
+}
+
+impl AttackStopCalls for CastAttackStopCalls<'_> {
+    fn casting_non_melee(&self, live: &SourceUnitFields) -> Result<bool> {
+        live.spell_slots.is_non_melee_spell_casted(
+            &live.spell_starts,
+            self.0,
+            false,
+            false,
+            false,
+            false,
+            false,
+        )
+    }
+
+    fn call(
+        &mut self,
+        unit: ObjectHandle,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        call: UnitAiCall,
+    ) -> Result<()> {
+        Err(refuse(match call {
+            UnitAiCall::ClearCombo => "execution.spells.Unit_6342.ClearComboPoints_owner",
+            UnitAiCall::InterruptNonMelee => {
+                "execution.spells.Unit_6346.InterruptNonMeleeSpells_owner"
+            }
+            UnitAiCall::PlayerAttackCancel => {
+                "execution.spells.Unit_6353.SendAttackSwingCancelAttack_owner"
+            }
+            UnitAiCall::MeleeStop(_) => "execution.spells.Unit_6405.SendMeleeAttackStop_owner",
+            UnitAiCall::InterruptMelee => {
+                if units
+                    .get(objects, unit)?
+                    .spell_slots
+                    .current(SpellSlot::Melee)
+                    .is_none()
+                {
+                    return Ok(());
+                }
+                "execution.spells.Unit_4304.InterruptSpell_live_cancel_owner"
+            }
+            _ => return Err(call.missing_owner()),
+        }))
+    }
+}
+
+impl SourceUnitAi {
+    /// UnitAI.cpp:974-989 keeps current ranged mode true in the OOC branch, even when disabling.
+    pub fn set_ranged_mode(
+        &mut self,
+        enabled: bool,
+        distance: f32,
+        kind: u32,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        if self.ranged_mode == enabled {
+            return Ok(());
+        }
+        self.ranged_mode = enabled;
+        self.chase_distance = distance;
+        self.ranged_setting = kind;
+        if units.get(objects, self.unit)?.in_combat() {
+            self.set_current_ranged(enabled, objects, units, owner)?;
+        } else {
+            self.current_ranged_mode = true;
+            self.attack_distance = self.chase_distance;
+        }
+        Ok(())
+    }
+    pub fn spell_cooldown_added(
+        &mut self,
+        spell: u32,
+        main_spells: &std::collections::BTreeSet<u32>,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        if self.ranged_setting == 1 && main_spells.contains(&spell) {
+            self.set_current_ranged(true, objects, units, owner)?;
+        }
+        Ok(())
+    }
+}
+
+impl SourceUnitAi {
+    /// ReactStates has the non-fixed enum range 0..=3, UnitAI.h:81-86.
+    pub fn set_react_state(&mut self, value: u32) -> Result<()> {
+        require(
+            value <= 3,
+            "execution.unit_ai.react_enum_conversion_undefined",
+        )?;
+        self.react_state = value;
+        Ok(())
+    }
+}
+
+impl SourceUnitAi {
+    /// Unit.cpp:8017-8023. Threat precedes both combat entries and the target timer.
+    pub fn engage_in_combat(
+        &self,
+        target: ObjectHandle,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        owner.add_initial_threat(self.unit, target, units, objects)?;
+        units.set_in_combat_with(self.unit, target, objects, owner)?;
+        units.set_in_combat_with(target, self.unit, objects, owner)?;
+        units.trigger_target_combat_timer(self.unit, target, objects)
+    }
+}
+
+impl SourceUnits {
+    /// CombatManager.cpp:190-194, Creature.h:837 and Unit.h:1631.
+    fn trigger_combat_timer(
+        &mut self,
+        unit: ObjectHandle,
+        pvp: bool,
+        objects: &SourceObjects,
+    ) -> Result<()> {
+        let f = self.get_mut(objects, unit)?;
+        f.combat_timer = if pvp {
+            5000
+        } else if objects.get(unit)?.kind == SourceObjectKind::Player {
+            15000
+        } else {
+            f.pursuit_ms
+        };
+        f.last_refresh_position = Some(objects.pose(unit)?.0);
+        Ok(())
+    }
+    pub fn trigger_target_combat_timer(
+        &mut self,
+        source: ObjectHandle,
+        target: ObjectHandle,
+        objects: &SourceObjects,
+    ) -> Result<()> {
+        if self.can_have_threat_list(objects, target)? {
+            let pvp = self.get(objects, source)?.flags & 8 != 0
+                && self.get(objects, target)?.flags & 8 != 0;
+            self.trigger_combat_timer(target, pvp, objects)?;
+        }
+        Ok(())
+    }
+    /// Unit.cpp:7909-7971. Foreign addon/AI/instance/assistance callbacks start at :7972.
+    pub fn set_in_combat_with(
+        &mut self,
+        unit: ObjectHandle,
+        enemy: ObjectHandle,
+        objects: &SourceObjects,
+        owner: &mut impl UnitAiExecutionOwner,
+    ) -> Result<()> {
+        if !objects.get(unit)?.alive {
+            return Ok(());
+        }
+        let first = !self.get(objects, unit)?.in_combat();
+        let creature_first = objects.get(unit)?.kind != SourceObjectKind::Player && first;
+        let pvp =
+            self.get(objects, unit)?.flags & 8 != 0 && self.get(objects, enemy)?.flags & 8 != 0;
+        if pvp || creature_first {
+            self.trigger_combat_timer(unit, pvp, objects)?;
+        }
+        let f = self.get_mut(objects, unit)?;
+        f.set_flag(objects, unit, UNIT_FLAG_COMBAT, true)?;
+        // Unit.cpp:7924 and Unit.h:1845 use distinct charmer and creator predicates.
+        if f.control_guids.has_charmer() || f.control_guids.creator.raw() != 0 {
+            f.set_flag(objects, unit, 0x800, true)?;
+            if first || pvp {
+                owner.call(unit, UnitAiCall::PropagateCombat(enemy), self, objects)?;
+            }
+        }
+        if self.get(objects, unit)?.casting_non_melee {
+            owner.call(unit, UnitAiCall::InterruptNonCombatCasts, self, objects)?;
+        }
+        if first {
+            self.get_mut(objects, unit)?.combat_tick = 1200;
+        }
+        if creature_first {
+            self.get_mut(objects, unit)?.damage_by_others = 0;
+            owner.call(unit, UnitAiCall::CreatureCombatStart(enemy), self, objects)?;
+        }
+        Ok(())
+    }
+}

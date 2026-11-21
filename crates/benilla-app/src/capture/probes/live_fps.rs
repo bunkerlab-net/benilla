@@ -169,7 +169,11 @@ fn drive_live_fps(
     // Skin-palette occupancy (`rigs=live/peak`); an empty table renders origin-collapsed rigs.
     palettes: Option<Res<benilla_world::rig_palette::RigPalettes>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut key_events: MessageWriter<bevy::input::keyboard::KeyboardInput>,
+    // The typed message and its window event, as winit hands a key over.
+    mut key_events: (
+        MessageWriter<bevy::input::keyboard::KeyboardInput>,
+        MessageWriter<bevy::window::WindowEvent>,
+    ),
     mut exit: MessageWriter<AppExit>,
     mut occlusions: MessageReader<bevy::window::WindowOccluded>,
     // Includes the `WOW_GPU_MS=1` meter, the render app's whole-frame GPU clock.
@@ -228,10 +232,10 @@ fn drive_live_fps(
                 if probe.run { ", holding W" } else { "" }
             );
             if probe.run {
-                // Held until released: winit only releases keys it saw go down. The raw message
-                // gives the binding dispatch its press edge (MOVEFORWARD latches off the event).
+                // Held until released: winit only releases keys it saw go down. The window event
+                // gives the binding dispatch its press record (MOVEFORWARD latches off it).
                 keys.press(KeyCode::KeyW);
-                key_events.write(bevy::input::keyboard::KeyboardInput {
+                let ev = bevy::input::keyboard::KeyboardInput {
                     key_code: KeyCode::KeyW,
                     logical_key: bevy::input::keyboard::Key::Unidentified(
                         bevy::input::keyboard::NativeKey::Unidentified,
@@ -240,7 +244,11 @@ fn drive_live_fps(
                     text: None,
                     repeat: false,
                     window: Entity::PLACEHOLDER,
-                });
+                };
+                key_events.0.write(ev.clone());
+                key_events
+                    .1
+                    .write(bevy::window::WindowEvent::KeyboardInput(ev));
             }
             probe.phase = LiveFpsPhase::Warmup(0);
         }
@@ -463,22 +471,24 @@ fn drive_live_fps(
                                 .collect();
                             // Page faults per frame: `sys` time without syscalls is the kernel
                             // zero-filling pages.
-                            let faults =
-                                match (probe.faults_at_start, crate::perf::process_faults()) {
-                                    (Some((mi0, ma0)), Some((mi1, ma1))) => format!(
-                                        " faults={:.0}/{:.1} noisy=[cam:{},dbg:{},view:{},win:{},claim:{},portals:{},flips:{}]",
-                                        (mi1 - mi0) as f64 / v_len as f64,
-                                        (ma1 - ma0) as f64 / v_len as f64,
-                                        noisy[0],
-                                        noisy[1],
-                                        noisy[2],
-                                        noisy[3],
-                                        noisy[4],
-                                        noisy[5],
-                                        noisy[6],
-                                    ),
-                                    _ => String::new(),
-                                };
+                            let faults = match (
+                                probe.faults_at_start,
+                                crate::perf::process_faults(),
+                            ) {
+                                (Some((mi0, ma0)), Some((mi1, ma1))) => format!(
+                                    " faults={:.0}/{:.1} noisy=[cam:{},dbg:{},view:{},win:{},claim:{},portals:{},flips:{}]",
+                                    (mi1 - mi0) as f64 / v_len as f64,
+                                    (ma1 - ma0) as f64 / v_len as f64,
+                                    noisy[0],
+                                    noisy[1],
+                                    noisy[2],
+                                    noisy[3],
+                                    noisy[4],
+                                    noisy[5],
+                                    noisy[6],
+                                ),
+                                _ => String::new(),
+                            };
                             format!(" thr=[{list}]{inside}{faults}")
                         }
                         _ => String::new(),

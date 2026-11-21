@@ -1,0 +1,29 @@
+{
+  "image": "sha256:5397aff8205e0d96686d9a74bd0c9542830d170c167c8d242a3c13e9f269e9a8",
+  "command": [
+    "g++",
+    "-std=c++17",
+    "-O3",
+    "-DNDEBUG",
+    "-ffp-contract=off",
+    "-fno-fast-math",
+    "-fno-omit-frame-pointer",
+    "-g",
+    "/evidence/oracle.cpp",
+    "-o",
+    "/evidence/oracle"
+  ],
+  "source_sha256": {
+    "Object.cpp": "410904520fe2847a855c396d9fe442065268fd4ff5bb510633c3aadb5c54665b",
+    "MapManager.h": "bb5ff0741f5c78a295a96d708a0875da5881547386aea63ecfda9d30f66f05ad",
+    "Common.h": "5d07c692b1a729cf8e4045812c5633e096c8d47c81b2530c641b2ee4c0aefc32",
+    "e_atan2f.c": "75fa11d1fb67e1a2c11af4e1aca80bc29e1db55d8e3e8dfa6ae5caa3af141f69",
+    "s_atanf.c": "cc8a6b8845df93191e1ec3c4c95e8fc58daae14b52bfe795c2c81b0989ee4646"
+  },
+  "harness_sha256": "dcf116ccd57d9456ba41b54cecb029292cb7047ecd45838aadf08086ff149101",
+  "scope": "Authored source component vectors, not sealed F1 acceptance",
+  "outputs": {
+    "oracle.tsv": "9a56ce9f591a1c0bd9aa5bb155a60e7d261b42ad206a84b023c9ce018ba895f3",
+    "sample-digests.tsv": "15bbaaa0101be281cdae5485a78744f8441bf43c512ddb899d588392fcc8b518"
+  }
+}

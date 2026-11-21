@@ -1,0 +1,10 @@
+{
+  "format": "benilla-catalog-preparation-parity-cases-v1",
+  "original": [[true], [false]],
+  "cases": [
+    {"name": "false_negative", "records": [[false], [false]], "diagnostic": "preparation.record_mismatch"},
+    {"name": "missing_occurrence", "records": [[true]], "diagnostic": "preparation.record_mismatch"},
+    {"name": "surplus_occurrence", "records": [[true], [false], [true]], "diagnostic": "preparation.record_mismatch"},
+    {"name": "out_of_order", "records": [[false], [true]], "diagnostic": "preparation.record_mismatch"}
+  ]
+}

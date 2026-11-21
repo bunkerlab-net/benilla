@@ -1,0 +1,331 @@
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+const char* szRawVMAPMagic = "VMAPs05";
+Model::Model(std::string& filename) : vertices(nullptr), indices(nullptr), filename(filename)
+{
+}
+bool Model::open(StringSet& failedPaths)
+{
+    MPQFile f(filename.c_str());
+
+    ok = !f.isEof();
+
+    if (!ok)
+    {
+        f.close();
+        failedPaths.insert(filename);
+        return false;
+    }
+
+    _unload();
+
+    memcpy(&header, f.getBuffer(), sizeof(ModelHeader));
+    if (header.nBoundingTriangles > 0)
+    {
+        boundingVertices = (ModelBoundingVertex*)(f.getBuffer() + header.ofsBoundingVertices);
+        vertices = new Vec3D[header.nBoundingVertices];
+
+        for (size_t i = 0; i < header.nBoundingVertices; i++)
+        {
+            vertices[i] = fixCoordSystem(boundingVertices[i].pos);
+        }
+
+        uint16* triangles = (uint16*)(f.getBuffer() + header.ofsBoundingTriangles);
+
+        nIndices = header.nBoundingTriangles; // refers to the number of int16's, not the number of triangles
+        indices = new uint16[nIndices];
+        memcpy(indices, triangles, nIndices * 2);
+
+        f.close();
+    }
+    else
+    {
+        //printf("not included %s\n", filename.c_str());
+        f.close();
+        return false;
+    }
+    return true;
+}
+bool Model::ConvertToVMAPModel(const char* outfilename)
+{
+    int N[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    FILE* output = fopen(outfilename, "wb");
+    if (!output)
+    {
+        printf("Can't create the output file '%s'\n", outfilename);
+        return false;
+    }
+    fwrite(szRawVMAPMagic, 8, 1, output);
+
+    uint32 nVertices = header.nBoundingVertices;
+    fwrite(&nVertices, sizeof(int), 1, output);
+    uint32 nofgroups = 1;
+    fwrite(&nofgroups, sizeof(uint32), 1, output);
+    fwrite(N, 4 * 3, 1, output); // rootwmoid, flags, groupid
+    fwrite(N, sizeof(float), 3 * 2, output); //bbox, only needed for WMO currently
+    fwrite(N, 4, 1, output); // liquidflags
+    fwrite("GRP ", 4, 1, output);
+    uint32 branches = 1;
+    int wsize;
+    wsize = sizeof(branches) + sizeof(uint32) * branches;
+    fwrite(&wsize, sizeof(int), 1, output);
+    fwrite(&branches, sizeof(branches), 1, output);
+
+    uint32 nIndexes = header.nBoundingTriangles;
+    fwrite(&nIndexes, sizeof(uint32), 1, output);
+    fwrite("INDX", 4, 1, output);
+    wsize = sizeof(uint32) + sizeof(unsigned short) * nIndexes;
+    fwrite(&wsize, sizeof(int), 1, output);
+    fwrite(&nIndexes, sizeof(uint32), 1, output);
+    if (nIndexes > 0)
+    {
+        for (uint32 i = 0; i < nIndices; ++i)
+        {
+            // index[0] -> x, index[1] -> y, index[2] -> z, index[3] -> x ...
+            if ((i % 3) - 1 == 0)
+            {
+                uint16 tmp = indices[i];
+                indices[i] = indices[i + 1];
+                indices[i + 1] = tmp;
+            }
+        }
+        fwrite(indices, sizeof(unsigned short), nIndexes, output);
+    }
+    fwrite("VERT", 4, 1, output);
+    wsize = sizeof(int) + sizeof(float) * 3 * nVertices;
+    fwrite(&wsize, sizeof(int), 1, output);
+    fwrite(&nVertices, sizeof(int), 1, output);
+    if (nVertices > 0)
+    {
+        for (uint32 vpos = 0; vpos < nVertices; ++vpos)
+        {
+            float tmp = vertices[vpos].y;
+            vertices[vpos].y = -vertices[vpos].z;
+            vertices[vpos].z = tmp;
+        }
+        fwrite(vertices, sizeof(float) * 3, nVertices, output);
+    }
+
+    fclose(output);
+
+    return true;
+}
+Vec3D fixCoordSystem(Vec3D v)
+{
+    return Vec3D(v.x, v.z, -v.y);
+}
+/*
+ * This file is part of the CMaNGOS Project. See AUTHORS file for Copyright information
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
+namespace VMAP {
+class MapRayCallback
+    {
+        public:
+            MapRayCallback(ModelInstance* val): prims(val), hit(false) {}
+            bool operator()(const G3D::Ray& ray, uint32 entry, float& distance, bool pStopAtFirstHit = true, bool ignoreM2Model = false)
+            {
+                bool result = prims[entry].intersectRay(ray, distance, pStopAtFirstHit, ignoreM2Model);
+                if (result)
+                    hit = true;
+                return result;
+            }
+            bool didHit() const { return hit; }
+        protected:
+            ModelInstance* prims;
+            bool hit;
+    };
+StaticMapTree::StaticMapTree(uint32 mapID, const std::string& basePath):
+        iMapID(mapID), iIsTiled(false), iTreeValues(nullptr), iNTreeValues(0), iBasePath(basePath)
+    {
+        if (iBasePath.length() > 0 && (iBasePath[iBasePath.length() - 1] != '/' && iBasePath[iBasePath.length() - 1] != '\\'))
+        {
+            iBasePath.append("/");
+        }
+    }
+StaticMapTree::~StaticMapTree()
+    {
+        delete[] iTreeValues;
+    }
+bool StaticMapTree::getIntersectionTime(const G3D::Ray& pRay, float& pMaxDist, bool pStopAtFirstHit, bool ignoreM2Model) const
+    {
+        float distance = pMaxDist;
+        MapRayCallback intersectionCallBack(iTreeValues);
+        iTree.intersectRay(pRay, intersectionCallBack, distance, pStopAtFirstHit, ignoreM2Model);
+        if (intersectionCallBack.didHit())
+            pMaxDist = distance;
+        return intersectionCallBack.didHit();
+    }
+float StaticMapTree::getHeight(const Vector3& pPos, float maxSearchDist) const
+    {
+        float height = G3D::inf();
+        Vector3 dir;
+        if (maxSearchDist >= 0.f)
+            dir = Vector3(0, 0, -1);
+        else
+            dir = Vector3(0, 0, 1);
+        G3D::Ray ray(pPos, dir); // direction with length of 1
+        float maxDist = std::abs(maxSearchDist);
+        if (getIntersectionTime(ray, maxDist))
+        {
+            if (maxSearchDist >= 0.f)
+                height = pPos.z - maxDist;
+            else
+                height = pPos.z + maxDist;
+        }
+        return height;
+    }
+}
+namespace VMAP { class VMapManager2 { public:
+    Vector3 convertPositionToInternalRep(float x, float y, float z) const;
+};
+Vector3 VMapManager2::convertPositionToInternalRep(float x, float y, float z) const
+    {
+        Vector3 pos;
+        const float mid = 0.5f * 64.0f * 533.33333333f;
+        pos.x = mid - x;
+        pos.y = mid - y;
+        pos.z = z;
+
+        return pos;
+    }
+}
+/**
+  @file CollisionDetection.cpp
+  
+  @maintainer Morgan McGuire, http://graphics.cs.williams.edu
+
+  @cite Bounce direction based on Paul Nettle's ftp://ftp.3dmaileffects.com/pub/FluidStudios/CollisionDetection/Fluid_Studios_Generic_Collision_Detection_for_Games_Using_Ellipsoids.pdf and comments by Max McGuire.  Ray-sphere code by Eric Haines.
+
+  @created 2001-11-24
+  @edited  2008-12-29
+ */
+
+#include "G3D/CollisionDetection.h"
+#include "G3D/AABox.h"
+namespace G3D {
+Vector3 CollisionDetection::ignore;
+float CollisionDetection::collisionTimeForMovingPointFixedAABox(
+    const Vector3&          origin,
+    const Vector3&          dir,
+    const AABox&            box,
+    Vector3&                location,
+    bool&                   Inside,
+    Vector3&                normal) {
+
+    if (collisionLocationForMovingPointFixedAABox(origin, dir, box, location, Inside, normal)) {
+        return (location - origin).magnitude();
+    } else {
+        return (float)finf();
+    }
+}
+bool CollisionDetection::collisionLocationForMovingPointFixedAABox(
+    const Vector3&          origin,
+    const Vector3&          dir,
+    const AABox&            box,
+    Vector3&                location,
+    bool&                   Inside,
+    Vector3&                normal) {
+
+    // Integer representation of a floating-point value.
+    #define IR(x)	((uint32&)x)
+
+    Inside = true;
+	const Vector3& MinB = box.low();
+	const Vector3& MaxB = box.high();
+	Vector3 MaxT(-1.0f, -1.0f, -1.0f);
+
+	// Find candidate planes.
+    for (int i = 0; i < 3; ++i) {
+		if (origin[i] < MinB[i]) {
+			location[i]	= MinB[i];
+			Inside      = false;
+
+			// Calculate T distances to candidate planes
+            if (IR(dir[i])) {
+                MaxT[i] = (MinB[i] - origin[i]) / dir[i];
+            }
+        } else if (origin[i] > MaxB[i]) {
+			location[i]	= MaxB[i];
+			Inside	    = false;
+
+			// Calculate T distances to candidate planes
+            if (IR(dir[i])) {
+                MaxT[i] = (MaxB[i] - origin[i]) / dir[i];
+            }
+		}
+	}
+
+	if (Inside) {
+    	// Ray origin inside bounding box
+        location = origin;
+		return false;
+	}
+
+	// Get largest of the maxT's for final choice of intersection
+	int WhichPlane = 0;
+    if (MaxT[1] > MaxT[WhichPlane])	{
+        WhichPlane = 1;
+    }
+
+    if (MaxT[2] > MaxT[WhichPlane])	{
+        WhichPlane = 2;
+    }
+
+	// Check final candidate actually inside box
+    if (IR(MaxT[WhichPlane]) & 0x80000000) {
+        // Miss the box
+        return false;
+    }
+
+	for (int i = 0; i < 3; ++i) {
+        if (i != WhichPlane) {
+			location[i] = origin[i] + MaxT[WhichPlane] * dir[i];
+            if ((location[i] < MinB[i]) ||
+                (location[i] > MaxB[i])) {
+                // On this plane we're outside the box extents, so
+                // we miss the box
+                return false;
+            }
+		}
+	}
+
+    // Choose the normal to be the plane normal facing into the ray
+    normal = Vector3::zero();
+    normal[WhichPlane] = (dir[WhichPlane] > 0) ? -1.0 : 1.0;
+
+	return true;
+
+    #undef IR
+}
+}

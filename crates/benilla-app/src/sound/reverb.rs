@@ -113,10 +113,12 @@ pub(super) fn plugin(app: &mut App) {
             Update,
             zone_reverb
                 .run_if(super::world_audio_live)
-                .in_set(WorldStage::Present),
+                .in_set(WorldStage::Present)
+                // Apply the provider from this frame's WMO override, as the area update does.
+                .after(super::interior::InteriorAudioSet::Resolve),
         )
         .add_systems(
-            OnExit(crate::char_select::ClientState::InWorld),
+            OnExit(crate::client_state::ClientState::InWorld),
             leave_world,
         );
 }

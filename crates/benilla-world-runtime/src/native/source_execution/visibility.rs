@@ -1,0 +1,997 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
+//! Camera.h:89-115; Map.cpp:501-504,1335-1350; GridNotifiers.cpp:32-38.
+use super::*;
+use benilla_sim::resident_map::{compute_cell_pair, source_cell_visit};
+use std::collections::BTreeSet;
+
+#[derive(Clone, Debug, Default)]
+pub(super) struct WorldVisibility {
+    viewpoint_cell: Option<CellIdentity>,
+    cameras: Vec<ObjectHandle>,
+    override_bits: u32,
+    client_guids: BTreeSet<SourceGuid>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceVisibilityDistance {
+    Normal,
+    Tiny,
+    Small,
+    Large,
+    Gigantic,
+    Infinite,
+}
+impl SourceVisibilityDistance {
+    pub fn bits(self) -> u32 {
+        // ObjectVisibility.cpp:25-33; ObjectDefines.h:32-38.
+        match self {
+            Self::Normal => 100f32.to_bits(),
+            Self::Tiny => 25f32.to_bits(),
+            Self::Small => 50f32.to_bits(),
+            Self::Large => 200f32.to_bits(),
+            Self::Gigantic => 400f32.to_bits(),
+            Self::Infinite => 0x4405_5555,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug)]
+pub struct SourceVisibilityUpdate {
+    pub object: ObjectHandle,
+    pub map_distance_bits: u32,
+    pub bounding_radius_bits: u32,
+}
+#[derive(Clone, Copy)]
+pub struct SourceUnitRelocationConfig {
+    pub lower_limit_squared: f32,
+    pub ai_notify_delay_ms: u32,
+    pub map_distance_bits: u32,
+}
+
+// Same left-associated binary32 sum as the CreatureLinkingMgr.cpp:626 distance.
+pub(super) fn source_relocation_distance_square([dx, dy, dz]: [f32; 3]) -> f32 {
+    (dx * dx + dy * dy) + dz * dz
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SourceVisibilityCensus {
+    pub considered_cells: usize,
+    pub loaded_cells: usize,
+    pub cameras: usize,
+    pub unvisited_guids: usize,
+    pub residual_players: usize,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceBroadcastNotice {
+    pub line: u32,
+    pub object: ObjectHandle,
+    pub position: [u32; 2],
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SourceBroadcast {
+    OutOfWorld,
+    InvalidCoordinates(SourceBroadcastNotice),
+    GridUnloaded,
+    Visited { loaded_cells: usize },
+}
+
+impl SourceObjects {
+    fn world_visibility(&self, object: ObjectHandle) -> Result<&WorldVisibility> {
+        self.get(object)?
+            .visibility
+            .as_ref()
+            .ok_or_else(|| refuse("execution.visibility.world_object_type"))
+    }
+    fn world_visibility_mut(&mut self, object: ObjectHandle) -> Result<&mut WorldVisibility> {
+        self.get_mut(object)?
+            .visibility
+            .as_mut()
+            .ok_or_else(|| refuse("execution.visibility.world_object_type"))
+    }
+    /// Object.h:1142 returns the live per-object set.
+    pub fn client_guids_i_am_at(&self, object: ObjectHandle) -> Result<&BTreeSet<SourceGuid>> {
+        Ok(&self.world_visibility(object)?.client_guids)
+    }
+    /// Unit.cpp:11212-11228. Player lookup uses the live map registry.
+    pub fn send_message_to_all_who_see_me_move(
+        &self,
+        packet: &SplineOutbound,
+        mut send_session: impl FnMut(ObjectHandle, &SplineOutbound) -> Result<()>,
+    ) -> Result<()> {
+        let object = self.get(packet.unit)?;
+        if !object.in_world {
+            return Ok(());
+        }
+        let mover_owner = packet.excluded.unwrap_or_default();
+        for &guid in self.client_guids_i_am_at(packet.unit)? {
+            if mover_owner == guid {
+                continue;
+            }
+            let map = object
+                .map
+                .ok_or_else(|| refuse("execution.spline.GetMap_owner_11221"))?;
+            if let Some(player) = self.lookup(map, LiveLookupKind::Player, guid) {
+                send_session(player, packet)?;
+            }
+        }
+        if object.kind == SourceObjectKind::Player {
+            let guid = object
+                .guid
+                .ok_or_else(|| refuse("execution.spline.player_GetObjectGuid_owner_11225"))?;
+            if mover_owner != guid {
+                send_session(packet.unit, packet)?;
+            }
+        }
+        Ok(())
+    }
+    pub fn visibility_override_bits(&self, object: ObjectHandle) -> Result<u32> {
+        Ok(self.world_visibility(object)?.override_bits)
+    }
+    pub fn set_visibility_distance_override(
+        &mut self,
+        object: ObjectHandle,
+        distance: SourceVisibilityDistance,
+    ) -> Result<()> {
+        // ObjectVisibility.cpp:44-50 ignores player overrides, not existing non-player values.
+        if self.get(object)?.kind != SourceObjectKind::Player {
+            self.world_visibility_mut(object)?.override_bits = distance.bits();
+        }
+        Ok(())
+    }
+    /// GameObject.cpp:298-300 and ObjectVisibility.cpp:53-59.
+    pub(super) fn apply_large_gameobject_visibility(
+        &mut self,
+        object: ObjectHandle,
+        map_distance: impl FnOnce() -> Result<u32>,
+    ) -> Result<()> {
+        let distance = Self::effective_visibility_distance(
+            self.visibility_override_bits(object)?,
+            map_distance,
+        )?;
+        if f32::from_bits(distance) < f32::from_bits(SourceVisibilityDistance::Large.bits()) {
+            self.set_visibility_distance_override(object, SourceVisibilityDistance::Large)?;
+        }
+        Ok(())
+    }
+
+    fn effective_visibility_distance(
+        override_bits: u32,
+        map_distance: impl FnOnce() -> Result<u32>,
+    ) -> Result<u32> {
+        if f32::from_bits(override_bits) != 0.0 {
+            Ok(override_bits)
+        } else {
+            map_distance()
+        }
+    }
+
+    pub fn viewpoint_cell(&self, object: ObjectHandle) -> Result<Option<CellIdentity>> {
+        Ok(self.world_visibility(object)?.viewpoint_cell)
+    }
+    /// ViewPoint::Attach appends; duplicates are not deduplicated, Camera.h:89.
+    pub fn attach_viewpoint_camera(
+        &mut self,
+        object: ObjectHandle,
+        camera: ObjectHandle,
+    ) -> Result<()> {
+        require(
+            self.get(camera)?.kind == SourceObjectKind::Camera,
+            "execution.visibility.camera_type",
+        )?;
+        self.world_visibility_mut(object)?.cameras.push(camera);
+        Ok(())
+    }
+    pub fn viewpoint_added_to_world(
+        &mut self,
+        object: ObjectHandle,
+        cell: CellIdentity,
+        cells: &mut SourceCells,
+        mut camera_added: impl FnMut(&mut Self, &mut SourceCells, ObjectHandle) -> Result<()>,
+    ) -> Result<()> {
+        cells.validate_cell(cell)?;
+        self.world_visibility_mut(object)?.viewpoint_cell = Some(cell);
+        let mut next = (!self.world_visibility(object)?.cameras.is_empty()).then_some(0);
+        while let Some(index) = next {
+            let cameras = &self.world_visibility(object)?.cameras;
+            let camera = cameras[index];
+            // Camera.h:98 saves the following iterator before invoking the handler.
+            // Appending after that saved iterator reaches end must not extend this call.
+            next = (index + 1 < cameras.len()).then_some(index + 1);
+            camera_added(self, cells, camera)?;
+        }
+        Ok(())
+    }
+
+    /// Camera.h:124-128 changes the grid before the first camera callback.
+    pub fn viewpoint_grid_changed(
+        &mut self,
+        object: ObjectHandle,
+        cell: CellIdentity,
+        cells: &SourceCells,
+    ) -> Result<()> {
+        cells.validate_cell(cell)?;
+        let visibility = self.world_visibility_mut(object)?;
+        visibility.viewpoint_cell = Some(cell);
+        require(
+            visibility.cameras.is_empty(),
+            "execution.visibility.Camera_127.Event_Moved_owner",
+        )
+    }
+
+    /// Unit.cpp:10981-10998. Visibility changes precede ScheduleAINotify.
+    pub fn unit_on_relocated(
+        &mut self,
+        object: ObjectHandle,
+        cells: &mut SourceCells,
+        units: &mut SourceUnits,
+        config: SourceUnitRelocationConfig,
+        census: &mut SourceVisibilityCensus,
+    ) -> Result<()> {
+        let [x, y, z, _] = self.pose(object)?.0.map(f32::from_bits);
+        let previous = units.get(self, object)?.last_notified_position;
+        let delta = [previous[0] - x, previous[1] - y, previous[2] - z];
+        if source_relocation_distance_square(delta) > config.lower_limit_squared {
+            units.get_mut(self, object)?.last_notified_position = [x, y, z];
+            require(
+                self.world_visibility(object)?.cameras.is_empty(),
+                "execution.visibility.Camera_137.UpdateVisibilityForOwner_owner",
+            )?;
+            let radius = units
+                .get(self, object)?
+                .bounding_radius
+                .ok_or_else(|| refuse("execution.visibility.Unit_10995.bounding_radius_owner"))?;
+            self.update_object_visibility(
+                SourceVisibilityUpdate {
+                    object,
+                    map_distance_bits: config.map_distance_bits,
+                    bounding_radius_bits: radius,
+                },
+                cells,
+                census,
+                unbound_visibility_camera_update,
+                unbound_visibility_player_update,
+            )?;
+        }
+        units
+            .get_mut(self, object)?
+            .unit_events
+            .schedule_ai_notify(config.ai_notify_delay_ms, false)
+    }
+    /// Map.cpp:528-549. Visit only existing world cells.
+    pub fn message_broadcast(
+        &self,
+        object: ObjectHandle,
+        cells: &SourceCells,
+        map_distance_bits: u32,
+        radius: Option<u32>,
+    ) -> Result<SourceBroadcast> {
+        let world = self.get(object)?;
+        require(
+            world.map == Some(cells.map()),
+            "execution.spells.Map_541.broadcast_grid_owner",
+        )?;
+        let [x, y, _, _] = self.pose(object)?.0;
+        use benilla_sim::resident_map::Error;
+        let undefined = || refuse("execution.spells.GridDefines_154.cell_float_to_int_undefined");
+        let standing = match compute_cell_pair(x, y) {
+            Ok(pair) => pair,
+            Err(Error::OutsideMap) => {
+                // The source computes both axes before Map.cpp:532 tests either.
+                if compute_cell_pair(0, y) == Err(Error::Numeric) {
+                    return Err(undefined());
+                }
+                return Ok(SourceBroadcast::InvalidCoordinates(SourceBroadcastNotice {
+                    line: 534,
+                    object,
+                    position: [x, y],
+                }));
+            }
+            Err(Error::Numeric) => return Err(undefined()),
+        };
+        if !cells.object_data_loaded(standing.grid_x(), standing.grid_y()) {
+            return Ok(SourceBroadcast::GridUnloaded);
+        }
+        let override_bits = self.visibility_override_bits(object)?;
+        let distance = if f32::from_bits(override_bits) != 0. {
+            override_bits
+        } else {
+            map_distance_bits
+        };
+        let radius = radius
+            .ok_or_else(|| refuse("execution.spells.Unit_1094.UNIT_FIELD_BOUNDINGRADIUS_owner"))?;
+        let pairs = source_cell_visit(standing, x, y, distance, radius)
+            .map_err(|_| refuse("execution.spells.Cell_80.broadcast_cell_visit"))?;
+        let mut loaded_cells = 0;
+        for pair in pairs {
+            if cells.object_data_loaded(pair.grid_x(), pair.grid_y()) {
+                loaded_cells += 1;
+                require(
+                    cells.first_in_slot(cells.cell(pair)?, 7)?.is_none(),
+                    "execution.spells.GridNotifiers_152.camera_session_owner",
+                )?;
+            }
+        }
+        Ok(SourceBroadcast::Visited { loaded_cells })
+    }
+
+    pub fn update_object_visibility(
+        &mut self,
+        request: SourceVisibilityUpdate,
+        cells: &mut SourceCells,
+        census: &mut SourceVisibilityCensus,
+        mut camera_update: impl FnMut(
+            &mut Self,
+            &mut SourceCells,
+            ObjectHandle,
+            ObjectHandle,
+        ) -> Result<SourceGuid>,
+        mut residual_update: impl FnMut(
+            &mut Self,
+            &mut SourceCells,
+            ObjectHandle,
+            ObjectHandle,
+        ) -> Result<()>,
+    ) -> Result<()> {
+        require(
+            self.get(request.object)?.map == Some(cells.map()),
+            "execution.visibility.map_binding",
+        )?;
+        let visibility = self.world_visibility(request.object)?;
+        // VisibleChangesNotifier copies this set before traversing, GridNotifiers.h:52.
+        let mut unvisited = visibility.client_guids.clone();
+        let pose = self.pose(request.object)?.0;
+        let standing = compute_cell_pair(pose[0], pose[1])
+            .map_err(|_| refuse("execution.cell_coordinates"))?;
+        let distance = Self::effective_visibility_distance(visibility.override_bits, || {
+            Ok(request.map_distance_bits)
+        })?;
+        let pairs = source_cell_visit(
+            standing,
+            pose[0],
+            pose[1],
+            distance,
+            request.bounding_radius_bits,
+        )
+        .map_err(|_| refuse("execution.cell_visit_numeric"))?;
+        for pair in pairs {
+            census.considered_cells += 1;
+            // Map.cpp:1337 and :660-663 never create or load a grid here.
+            if !cells.object_data_loaded(pair.grid_x(), pair.grid_y()) {
+                continue;
+            }
+            let cell = cells.cell(pair)?;
+            census.loaded_cells += 1;
+            // GridNotifiers.h:53 does not iterate Player/Pet/Corpse lists at all.
+            let mut next = cells.first_in_slot(cell, 7)?;
+            while let Some(camera) = next {
+                census.cameras += 1;
+                let player = camera_update(self, cells, camera, request.object)?;
+                unvisited.remove(&player);
+                // The source range-for increments after UpdateVisibilityOf, GridNotifiers.cpp:34-37.
+                // Reuse the live iterator guard if a callback invalidated the current reference.
+                next = cells.next_in_slot(camera, cell, 7)?;
+            }
+        }
+        census.unvisited_guids = unvisited.len();
+        for guid in unvisited {
+            if let Some(player) = self.lookup(cells.map(), LiveLookupKind::Player, guid) {
+                census.residual_players += 1;
+                residual_update(self, cells, player, request.object)?;
+            }
+        }
+        Ok(())
+    }
+    pub fn map_add_visibility(
+        &mut self,
+        request: SourceVisibilityUpdate,
+        cells: &mut SourceCells,
+        census: &mut SourceVisibilityCensus,
+        camera_update: impl FnMut(
+            &mut Self,
+            &mut SourceCells,
+            ObjectHandle,
+            ObjectHandle,
+        ) -> Result<SourceGuid>,
+        residual_update: impl FnMut(
+            &mut Self,
+            &mut SourceCells,
+            ObjectHandle,
+            ObjectHandle,
+        ) -> Result<()>,
+    ) -> Result<()> {
+        self.get_mut(request.object)?.is_new_object = true;
+        self.update_object_visibility(request, cells, census, camera_update, residual_update)?;
+        self.get_mut(request.object)?.is_new_object = false;
+        Ok(())
+    }
+}
+
+pub(super) fn unbound_visibility_camera_update(
+    _: &mut SourceObjects,
+    _: &mut SourceCells,
+    _: ObjectHandle,
+    _: ObjectHandle,
+) -> Result<SourceGuid> {
+    Err(refuse(
+        "execution.visibility.GridNotifiers_36.camera_update_owner",
+    ))
+}
+
+pub(super) fn unbound_visibility_player_update(
+    _: &mut SourceObjects,
+    _: &mut SourceCells,
+    _: ObjectHandle,
+    _: ObjectHandle,
+) -> Result<()> {
+    Err(refuse("execution.visibility.Map_1348.player_update_owner"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use benilla_sim::resident_map::CellPair;
+    fn fixture() -> (SourceObjects, SourceCells, ObjectHandle, CellIdentity) {
+        let map = MapIdentity {
+            map: 0,
+            instance: 0,
+            creation_generation: 1,
+        };
+        let mut objects = SourceObjects::default();
+        let mut cells = SourceCells::new(map).unwrap();
+        let pair = CellPair::from_indices(512, 512).unwrap();
+        cells.configure_grids(300000, true).unwrap();
+        cells.grids.create(pair.grid_x(), pair.grid_y()).unwrap();
+        let cell = cells.cell(pair).unwrap();
+        let go = objects.construct(1, SourceObjectKind::GameObject).unwrap();
+        objects.bind_map(go, map, &cells).unwrap();
+        objects.set_pose(go, SourcePose([0; 4])).unwrap();
+        (objects, cells, go, cell)
+    }
+    fn request(object: ObjectHandle) -> SourceVisibilityUpdate {
+        SourceVisibilityUpdate {
+            object,
+            map_distance_bits: 100f32.to_bits(),
+            bounding_radius_bits: 0x3ec7_2b02,
+        }
+    }
+
+    #[test]
+    fn relocation_updates_viewpoint_and_notified_position_before_callbacks() {
+        let (mut objects, mut cells, _, cell) = fixture();
+        let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        objects.bind_map(unit, cells.map(), &cells).unwrap();
+        cells.set_object_data_loaded(cell.grid).unwrap();
+        objects.viewpoint_grid_changed(unit, cell, &cells).unwrap();
+        assert_eq!(objects.viewpoint_cell(unit).unwrap(), Some(cell));
+        let mut live = SourceUnitFields::constructed_creature();
+        live.bounding_radius = Some(0.5f32.to_bits());
+        live.unit_events.schedule_ai_notify(5000, false).unwrap();
+        let queue = live.unit_events.inventory();
+        let mut units = SourceUnits::default();
+        units.register(&objects, unit, live).unwrap();
+        let config = SourceUnitRelocationConfig {
+            lower_limit_squared: 100.,
+            ai_notify_delay_ms: 1000,
+            map_distance_bits: 100f32.to_bits(),
+        };
+        let mut census = SourceVisibilityCensus::default();
+        objects
+            .set_pose(unit, SourcePose([10f32.to_bits(), 0, 0, 0]))
+            .unwrap();
+        objects
+            .unit_on_relocated(unit, &mut cells, &mut units, config, &mut census)
+            .unwrap();
+        assert_eq!(
+            units.get(&objects, unit).unwrap().last_notified_position,
+            [0.; 3]
+        );
+        assert_eq!(census, SourceVisibilityCensus::default());
+        objects
+            .set_pose(unit, SourcePose([11f32.to_bits(), 0, 0, 0]))
+            .unwrap();
+        objects
+            .unit_on_relocated(unit, &mut cells, &mut units, config, &mut census)
+            .unwrap();
+        let live = units.get(&objects, unit).unwrap();
+        assert_eq!(live.last_notified_position, [11., 0., 0.]);
+        assert_eq!(live.unit_events.inventory(), queue);
+        assert!(census.loaded_cells > 0);
+        assert_eq!(census.cameras, 0);
+        let after = census.clone();
+        objects
+            .unit_on_relocated(unit, &mut cells, &mut units, config, &mut census)
+            .unwrap();
+        assert_eq!(census, after);
+        let camera = objects.construct(1, SourceObjectKind::Camera).unwrap();
+        objects.attach_viewpoint_camera(unit, camera).unwrap();
+        let target_cell = cells
+            .cell(CellPair::from_indices(513, 512).unwrap())
+            .unwrap();
+        assert_eq!(
+            objects
+                .viewpoint_grid_changed(unit, target_cell, &cells)
+                .unwrap_err()
+                .id,
+            "execution.visibility.Camera_127.Event_Moved_owner"
+        );
+        assert_eq!(objects.viewpoint_cell(unit).unwrap(), Some(target_cell));
+        cells.link(camera, SourceObjectKind::Camera, cell).unwrap();
+        let mut state = 0;
+        let mut flags = 0;
+        let walk = super::super::source_set_creature_walk(
+            &mut state,
+            Some(&mut flags),
+            0x1234,
+            true,
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            source_movement_send_to_set(true, walk, |_| {
+                objects
+                    .message_broadcast(unit, &cells, config.map_distance_bits, Some(0))
+                    .map(|_| ())
+            })
+            .unwrap_err()
+            .id,
+            "execution.spells.GridNotifiers_152.camera_session_owner"
+        );
+    }
+
+    #[test]
+    fn gameobject_large_visibility_uses_the_live_override_before_map_distance() {
+        for (initial, expected) in [
+            (SourceVisibilityDistance::Tiny, 200_f32.to_bits()),
+            (SourceVisibilityDistance::Gigantic, 400_f32.to_bits()),
+        ] {
+            let (mut objects, _, object, _) = fixture();
+            objects
+                .set_visibility_distance_override(object, initial)
+                .unwrap();
+            objects
+                .apply_large_gameobject_visibility(object, || {
+                    panic!("override bypasses the map lookup")
+                })
+                .unwrap();
+            assert_eq!(objects.visibility_override_bits(object).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn broadcast_checks_coordinates_then_grid_then_camera_sessions() {
+        let (mut objects, mut cells, object, cell) = fixture();
+        let distance = 100f32.to_bits();
+        let outside = 20_000f32.to_bits();
+        objects
+            .set_pose(object, SourcePose([outside, 0, 0, 0]))
+            .unwrap();
+        assert_eq!(
+            objects
+                .message_broadcast(object, &cells, distance, None)
+                .unwrap(),
+            SourceBroadcast::InvalidCoordinates(SourceBroadcastNotice {
+                line: 534,
+                object,
+                position: [outside, 0]
+            }),
+        );
+        for point in [[f32::MAX.to_bits(), 0], [outside, f32::MAX.to_bits()]] {
+            objects
+                .set_pose(object, SourcePose([point[0], point[1], 0, 0]))
+                .unwrap();
+            assert_eq!(
+                objects
+                    .message_broadcast(object, &cells, distance, None)
+                    .unwrap_err()
+                    .id,
+                "execution.spells.GridDefines_154.cell_float_to_int_undefined",
+            );
+        }
+        objects.set_pose(object, SourcePose([0; 4])).unwrap();
+        let camera = objects.construct(1, SourceObjectKind::Camera).unwrap();
+        let near = cells
+            .cell(CellPair::from_indices(514, 512).unwrap())
+            .unwrap();
+        cells.link(camera, SourceObjectKind::Camera, near).unwrap();
+        // A grid can exist and contain a registration before its object data is loaded.
+        assert_eq!(
+            objects
+                .message_broadcast(object, &cells, distance, None)
+                .unwrap(),
+            SourceBroadcast::GridUnloaded
+        );
+        cells.set_object_data_loaded(cell.grid).unwrap();
+        assert_eq!(
+            objects
+                .message_broadcast(object, &cells, distance, Some(0))
+                .unwrap_err()
+                .id,
+            "execution.spells.GridNotifiers_152.camera_session_owner",
+        );
+        objects
+            .set_visibility_distance_override(object, SourceVisibilityDistance::Tiny)
+            .unwrap();
+        assert!(matches!(
+            objects
+                .message_broadcast(object, &cells, distance, Some(0))
+                .unwrap(),
+            SourceBroadcast::Visited { loaded_cells } if loaded_cells > 0
+        ));
+    }
+
+    #[test]
+    fn viewpoint_registration_precedes_dispatch_and_keeps_the_preincremented_append_boundary() {
+        let (mut objects, mut cells, go, cell) = fixture();
+        let camera = objects.construct(1, SourceObjectKind::Camera).unwrap();
+        let extra = objects.construct(1, SourceObjectKind::Camera).unwrap();
+        assert_eq!(objects.viewpoint_cell(go).unwrap(), None);
+        objects.attach_viewpoint_camera(go, camera).unwrap();
+        objects.attach_viewpoint_camera(go, camera).unwrap();
+        let mut visits = Vec::new();
+        objects
+            .viewpoint_added_to_world(go, cell, &mut cells, |objects, _, c| {
+                visits.push(c);
+                if visits.len() == 1 || visits.len() == 3 {
+                    objects.attach_viewpoint_camera(go, extra)?;
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(visits, [camera, camera, extra]);
+        assert_eq!(objects.viewpoint_cell(go).unwrap(), Some(cell));
+        let failure = objects
+            .viewpoint_added_to_world(go, cell, &mut cells, |_, _, _| {
+                Err(refuse("authored.camera_added"))
+            })
+            .unwrap_err();
+        assert_eq!(failure.id, "authored.camera_added");
+        assert_eq!(objects.viewpoint_cell(go).unwrap(), Some(cell));
+    }
+    #[test]
+    fn visibility_no_create_traverses_real_cells_but_not_non_camera_type_lists() {
+        let (mut objects, mut cells, go, cell) = fixture();
+        let mut census = SourceVisibilityCensus::default();
+        objects
+            .map_add_visibility(
+                request(go),
+                &mut cells,
+                &mut census,
+                |_, _, _, _| panic!("no cameras"),
+                |_, _, _, _| panic!("no stale recipients"),
+            )
+            .unwrap();
+        assert!(census.considered_cells > 1);
+        assert_eq!(census.loaded_cells, 0);
+        assert!(!objects.get(go).unwrap().is_new_object);
+        cells.set_object_data_loaded(cell.grid).unwrap();
+        let player = objects.construct(1, SourceObjectKind::Player).unwrap();
+        objects.bind_map(player, cells.map(), &cells).unwrap();
+        objects.link_cell(player, cell, &mut cells).unwrap();
+        let mut census = SourceVisibilityCensus::default();
+        objects
+            .map_add_visibility(
+                request(go),
+                &mut cells,
+                &mut census,
+                |_, _, _, _| panic!("players are not CameraMapType"),
+                |_, _, _, _| panic!("empty recipient set"),
+            )
+            .unwrap();
+        assert!(census.loaded_cells > 0);
+        assert_eq!(census.cameras, 0);
+    }
+    #[test]
+    fn visibility_camera_update_precedes_erase_and_residuals_visit_live_map_players() {
+        let (mut objects, mut cells, go, cell) = fixture();
+        cells.set_object_data_loaded(cell.grid).unwrap();
+        let camera = objects.construct(1, SourceObjectKind::Camera).unwrap();
+        cells.link(camera, SourceObjectKind::Camera, cell).unwrap();
+        let guid = SourceGuid::without_entry(HighGuid::Player, 7);
+        let stale = SourceGuid::without_entry(HighGuid::Player, 8);
+        objects
+            .world_visibility_mut(go)
+            .unwrap()
+            .client_guids
+            .extend([guid, stale]);
+        let mut census = SourceVisibilityCensus::default();
+        objects
+            .map_add_visibility(
+                request(go),
+                &mut cells,
+                &mut census,
+                |_, _, c, o| {
+                    assert_eq!((c, o), (camera, go));
+                    Ok(guid)
+                },
+                |_, _, _, _| panic!("stale player not live"),
+            )
+            .unwrap();
+        assert_eq!(
+            (
+                census.cameras,
+                census.unvisited_guids,
+                census.residual_players
+            ),
+            (1, 1, 0)
+        );
+        assert_eq!(objects.world_visibility(go).unwrap().client_guids.len(), 2);
+        let player = objects.construct(1, SourceObjectKind::Player).unwrap();
+        objects.bind_map(player, cells.map(), &cells).unwrap();
+        objects.assign_guid(player, 0, stale).unwrap();
+        objects.register_player_lookup(player).unwrap();
+        objects.link_map_player(player).unwrap();
+        objects.add_to_world(player).unwrap();
+        let mut census = SourceVisibilityCensus::default();
+        let mut residuals = Vec::new();
+        objects
+            .map_add_visibility(
+                request(go),
+                &mut cells,
+                &mut census,
+                |_, _, _, _| Ok(guid),
+                |_, _, p, o| {
+                    residuals.push((p, o));
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(residuals, [(player, go)]);
+        assert_eq!(census.residual_players, 1);
+        let failure = objects
+            .map_add_visibility(
+                request(go),
+                &mut cells,
+                &mut SourceVisibilityCensus::default(),
+                |_, _, _, _| Ok(guid),
+                unbound_visibility_player_update,
+            )
+            .unwrap_err();
+        assert_eq!(
+            failure.id,
+            "execution.visibility.Map_1348.player_update_owner"
+        );
+        assert!(objects.get(go).unwrap().is_new_object);
+        let failure = objects
+            .map_add_visibility(
+                request(go),
+                &mut cells,
+                &mut SourceVisibilityCensus::default(),
+                unbound_visibility_camera_update,
+                |_, _, _, _| panic!("camera refused first"),
+            )
+            .unwrap_err();
+        assert_eq!(
+            failure.id,
+            "execution.visibility.GridNotifiers_36.camera_update_owner"
+        );
+        assert!(objects.get(go).unwrap().is_new_object);
+    }
+    #[test]
+    fn visibility_camera_reference_is_read_after_callback_and_refuses_invalidation() {
+        let (mut objects, mut cells, go, cell) = fixture();
+        cells.set_object_data_loaded(cell.grid).unwrap();
+        let camera = objects.construct(1, SourceObjectKind::Camera).unwrap();
+        cells.link(camera, SourceObjectKind::Camera, cell).unwrap();
+        let guid = SourceGuid::without_entry(HighGuid::Player, 7);
+        objects
+            .map_add_visibility(
+                request(go),
+                &mut cells,
+                &mut SourceVisibilityCensus::default(),
+                |_, _, _, _| Ok(guid),
+                |_, _, _, _| Ok(()),
+            )
+            .unwrap();
+        let failure = objects
+            .map_add_visibility(
+                request(go),
+                &mut cells,
+                &mut SourceVisibilityCensus::default(),
+                |_, cells, c, _| {
+                    cells.unlink(c);
+                    Ok(guid)
+                },
+                |_, _, _, _| Ok(()),
+            )
+            .unwrap_err();
+        assert_eq!(failure.id, "execution.residency.invalidated_cell_iterator");
+        assert!(objects.get(go).unwrap().is_new_object);
+    }
+    #[test]
+    fn visibility_override_uses_last_write_and_players_ignore_it() {
+        let (mut objects, _, go, _) = fixture();
+        assert_eq!(objects.visibility_override_bits(go).unwrap(), 0);
+        for distance in [
+            SourceVisibilityDistance::Large,
+            SourceVisibilityDistance::Gigantic,
+            SourceVisibilityDistance::Infinite,
+        ] {
+            objects
+                .set_visibility_distance_override(go, distance)
+                .unwrap();
+            assert_eq!(
+                objects.visibility_override_bits(go).unwrap(),
+                distance.bits()
+            );
+        }
+        let player = objects.construct(1, SourceObjectKind::Player).unwrap();
+        objects
+            .set_visibility_distance_override(player, SourceVisibilityDistance::Infinite)
+            .unwrap();
+        assert_eq!(objects.visibility_override_bits(player).unwrap(), 0);
+    }
+    #[test]
+    fn authored_move_broadcast_reads_live_set_and_preserves_source_branches() {
+        let (mut objects, cells, unit, _) = fixture();
+        objects.get_mut(unit).unwrap().kind = SourceObjectKind::Creature;
+        let guid = SourceGuid::with_entry(HighGuid::Creature, 1, 1);
+        objects.assign_guid(unit, 1, guid).unwrap();
+        let mut packet = SplineOutbound {
+            unit,
+            guid,
+            transport: None,
+            excluded: None,
+            movement: vec![1, 2, 3],
+        };
+        // Authored players, not stock startup evidence.
+        let mut players = Vec::new();
+        for low in [7, 8] {
+            let player = objects.construct(1, SourceObjectKind::Player).unwrap();
+            let guid = SourceGuid::without_entry(HighGuid::Player, low);
+            objects.bind_map(player, cells.map(), &cells).unwrap();
+            objects.assign_guid(player, 0, guid).unwrap();
+            objects.register_player_lookup(player).unwrap();
+            objects.link_map_player(player).unwrap();
+            objects.add_to_world(player).unwrap();
+            players.push((player, guid));
+        }
+        objects
+            .world_visibility_mut(unit)
+            .unwrap()
+            .client_guids
+            .extend([
+                SourceGuid::default(),
+                players[0].1,
+                players[1].1,
+                SourceGuid::without_entry(HighGuid::Player, 9),
+            ]);
+        // Unit.cpp:11214 returns before even reading visibility.
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |_, _| panic!("out of world"))
+            .unwrap();
+        objects.add_to_world(unit).unwrap();
+        let mut sent = Vec::new();
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |p, data| {
+                assert_eq!(data, &packet);
+                sent.push(p);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(sent, [players[0].0, players[1].0]);
+        packet.excluded = Some(players[0].1);
+        sent.clear();
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |p, _| {
+                sent.push(p);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(sent, [players[1].0]);
+        objects
+            .world_visibility_mut(unit)
+            .unwrap()
+            .client_guids
+            .clear();
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |_, _| panic!("empty set"))
+            .unwrap();
+        // Unit.cpp:11225-11226 sends a player mover its own copy unless excluded.
+        packet.unit = players[0].0;
+        packet.guid = players[0].1;
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |_, _| panic!("excluded self"))
+            .unwrap();
+        packet.excluded = None;
+        sent.clear();
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |p, _| {
+                sent.push(p);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(sent, [players[0].0]);
+    }
+
+    #[test]
+    fn authored_move_broadcast_refuses_unowned_map_and_session_at_the_read() {
+        let (mut objects, cells, unit, _) = fixture();
+        objects.get_mut(unit).unwrap().kind = SourceObjectKind::Creature;
+        let guid = SourceGuid::without_entry(HighGuid::Player, 7);
+        objects
+            .world_visibility_mut(unit)
+            .unwrap()
+            .client_guids
+            .insert(guid);
+        objects.get_mut(unit).unwrap().in_world = true;
+        let packet = SplineOutbound {
+            unit,
+            guid,
+            transport: None,
+            excluded: None,
+            movement: vec![],
+        };
+        objects.get_mut(unit).unwrap().map = None;
+        let skipped = SplineOutbound {
+            excluded: Some(guid),
+            ..packet.clone()
+        };
+        objects
+            .send_message_to_all_who_see_me_move(&skipped, |_, _| {
+                panic!("owner skip precedes map read")
+            })
+            .unwrap();
+        assert_eq!(
+            objects
+                .send_message_to_all_who_see_me_move(&packet, |_, _| panic!())
+                .unwrap_err()
+                .id,
+            "execution.spline.GetMap_owner_11221"
+        );
+        objects.get_mut(unit).unwrap().map = Some(cells.map());
+        let player = objects.construct(1, SourceObjectKind::Player).unwrap();
+        objects.bind_map(player, cells.map(), &cells).unwrap();
+        objects.assign_guid(player, 0, guid).unwrap();
+        objects.register_player_lookup(player).unwrap();
+        objects.add_to_world(player).unwrap();
+        struct MissingSession;
+        impl MotionExecutionOwner for MissingSession {}
+        let mut units = SourceUnits::default();
+        let context = MotionContext {
+            objects: &objects,
+            units: &mut units,
+        };
+        assert_eq!(
+            MissingSession
+                .send_spline(&packet, &context)
+                .unwrap_err()
+                .id,
+            "execution.spline.player_GetSession_SendPacket_owner_11222_11226"
+        );
+        let self_packet = SplineOutbound {
+            unit: player,
+            ..packet
+        };
+        assert_eq!(
+            MissingSession
+                .send_spline(&self_packet, &context)
+                .unwrap_err()
+                .id,
+            "execution.spline.player_GetSession_SendPacket_owner_11222_11226"
+        );
+    }
+
+    #[test]
+    fn authored_out_of_world_move_does_not_read_unowned_visibility() {
+        let (mut objects, _, unit, _) = fixture();
+        objects.get_mut(unit).unwrap().visibility = None;
+        let packet = SplineOutbound {
+            unit,
+            guid: SourceGuid::with_entry(HighGuid::Creature, 1, 1),
+            transport: None,
+            excluded: None,
+            movement: vec![],
+        };
+        objects
+            .send_message_to_all_who_see_me_move(&packet, |_, _| panic!())
+            .unwrap();
+        objects.get_mut(unit).unwrap().in_world = true;
+        assert_eq!(
+            objects
+                .send_message_to_all_who_see_me_move(&packet, |_, _| panic!())
+                .unwrap_err()
+                .id,
+            "execution.visibility.world_object_type"
+        );
+    }
+}

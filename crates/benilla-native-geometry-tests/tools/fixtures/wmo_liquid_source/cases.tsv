@@ -1,0 +1,21 @@
+# case	root_member	root_flags	group_flags	liquid_type	hole_only	trailing_chunk	upper_group	output_name	raw_type_bits	assembled_type	root_input	group_inputs	raw_output	group_count	triangle_count	liquid_group_count
+Water	Water.wmo	4	8	1	0	0	1	Water.wmo	1	1	inputs/Water.root.test-fixture	inputs/Water_000.group.test-fixture;inputs/Water_001.group.test-fixture	raw/Water.raw.vmap	2	4	1
+Oceanbit	Oceanbit.wmo	4	524296	1	0	0	0	Oceanbit.wmo	2	2	inputs/Oceanbit.root.test-fixture	inputs/Oceanbit_000.group.test-fixture	raw/Oceanbit.raw.vmap	1	2	1
+Ocean	Ocean.wmo	4	8	2	0	0	0	Ocean.wmo	2	2	inputs/Ocean.root.test-fixture	inputs/Ocean_000.group.test-fixture	raw/Ocean.raw.vmap	1	2	1
+Magma	Magma.wmo	4	8	3	0	0	0	Magma.wmo	3	3	inputs/Magma.root.test-fixture	inputs/Magma_000.group.test-fixture	raw/Magma.raw.vmap	1	2	1
+Slime	Slime.wmo	4	8	4	0	0	0	Slime.wmo	4	4	inputs/Slime.root.test-fixture	inputs/Slime_000.group.test-fixture	raw/Slime.raw.vmap	1	2	1
+Naxx	World\Stratholme_raid\Naxx.wmo	4	8	4	0	0	0	Naxx.wmo	21	21	inputs/Naxx.root.test-fixture	inputs/Naxx_000.group.test-fixture	raw/Naxx.raw.vmap	1	2	1
+Case	World\stratholme_raid\Case.wmo	4	8	4	0	0	0	Case.wmo	4	4	inputs/Case.root.test-fixture	inputs/Case_000.group.test-fixture	raw/Case.raw.vmap	1	2	1
+Known	Known.wmo	4	8	41	0	0	0	Known.wmo	41	41	inputs/Known.root.test-fixture	inputs/Known_000.group.test-fixture	raw/Known.raw.vmap	1	2	1
+Signed	Signed.wmo	4	8	32768	0	0	0	Signed.wmo	32768	4294934528	inputs/Signed.root.test-fixture	inputs/Signed_000.group.test-fixture	raw/Signed.raw.vmap	1	2	1
+Wrapped	Wrapped.wmo	4	8	65537	0	0	0	Wrapped.wmo	1	1	inputs/Wrapped.root.test-fixture	inputs/Wrapped_000.group.test-fixture	raw/Wrapped.raw.vmap	1	2	1
+Fallback	Fallback.wmo	4	8	0	0	0	0	Fallback.wmo	3	3	inputs/Fallback.root.test-fixture	inputs/Fallback_000.group.test-fixture	raw/Fallback.raw.vmap	1	2	1
+Legacy	Legacy.wmo	0	8	15	0	0	0	Legacy.wmo	3	3	inputs/Legacy.root.test-fixture	inputs/Legacy_000.group.test-fixture	raw/Legacy.raw.vmap	1	2	1
+Oldwater	Oldwater.wmo	0	8	0	0	0	0	Oldwater.wmo	1	1	inputs/Oldwater.root.test-fixture	inputs/Oldwater_000.group.test-fixture	raw/Oldwater.raw.vmap	1	2	1
+Oldslime	Oldslime.wmo	0	8	19	0	0	0	Oldslime.wmo	4	4	inputs/Oldslime.root.test-fixture	inputs/Oldslime_000.group.test-fixture	raw/Oldslime.raw.vmap	1	2	1
+Empty	Empty.wmo	4	8	0	1	0	0	Empty.wmo	0	0	inputs/Empty.root.test-fixture	inputs/Empty_000.group.test-fixture	raw/Empty.raw.vmap	1	2	1
+Reset	Reset.wmo	4	8	3	0	1	0	Reset.wmo	0	0	inputs/Reset.root.test-fixture	inputs/Reset_000.group.test-fixture	raw/Reset.raw.vmap	1	2	0
+Unknown	Unknown.wmo	4	8	22	0	0	0	Unknown.wmo	22	22	inputs/Unknown.root.test-fixture	inputs/Unknown_000.group.test-fixture	raw/Unknown.raw.vmap	1	2	1
+Negative	Negative.wmo	4	8	65535	0	0	0	Negative.wmo	65535	4294967295	inputs/Negative.root.test-fixture	inputs/Negative_000.group.test-fixture	raw/Negative.raw.vmap	1	2	1
+Zero	Zero.wmo	4	8	65536	0	0	0	Zero.wmo	0	0	inputs/Zero.root.test-fixture	inputs/Zero_000.group.test-fixture	raw/Zero.raw.vmap	1	2	1
+Overflow	Overflow.wmo	0	8	4294967295	0	0	0	Overflow.wmo	3	3	inputs/Overflow.root.test-fixture	inputs/Overflow_000.group.test-fixture	raw/Overflow.raw.vmap	1	2	1

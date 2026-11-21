@@ -1,0 +1,135 @@
+{
+  "project": "CMaNGOS Classic",
+  "revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "source_license": "GPL-2.0-or-later",
+  "normalization": "CRLF to LF only",
+  "files": {
+    "CanCheckLiquidLevel.inc": {
+      "source_path": "src/game/Maps/GridMap.cpp",
+      "source_file_sha256": "52c6d22fbe9f275196a44bf4f9b39da527071e3c81f7460a4ac03a3c9107b85d",
+      "license_header_lines": 17,
+      "start_line": 797,
+      "end_line": 803,
+      "body_sha256": "a223325773b234df60fcad4349cdc9d357f125c09331af176ebb7ca932b31412",
+      "file_sha256": "f24fbb60d86ce69ce9f146709292b118c0aaaa3c1165cb0831a18acdf709dea1"
+    },
+    "IsSwimmable.inc": {
+      "source_path": "src/game/Maps/GridMap.cpp",
+      "source_file_sha256": "52c6d22fbe9f275196a44bf4f9b39da527071e3c81f7460a4ac03a3c9107b85d",
+      "license_header_lines": 17,
+      "start_line": 1147,
+      "end_line": 1161,
+      "body_sha256": "01385d24cb058258b95b0b3ad7c0a8f37805e79be0161735a029e27666f65b8d",
+      "file_sha256": "f3fcd664c6848d3ccf173a4025295152923844207f6e635f3502d7b6d928758a"
+    },
+    "IsSwimmableDeclaration.inc": {
+      "source_path": "src/game/Maps/GridMap.h",
+      "source_file_sha256": "accbf9ecc6f436b952d3d38ee2e506fe3d331a7367c048745334160705760c4d",
+      "license_header_lines": 17,
+      "start_line": 154,
+      "end_line": 154,
+      "body_sha256": "e06040002e32617067819ad350ab8df80e35f6e487bce94e6a1e69fd6ea406f9",
+      "file_sha256": "ace156ed069f75f0727643dcefd3fd71ecad978c5f9c1e030a479b9f51a047b7"
+    },
+    "LiquidStatusDeclaration.inc": {
+      "source_path": "src/game/Maps/GridMap.h",
+      "source_file_sha256": "accbf9ecc6f436b952d3d38ee2e506fe3d331a7367c048745334160705760c4d",
+      "license_header_lines": 17,
+      "start_line": 157,
+      "end_line": 157,
+      "body_sha256": "fde64228dadcc731dd045f5e840f81e76a089f2071de7046b56a293c3e739050",
+      "file_sha256": "fbe84a49639ef7c82d019520a1554e7a36b9bfbba301b1744a90ac474367ec98"
+    },
+    "LiquidDefinitions.inc": {
+      "source_path": "src/game/Maps/GridMapDefines.h",
+      "source_file_sha256": "3a901f22b6d65edae74a93b5cd2be793ebc5c3884eb2c0aa06a37265ef53e54e",
+      "license_header_lines": 0,
+      "start_line": 56,
+      "end_line": 83,
+      "body_sha256": "c45c650eeda4d111fe8b6a3df348065da6d14e73d8bb4d61cf7867a400da8c50",
+      "file_sha256": "c45c650eeda4d111fe8b6a3df348065da6d14e73d8bb4d61cf7867a400da8c50"
+    },
+    "InhabitType.inc": {
+      "source_path": "src/game/Entities/Creature.h",
+      "source_file_sha256": "a92b0e95e5bf7827389fcca0acc0edaba48a1a083efbf5a01a752a4d171664fc",
+      "license_header_lines": 17,
+      "start_line": 403,
+      "end_line": 409,
+      "body_sha256": "779c6e0363385437b25f1ebbedb1bdce8095d3625237091a571ea87472012091",
+      "file_sha256": "e00fc6f3ce785cfe2562febeac60eecea5ccb43a18f3f4986f6118f0c74060c6"
+    },
+    "WalkInWater.inc": {
+      "source_path": "src/game/Entities/Creature.h",
+      "source_file_sha256": "a92b0e95e5bf7827389fcca0acc0edaba48a1a083efbf5a01a752a4d171664fc",
+      "license_header_lines": 17,
+      "start_line": 64,
+      "end_line": 64,
+      "body_sha256": "9f57f5afbf92ffe574ac18091cab2cf3a02df54bd409e1e69812327bdd8f0387",
+      "file_sha256": "c82227b22886e1c8074d2e5617218fc01078b031eef345495aab7f4d06b2de7d"
+    },
+    "MovementFlags.inc": {
+      "source_path": "src/game/Entities/Object.h",
+      "source_file_sha256": "259cdb1a061258d6a8c3e977c743c8c83848c763353b504ca3e617580f58c128",
+      "license_header_lines": 17,
+      "start_line": 701,
+      "end_line": 737,
+      "body_sha256": "2135996853f31f87074cb997595bb003c4d8d067531480bce0f85b12b9e2d3e0",
+      "file_sha256": "5fe8cae831fcaebba1dc6a4bbe79d71e1e88cf5e40fefcb7760f68bc97b38cb9"
+    },
+    "MovementAccessors.inc": {
+      "source_path": "src/game/Entities/Object.h",
+      "source_file_sha256": "259cdb1a061258d6a8c3e977c743c8c83848c763353b504ca3e617580f58c128",
+      "license_header_lines": 17,
+      "start_line": 761,
+      "end_line": 765,
+      "body_sha256": "be25c73f5e9830ee5899f3e56e17d839288bda8bdd052845a7b9b8bc3c81d06c",
+      "file_sha256": "40514d9a6fe0b8332870b8b577d54ae7821214618162d84e4d794df97dd3ce91"
+    },
+    "InitSwimming.inc": {
+      "source_path": "src/game/Entities/Creature.cpp",
+      "source_file_sha256": "27ae75c9e90febd0827fd60f9c9fe27bfeeab34e476d10ac784ab1039d4b8302",
+      "license_header_lines": 17,
+      "start_line": 438,
+      "end_line": 442,
+      "body_sha256": "307a983d0b49af7092d9aedbec8faf35fc6e05f66a36fe231e6d6def1ce67018",
+      "file_sha256": "701517f4663e888879c545e5151fa34a4d8967b887663e8c111c346cc654842b"
+    },
+    "ProjectUnitFlags.inc": {
+      "source_path": "src/game/Entities/Creature.cpp",
+      "source_file_sha256": "27ae75c9e90febd0827fd60f9c9fe27bfeeab34e476d10ac784ab1039d4b8302",
+      "license_header_lines": 17,
+      "start_line": 575,
+      "end_line": 577,
+      "body_sha256": "78eb58597be2195b0bd309f7f4890ac96e76de0791b199a214b48e5fcbe31734",
+      "file_sha256": "699ff4ee79803eeb7ae3c41f8199f42daee10fdadd181c905ff30103db768db1"
+    },
+    "UnitSwimming.inc": {
+      "source_path": "src/game/Entities/Unit.h",
+      "source_file_sha256": "2d9db8de53e4881a6684eeb2e31bc904019ee5e620aa067ecd68bd5d07c5d8a1",
+      "license_header_lines": 17,
+      "start_line": 481,
+      "end_line": 481,
+      "body_sha256": "9a286812beea17a36a560bd297dca1907b0e499b0d4473911b2b23fb56e9a5de",
+      "file_sha256": "987c9fae3da0aaa53f38920241a3682fa1bd85c46cbbac4a78424086484a910f"
+    }
+  },
+  "reviewed_source_order": {
+    "source_path": "src/game/Entities/Creature.cpp",
+    "source_file_sha256": "27ae75c9e90febd0827fd60f9c9fe27bfeeab34e476d10ac784ab1039d4b8302",
+    "ordered_markers": [
+      "uint32 display_id = ChooseDisplayId(GetCreatureInfo(), data, eventData);",
+      "CreatureModelInfo const* minfo = sObjectMgr.GetCreatureModelRandomGender(display_id);",
+      "SetNativeDisplayId(display_id);",
+      "SetDisplayId(display_id);",
+      "GetMap()->GetTerrain()->IsSwimmable(m_respawnPos.x, m_respawnPos.y, m_respawnPos.z, GetCollisionHeight())",
+      "bool Creature::UpdateEntry(",
+      "if (!InitEntry(Entry, data, eventData))",
+      "SelectLevel();"
+    ]
+  },
+  "reviewed_runtime_sources": {
+    "src/game/Entities/Creature.cpp": "27ae75c9e90febd0827fd60f9c9fe27bfeeab34e476d10ac784ab1039d4b8302",
+    "src/game/Entities/Unit.cpp": "03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0",
+    "src/game/Movement/MoveSplineInit.cpp": "cba7b5346dba789a118193f14fd0cc3d9d7387b1e10c9171dc2b58468fcc89cb"
+  }
+}

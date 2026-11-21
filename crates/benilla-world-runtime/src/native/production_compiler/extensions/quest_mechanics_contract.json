@@ -1,0 +1,343 @@
+{
+  "columns": {
+    "conditions": [
+      "condition_entry",
+      "type",
+      "value1",
+      "value2",
+      "value3",
+      "value4",
+      "flags",
+      "comments"
+    ],
+    "dbscripts_on_quest_end": [
+      "id",
+      "delay",
+      "priority",
+      "command",
+      "datalong",
+      "datalong2",
+      "datalong3",
+      "buddy_entry",
+      "search_radius",
+      "data_flags",
+      "dataint",
+      "dataint2",
+      "dataint3",
+      "dataint4",
+      "datafloat",
+      "x",
+      "y",
+      "z",
+      "o",
+      "speed",
+      "condition_id",
+      "comments"
+    ],
+    "gossip_menu": [
+      "entry",
+      "text_id",
+      "script_id",
+      "condition_id"
+    ],
+    "gossip_menu_option": [
+      "menu_id",
+      "id",
+      "option_icon",
+      "option_text",
+      "option_broadcast_text",
+      "option_id",
+      "npc_option_npcflag",
+      "action_menu_id",
+      "action_poi_id",
+      "action_script_id",
+      "box_coded",
+      "box_money",
+      "box_text",
+      "box_broadcast_text",
+      "condition_id"
+    ]
+  },
+  "keys": {
+    "conditions": [
+      "condition_entry"
+    ],
+    "dbscripts_on_quest_end": [],
+    "gossip_menu": [
+      "entry",
+      "text_id",
+      "script_id"
+    ],
+    "gossip_menu_option": [
+      "menu_id",
+      "id"
+    ]
+  },
+  "schema": {
+    "conditions": [
+      [
+        "condition_entry",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "type",
+        "tinyint",
+        false
+      ],
+      [
+        "value1",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "value2",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "value3",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "value4",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "flags",
+        "tinyint unsigned",
+        false
+      ],
+      [
+        "comments",
+        "varchar(500)",
+        true
+      ]
+    ],
+    "dbscripts_on_quest_end": [
+      [
+        "id",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "delay",
+        "int unsigned",
+        false
+      ],
+      [
+        "priority",
+        "int unsigned",
+        false
+      ],
+      [
+        "command",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "datalong",
+        "int unsigned",
+        false
+      ],
+      [
+        "datalong2",
+        "int unsigned",
+        false
+      ],
+      [
+        "datalong3",
+        "int unsigned",
+        false
+      ],
+      [
+        "buddy_entry",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "search_radius",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "data_flags",
+        "int unsigned",
+        false
+      ],
+      [
+        "dataint",
+        "int",
+        false
+      ],
+      [
+        "dataint2",
+        "int",
+        false
+      ],
+      [
+        "dataint3",
+        "int",
+        false
+      ],
+      [
+        "dataint4",
+        "int",
+        false
+      ],
+      [
+        "datafloat",
+        "float",
+        false
+      ],
+      [
+        "x",
+        "float",
+        false
+      ],
+      [
+        "y",
+        "float",
+        false
+      ],
+      [
+        "z",
+        "float",
+        false
+      ],
+      [
+        "o",
+        "float",
+        false
+      ],
+      [
+        "speed",
+        "float",
+        false
+      ],
+      [
+        "condition_id",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "comments",
+        "varchar(255)",
+        false
+      ]
+    ],
+    "gossip_menu": [
+      [
+        "entry",
+        "smallint unsigned",
+        false
+      ],
+      [
+        "text_id",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "script_id",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "condition_id",
+        "mediumint unsigned",
+        false
+      ]
+    ],
+    "gossip_menu_option": [
+      [
+        "menu_id",
+        "smallint unsigned",
+        false
+      ],
+      [
+        "id",
+        "smallint unsigned",
+        false
+      ],
+      [
+        "option_icon",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "option_text",
+        "text",
+        true
+      ],
+      [
+        "option_broadcast_text",
+        "int",
+        false
+      ],
+      [
+        "option_id",
+        "tinyint unsigned",
+        false
+      ],
+      [
+        "npc_option_npcflag",
+        "int unsigned",
+        false
+      ],
+      [
+        "action_menu_id",
+        "mediumint",
+        false
+      ],
+      [
+        "action_poi_id",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "action_script_id",
+        "mediumint unsigned",
+        false
+      ],
+      [
+        "box_coded",
+        "tinyint unsigned",
+        false
+      ],
+      [
+        "box_money",
+        "int unsigned",
+        false
+      ],
+      [
+        "box_text",
+        "text",
+        true
+      ],
+      [
+        "box_broadcast_text",
+        "int",
+        false
+      ],
+      [
+        "condition_id",
+        "mediumint unsigned",
+        false
+      ]
+    ]
+  },
+  "text": {
+    "conditions": [
+      "comments"
+    ],
+    "dbscripts_on_quest_end": [
+      "comments"
+    ],
+    "gossip_menu_option": [
+      "box_text",
+      "option_text"
+    ]
+  }
+}

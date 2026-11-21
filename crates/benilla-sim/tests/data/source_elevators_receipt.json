@@ -1,0 +1,30 @@
+{
+  "image": "sha256:7f8acd0cd855b63046cfdf49f21ed319ae6b981758f5fafe2100aed8b4ef21e8",
+  "compile": [
+    "g++",
+    "-std=c++17",
+    "-O3",
+    "-DNDEBUG",
+    "-ffp-contract=off",
+    "-fno-fast-math",
+    "-fno-omit-frame-pointer",
+    "-g",
+    "-I/source/dep/g3dlite",
+    "/evidence/oracle.cpp",
+    "-o",
+    "/evidence/oracle"
+  ],
+  "sources": {
+    "dep/g3dlite/Matrix3.cpp": "6b85f712531b53214d3060ff74a79593394bf4fae49917fce099fea9c019320c",
+    "dep/g3dlite/G3D/Quat.h": "bf884e0b232c6928b72c3b223d39c722e2363002fcaa91edae3ac6edea04f327",
+    "dep/g3dlite/G3D/Matrix3.h": "db91a5d2920eb58ade1d4c4af7aa63f786d7f7e89b618f711b1791d6d2dfa885",
+    "dep/g3dlite/G3D/Vector3.h": "75b8fa263ade1337c4a06d5e6918aa0a7d28bcb107ed405487e62235838125e2",
+    "dep/g3dlite/G3D/g3dmath.h": "61503fbfe922cceaab848ba6571a67f9001ae1023684ad6625cb173e42f17b2f",
+    "src/game/Entities/Transports.cpp": "ea8b73ac9f74783f697718015ccf1dd1e8bcc0bba951ad6aac9a23c84b7ba9b0"
+  },
+  "cases": 105,
+  "source_sha256": "b6e46a996317d0e94abeb06b80bdccbe099add27f055d8899959078a763b38bf",
+  "inputs_sha256": "2044ba4b0edd46182ce15b16af1d4bb0a5ecb4d11e0bc8117add2867e00e9b1c",
+  "oracle_sha256": "1efa858fd346755b907514b2efbeaaa3ec4d16bd5ae1ad118ea24f638b502bda",
+  "expected.tsv_sha256": "9a1e22aef0fa4d74b8efcdb1d1d8ce30b1552c32ab9de4ab4fe2e7050158966e"
+}

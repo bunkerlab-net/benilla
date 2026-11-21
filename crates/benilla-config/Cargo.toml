@@ -1,0 +1,20 @@
+[package]
+name = "benilla-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Executable-adjacent configuration for the experimental peer-to-peer fork"
+
+[lints]
+workspace = true
+
+[dependencies]
+benilla-p2p = { path = "../benilla-p2p" }
+argon2 = { version = "0.5.3", default-features = false, features = ["zeroize"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+toml_edit = "0.22"
+sha2 = "0.10"
+zeroize = "1.8"
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }
+chrono-tz = "=0.10.4"

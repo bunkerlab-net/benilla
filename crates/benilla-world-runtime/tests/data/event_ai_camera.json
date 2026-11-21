@@ -1,0 +1,887 @@
+{
+  "schema": 1,
+  "source_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "source_sha256": "410904520fe2847a855c396d9fe442065268fd4ff5bb510633c3aadb5c54665b",
+  "cases": [
+    {
+      "name": "below200_z_threshold_below",
+      "body_position_bits": [
+        0,
+        0,
+        1105199103
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1128792063,
+      "expected_effective_range_bits": 1103626240,
+      "expected_distance_squared_bits": 1145307134,
+      "expected_delivered": true
+    },
+    {
+      "name": "below200_z_threshold_equal",
+      "body_position_bits": [
+        0,
+        0,
+        1105199104
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1128792063,
+      "expected_effective_range_bits": 1103626240,
+      "expected_distance_squared_bits": 1145307136,
+      "expected_delivered": false
+    },
+    {
+      "name": "below200_z_threshold_above",
+      "body_position_bits": [
+        0,
+        0,
+        1105199105
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1128792063,
+      "expected_effective_range_bits": 1103626240,
+      "expected_distance_squared_bits": 1145307138,
+      "expected_delivered": false
+    },
+    {
+      "name": "at200_z_threshold_below",
+      "body_position_bits": [
+        0,
+        0,
+        1112801279
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1128792064,
+      "expected_effective_range_bits": 1112014848,
+      "expected_distance_squared_bits": 1160744958,
+      "expected_delivered": true
+    },
+    {
+      "name": "at200_z_threshold_equal",
+      "body_position_bits": [
+        0,
+        0,
+        1112801280
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1128792064,
+      "expected_effective_range_bits": 1112014848,
+      "expected_distance_squared_bits": 1160744960,
+      "expected_delivered": false
+    },
+    {
+      "name": "at200_z_threshold_above",
+      "body_position_bits": [
+        0,
+        0,
+        1112801281
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1128792064,
+      "expected_effective_range_bits": 1112014848,
+      "expected_distance_squared_bits": 1160744962,
+      "expected_delivered": false
+    },
+    {
+      "name": "above200_z_threshold_below",
+      "body_position_bits": [
+        0,
+        0,
+        1112801279
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1128792065,
+      "expected_effective_range_bits": 1112014848,
+      "expected_distance_squared_bits": 1160744958,
+      "expected_delivered": true
+    },
+    {
+      "name": "above200_z_threshold_equal",
+      "body_position_bits": [
+        0,
+        0,
+        1112801280
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1128792065,
+      "expected_effective_range_bits": 1112014848,
+      "expected_distance_squared_bits": 1160744960,
+      "expected_delivered": false
+    },
+    {
+      "name": "above200_z_threshold_above",
+      "body_position_bits": [
+        0,
+        0,
+        1112801281
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1128792065,
+      "expected_effective_range_bits": 1112014848,
+      "expected_distance_squared_bits": 1160744962,
+      "expected_delivered": false
+    },
+    {
+      "name": "below400_z_threshold_below",
+      "body_position_bits": [
+        0,
+        0,
+        1112801279
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1137180671,
+      "expected_effective_range_bits": 1112014848,
+      "expected_distance_squared_bits": 1160744958,
+      "expected_delivered": true
+    },
+    {
+      "name": "below400_z_threshold_equal",
+      "body_position_bits": [
+        0,
+        0,
+        1112801280
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1137180671,
+      "expected_effective_range_bits": 1112014848,
+      "expected_distance_squared_bits": 1160744960,
+      "expected_delivered": false
+    },
+    {
+      "name": "below400_z_threshold_above",
+      "body_position_bits": [
+        0,
+        0,
+        1112801281
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1137180671,
+      "expected_effective_range_bits": 1112014848,
+      "expected_distance_squared_bits": 1160744962,
+      "expected_delivered": false
+    },
+    {
+      "name": "at400_z_threshold_below",
+      "body_position_bits": [
+        0,
+        0,
+        1120796671
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1137180672,
+      "expected_effective_range_bits": 1120403456,
+      "expected_distance_squared_bits": 1176880126,
+      "expected_delivered": true
+    },
+    {
+      "name": "at400_z_threshold_equal",
+      "body_position_bits": [
+        0,
+        0,
+        1120796672
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1137180672,
+      "expected_effective_range_bits": 1120403456,
+      "expected_distance_squared_bits": 1176880128,
+      "expected_delivered": false
+    },
+    {
+      "name": "at400_z_threshold_above",
+      "body_position_bits": [
+        0,
+        0,
+        1120796673
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1137180672,
+      "expected_effective_range_bits": 1120403456,
+      "expected_distance_squared_bits": 1176880130,
+      "expected_delivered": false
+    },
+    {
+      "name": "above400_z_threshold_below",
+      "body_position_bits": [
+        0,
+        0,
+        1120796671
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1137180673,
+      "expected_effective_range_bits": 1120403456,
+      "expected_distance_squared_bits": 1176880126,
+      "expected_delivered": true
+    },
+    {
+      "name": "above400_z_threshold_equal",
+      "body_position_bits": [
+        0,
+        0,
+        1120796672
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1137180673,
+      "expected_effective_range_bits": 1120403456,
+      "expected_distance_squared_bits": 1176880128,
+      "expected_delivered": false
+    },
+    {
+      "name": "above400_z_threshold_above",
+      "body_position_bits": [
+        0,
+        0,
+        1120796673
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1137180673,
+      "expected_effective_range_bits": 1120403456,
+      "expected_distance_squared_bits": 1176880130,
+      "expected_delivered": false
+    },
+    {
+      "name": "both_reaches_extend_range",
+      "body_position_bits": [
+        1104150528,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1103626240,
+      "expected_distance_squared_bits": 1143537664,
+      "expected_delivered": true
+    },
+    {
+      "name": "no_reaches_do_not_extend_range",
+      "body_position_bits": [
+        1104150528,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 0,
+      "speaker_reach_bits": 0,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1103626240,
+      "expected_distance_squared_bits": 1143537664,
+      "expected_delivered": false
+    },
+    {
+      "name": "sum_reaches_before_range",
+      "body_position_bits": [
+        1103626240,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 897581056,
+      "speaker_reach_bits": 897581056,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1103626240,
+      "expected_distance_squared_bits": 1142702080,
+      "expected_delivered": true
+    },
+    {
+      "name": "zero_range_zero_distance_strict",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 0,
+      "speaker_reach_bits": 0,
+      "say_range_bits": 0,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 0,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": false
+    },
+    {
+      "name": "zero_range_positive_reach_inside",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1065353216,
+      "speaker_reach_bits": 0,
+      "say_range_bits": 0,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 0,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": true
+    },
+    {
+      "name": "zero_range_positive_reach_equal",
+      "body_position_bits": [
+        0,
+        0,
+        1065353216
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1065353216,
+      "speaker_reach_bits": 0,
+      "say_range_bits": 0,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 0,
+      "expected_distance_squared_bits": 1065353216,
+      "expected_delivered": false
+    },
+    {
+      "name": "three_axis_3_4_12_range_below",
+      "body_position_bits": [
+        1077936128,
+        1082130432,
+        1094713344
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 0,
+      "speaker_reach_bits": 0,
+      "say_range_bits": 1095761919,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1095761919,
+      "expected_distance_squared_bits": 1126760448,
+      "expected_delivered": false
+    },
+    {
+      "name": "three_axis_3_4_12_range_equal",
+      "body_position_bits": [
+        1077936128,
+        1082130432,
+        1094713344
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 0,
+      "speaker_reach_bits": 0,
+      "say_range_bits": 1095761920,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1095761920,
+      "expected_distance_squared_bits": 1126760448,
+      "expected_delivered": false
+    },
+    {
+      "name": "three_axis_3_4_12_range_above",
+      "body_position_bits": [
+        1077936128,
+        1082130432,
+        1094713344
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 0,
+      "speaker_reach_bits": 0,
+      "say_range_bits": 1095761921,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1095761921,
+      "expected_distance_squared_bits": 1126760448,
+      "expected_delivered": true
+    },
+    {
+      "name": "xy_then_z_association",
+      "body_position_bits": [
+        1065353216,
+        964689920,
+        964689920
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 0,
+      "speaker_reach_bits": 0,
+      "say_range_bits": 1065353216,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1065353216,
+      "expected_distance_squared_bits": 1065353216,
+      "expected_delivered": false
+    },
+    {
+      "name": "z_is_not_discarded",
+      "body_position_bits": [
+        0,
+        0,
+        1105723392
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626240,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1103626240,
+      "expected_distance_squared_bits": 1146241024,
+      "expected_delivered": false
+    },
+    {
+      "name": "signed_xyz_and_translated_origin",
+      "body_position_bits": [
+        1191178240,
+        1067450368,
+        3338661888
+      ],
+      "speaker_position_bits": [
+        1191177728,
+        3219128320,
+        3338656768
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1090519040,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1090519040,
+      "expected_distance_squared_bits": 1121714176,
+      "expected_delivered": true
+    },
+    {
+      "name": "signed_zero_strict",
+      "body_position_bits": [
+        2147483648,
+        0,
+        2147483648
+      ],
+      "speaker_position_bits": [
+        0,
+        2147483648,
+        0
+      ],
+      "body_reach_bits": 0,
+      "speaker_reach_bits": 0,
+      "say_range_bits": 0,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 0,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": false
+    },
+    {
+      "name": "body_threshold_exceeds_cell_cap",
+      "body_position_bits": [
+        1141473280,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 0,
+      "speaker_reach_bits": 0,
+      "say_range_bits": 1142292480,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1142292480,
+      "expected_distance_squared_bits": 1217639552,
+      "expected_delivered": true
+    },
+    {
+      "name": "range_bits_3eaaaaab_visibility_100",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1051372203,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1051372203,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": true
+    },
+    {
+      "name": "range_bits_3eaaaaab_visibility_200",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1051372203,
+      "visibility_bits": 1128792064,
+      "expected_effective_range_bits": 1059760811,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": true
+    },
+    {
+      "name": "range_bits_3eaaaaab_visibility_400",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1051372203,
+      "visibility_bits": 1137180672,
+      "expected_effective_range_bits": 1068149419,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": true
+    },
+    {
+      "name": "range_bits_3f800001_visibility_100",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1065353217,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1065353217,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": true
+    },
+    {
+      "name": "range_bits_3f800001_visibility_200",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1065353217,
+      "visibility_bits": 1128792064,
+      "expected_effective_range_bits": 1073741825,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": true
+    },
+    {
+      "name": "range_bits_3f800001_visibility_400",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1065353217,
+      "visibility_bits": 1137180672,
+      "expected_effective_range_bits": 1082130433,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": true
+    },
+    {
+      "name": "range_bits_41c7ffff_visibility_100",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626239,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1103626239,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": true
+    },
+    {
+      "name": "range_bits_41c7ffff_visibility_200",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626239,
+      "visibility_bits": 1128792064,
+      "expected_effective_range_bits": 1112014847,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": true
+    },
+    {
+      "name": "range_bits_41c7ffff_visibility_400",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626239,
+      "visibility_bits": 1137180672,
+      "expected_effective_range_bits": 1120403455,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": true
+    },
+    {
+      "name": "range_bits_41c80001_visibility_100",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626241,
+      "visibility_bits": 1120403456,
+      "expected_effective_range_bits": 1103626241,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": true
+    },
+    {
+      "name": "range_bits_41c80001_visibility_200",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626241,
+      "visibility_bits": 1128792064,
+      "expected_effective_range_bits": 1112014849,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": true
+    },
+    {
+      "name": "range_bits_41c80001_visibility_400",
+      "body_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "speaker_position_bits": [
+        0,
+        0,
+        0
+      ],
+      "body_reach_bits": 1069547520,
+      "speaker_reach_bits": 1069547520,
+      "say_range_bits": 1103626241,
+      "visibility_bits": 1137180672,
+      "expected_effective_range_bits": 1120403457,
+      "expected_distance_squared_bits": 0,
+      "expected_delivered": true
+    }
+  ]
+}

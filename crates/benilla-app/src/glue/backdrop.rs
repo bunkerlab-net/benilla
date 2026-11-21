@@ -4,7 +4,7 @@
 
 use bevy::prelude::*;
 
-use benilla_assets::{sprite_image, sprite_image_tiled, WorldAssets};
+use benilla_assets::{sprite_image, sprite_image_tiled, LooseOpen, WorldAssets};
 
 /// `UI-Tooltip-Background`'s native size, converting a tile period to a `stretch_value`.
 const TOOLTIP_BG_NATIVE: f32 = 64.0;
@@ -60,7 +60,7 @@ pub(super) fn backdrop_edges(
     path: &str,
     images: &mut Assets<Image>,
 ) -> Option<BackdropEdges> {
-    let (w, h, rgba) = assets.decode_rgba(path)?;
+    let (w, h, rgba) = assets.decode_rgba(path, LooseOpen::Index)?;
     let e = h as usize;
     if e == 0 || w as usize != 8 * e {
         warn!("glue art: {path} is {w}x{h}, not an 8-cell edge strip");

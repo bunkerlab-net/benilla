@@ -1,0 +1,23 @@
+{
+  "case_count": 28,
+  "compilation": "Complete unchanged original DetourNavMesh.cpp included directly; unneeded sections discarded",
+  "expected_sha256": "7ed3f2206f4c853bb98339c19799ea20675fa545ae2d38f2037301f16d63b4bb",
+  "finite_supported_cases": 25,
+  "schema": 1,
+  "scope": "Authored edge structs for source predicate behavior only; no serialized navigation output",
+  "source_file": "dep/recastnavigation/Detour/Source/DetourNavMesh.cpp",
+  "source_intervals": [
+    {
+      "end_line": 121,
+      "sha256": "2b4de61eb275fd2f1b1ed37bd664702cf612286c50c202391204d874b6fcfb3d",
+      "start_line": 31
+    },
+    {
+      "end_line": 352,
+      "sha256": "3642da1c0878a39c762c77859910a884143c072473b0e64caf2eb7112fbb37ea",
+      "start_line": 300
+    }
+  ],
+  "source_pin": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "source_sha256": "e82c9a13cf01bea8ef0c6bcc50cef41f7604ce7343a70ef04a8bdc48be21a26a"
+}

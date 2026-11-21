@@ -1,0 +1,77 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// CMaNGOS 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f
+// Policy: cmangos-buildpolypath-zero-distance-v1; only two caller distance locals are initialized.
+// Unchanged methods, G3D, Detour, licenses and full BuildPolyPath review context:
+// point_path_source_fragments.test-fixture. The complete constructor is review-only.
+// Its cache-only initializer projection excludes owner lifecycle and query pointers.
+// ORIGINAL CONSTRUCTOR CONTEXT
+PathFinder::PathFinder(const Unit* owner, bool ignoreNormalization) :
+    m_type(PATHFIND_BLANK), m_useStraightPath(false), m_forceDestination(false), m_straightLine(false),
+    m_pointPathLimit(MAX_POINT_PATH_LENGTH), // TODO: Fix legitimate long paths
+    m_cachedPoints(m_pointPathLimit * VERTEX_SIZE), m_pathPolyRefs(m_pointPathLimit), m_polyLength(0),
+    m_smoothPathPolyRefs(m_pointPathLimit), m_sourceUnit(owner), m_navMesh(nullptr), m_navMeshQuery(nullptr),
+    m_defaultMapId(m_sourceUnit->GetMapId()), m_ignoreNormalization(ignoreNormalization)
+#ifdef ENABLE_PLAYERBOTS
+    , m_defaultInstanceId(m_sourceUnit->GetInstanceId())
+#endif
+{
+    DEBUG_FILTER_LOG(LOG_FILTER_PATHFINDING, "++ PathFinder::PathInfo for %u \n", m_sourceUnit->GetGUIDLow());
+
+    if (MMAP::MMapFactory::IsPathfindingEnabled(m_sourceUnit->GetMapId(), m_sourceUnit))
+    {
+        MMAP::MMapManager* mmap = MMAP::MMapFactory::createOrGetMMapManager();
+        m_defaultNavMeshQuery = mmap->GetNavMeshQuery(m_sourceUnit->GetMapId(), m_sourceUnit->GetInstanceId());
+    }
+
+    createFilter();
+}
+// ORIGINAL CACHE MEMBER DECLARATIONS
+        uint32         m_pointPathLimit;   // limit point path size; min(this, MAX_POINT_PATH_LENGTH)
+        std::vector<float> m_cachedPoints; // caching for BuildPointPath - must be after m_pointPathLimit
+
+        std::vector<dtPolyRef> m_pathPolyRefs;       // array of detour polygon references
+        uint32         m_polyLength;                 // number of polygons in the path
+        std::vector<dtPolyRef> m_smoothPathPolyRefs; // caching for findSmoothPath
+
+
+// ORIGINAL CACHE INITIALIZER PROJECTION
+    m_pointPathLimit(MAX_POINT_PATH_LENGTH), // TODO: Fix legitimate long paths
+    m_cachedPoints(m_pointPathLimit * VERTEX_SIZE), m_pathPolyRefs(m_pointPathLimit), m_polyLength(0),
+    m_smoothPathPolyRefs(m_pointPathLimit)
+// ORIGINAL CALLER PREFIX (not executed)
+    float distToStartPoly, distToEndPoly;
+    float startPoint[VERTEX_SIZE] = {startPos.y, startPos.z, startPos.x};
+    float endPoint[VERTEX_SIZE] = {endPos.y, endPos.z, endPos.x};
+
+    dtPolyRef startPoly = getPolyByLocation(startPoint, &distToStartPoly);
+    dtPolyRef endPoly = getPolyByLocation(endPoint, &distToEndPoly);
+
+
+// REPAIRED CALLER PREFIX (sole semantic amendment)
+    float distToStartPoly = 0.0f, distToEndPoly = 0.0f;
+    float startPoint[VERTEX_SIZE] = {startPos.y, startPos.z, startPos.x};
+    float endPoint[VERTEX_SIZE] = {endPos.y, endPos.z, endPos.x};
+
+    dtPolyRef startPoly = getPolyByLocation(startPoint, &distToStartPoly);
+    dtPolyRef endPoly = getPolyByLocation(endPoint, &distToEndPoly);
+
+
+// ORIGINAL FAR PREDICATE
+    bool farFromPoly = (distToStartPoly > 7.0f || distToEndPoly > 7.0f);
+
+// ORIGINAL SAME-POLYGON TERMINAL
+    // start and end are on same polygon
+    // just need to move in straight line
+    if (startPoly == endPoly)
+    {
+        DEBUG_FILTER_LOG(LOG_FILTER_PATHFINDING, "++ BuildPolyPath :: (startPoly == endPoly)\n");
+
+        BuildShortcut(); // todo move in straight line is different than build shortcut!
+
+        m_pathPolyRefs[0] = startPoly;
+        m_polyLength = 1;
+
+        m_type = farFromPoly ? PATHFIND_INCOMPLETE : PATHFIND_NORMAL;
+        DEBUG_FILTER_LOG(LOG_FILTER_PATHFINDING, "++ BuildPolyPath :: path type %d\n", m_type);
+        return;
+    }
