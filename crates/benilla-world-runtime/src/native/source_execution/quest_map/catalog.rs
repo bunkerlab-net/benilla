@@ -30,6 +30,7 @@ pub const QUEST_TEMPLATE_QUERY: &str = concat!(
 pub struct QuestCatalogInputs<'a> {
     pub creatures: Option<&'a LoadedCreatureTemplates>,
     pub gameobjects: Option<&'a LoadedGameObjectTemplates>,
+    pub items: Option<&'a SourceStartupItems>,
     pub spells: Option<&'a SourceSpellStores>,
     pub progression: Option<&'a player_progression::Rules>,
 }
@@ -38,6 +39,12 @@ impl QuestLoaderOwner for QuestCatalogInputs<'_> {
     fn contains(&mut self, kind: QuestLookup, id: u32) -> Result<bool> {
         match kind {
             QuestLookup::Creature => Ok(self.creatures.ok_or_else(unbound)?.get(id).is_some()),
+            QuestLookup::Item => Ok(self
+                .items
+                .ok_or_else(unbound)?
+                .item_prototype(id)
+                .map_err(|_| unbound())?
+                .is_some()),
             QuestLookup::Talent => Ok(self.spells.ok_or_else(unbound)?.is_talent(id)),
             _ => Err(unbound()),
         }
@@ -58,7 +65,12 @@ impl QuestLoaderOwner for QuestCatalogInputs<'_> {
             ]
         }))
     }
-    // SpellMgr::IsSpellValid (SpellMgr.cpp:2004-2075) has no bound owner.
+    fn spell_valid(&mut self, id: u32, notices: &mut Vec<SpellValidityNotice>) -> Result<bool> {
+        let spells = self.spells.ok_or_else(unbound)?;
+        spells.is_spell_valid(spells.template(id), self.items, true, &mut |notice| {
+            notices.push(notice)
+        })
+    }
     fn max_skill(&mut self) -> Result<u16> {
         Ok(self.progression.ok_or_else(unbound)?.global_skill_max)
     }
@@ -76,7 +88,6 @@ impl SourceQuestMap {
         map.validate_templates(&mut CatalogValidation {
             catalog,
             inputs: &mut inputs,
-            item_ids: None,
             dbcs: BTreeMap::new(),
         })?;
         map.load_quest_relations(
@@ -90,7 +101,6 @@ impl SourceQuestMap {
 struct CatalogValidation<'a, 'b> {
     catalog: &'a mut VerifiedCatalog,
     inputs: &'a mut QuestCatalogInputs<'b>,
-    item_ids: Option<BTreeSet<u32>>,
     dbcs: BTreeMap<QuestLookup, BTreeMap<u32, u32>>,
 }
 
@@ -103,23 +113,7 @@ impl QuestLoaderOwner for CatalogValidation<'_, '_> {
             SkillLine => "SkillLine.dbc",
             Faction => "Faction.dbc",
             MailTemplate => "MailTemplate.dbc",
-            Creature | Talent => return self.inputs.contains(kind, id),
-            Item => {
-                if self.item_ids.is_none() {
-                    self.item_ids =
-                        Some(self.catalog.execution_quest_item_ids().map_err(|error| {
-                            if error.id == "catalog.table" {
-                                unbound()
-                            } else {
-                                error.into()
-                            }
-                        })?);
-                }
-                return Ok(self
-                    .item_ids
-                    .as_ref()
-                    .is_some_and(|items| items.contains(&id)));
-            }
+            Creature | Item | Talent => return self.inputs.contains(kind, id),
         };
         let index =
             match self.dbcs.entry(kind) {
@@ -144,6 +138,9 @@ impl QuestLoaderOwner for CatalogValidation<'_, '_> {
     }
     fn spell_effects(&mut self, id: u32) -> Result<Option<[(u32, i32); 3]>> {
         self.inputs.spell_effects(id)
+    }
+    fn spell_valid(&mut self, id: u32, notices: &mut Vec<SpellValidityNotice>) -> Result<bool> {
+        self.inputs.spell_valid(id, notices)
     }
     fn max_skill(&mut self) -> Result<u16> {
         self.inputs.max_skill()

@@ -2305,8 +2305,9 @@ The group lookup binds directly to F4.05's loaded
 `World.cpp:1101,1104`. It keeps effective flags, activity, and signed links
 with the template. It skips relations to absent quests and reports bad
 givers without dropping their relations, `ObjectMgr.cpp:7940-8034`.
-The catalog binding refuses spell validity checks at
-`ObjectMgr.cpp:4494,4731,4755` until `SpellMgr::IsSpellValid` has an owner.
+Quest and spell checks use the item prototypes retained by
+`SourceStartupItems`. `SpellMgr.cpp:2004-2075` checks products, triggered
+learn spells, and reagents, and records diagnostics without player chat.
 
 `SourceQuestFlags` reproduces the flag-affecting quest loader reads only,
 not complete quest gameplay validation. It sets delivery, spell-event,

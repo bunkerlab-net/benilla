@@ -18,14 +18,30 @@ fn missing_and_filtered_enchantments_do_not_draw_and_invalid_sample_zeroes_prope
     let mut cursor = DrawCursor::default();
     let mut sink = |_| {};
     let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
+    assert_eq!(
+        items.item_prototype(1).unwrap_err().id,
+        "execution.startup_items.item_template_owner"
+    );
     items
         .validate(
-            BTreeMap::from([(0, 2), (1, 0), (2, 1), (3, 2), (4, 3)]),
+            [(0, 2), (1, 0), (2, 1), (3, 2), (4, 3)]
+                .into_iter()
+                .map(|(entry, random_property)| (entry, StartupItemPrototype { random_property }))
+                .collect(),
             &BTreeSet::from([10]),
             &mut random,
         )
         .unwrap();
     assert_eq!(items.items_validated, 4);
+    assert!(items
+        .item_prototypes
+        .as_ref()
+        .unwrap()
+        .keys()
+        .copied()
+        .eq(0..=4));
+    assert!(items.item_prototype(5).unwrap().is_none());
+    assert_eq!(items.item_prototype(3).unwrap().unwrap().random_property, 0);
     assert_eq!(
         items
             .validations
@@ -70,9 +86,14 @@ fn validation_tests_the_selected_enchantment_not_the_property_id() {
     let mut sink = |_| {};
     let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
     items
-        .validate(BTreeMap::from([(1, 7)]), &BTreeSet::from([99]), &mut random)
+        .validate(
+            BTreeMap::from([(1, StartupItemPrototype { random_property: 7 })]),
+            &BTreeSet::from([99]),
+            &mut random,
+        )
         .unwrap();
     assert_eq!(items.validations[0].effective_property, 7);
+    assert_eq!(items.item_prototype(1).unwrap().unwrap().random_property, 7);
 }
 
 #[test]
@@ -124,7 +145,7 @@ fn seal8_full08_catalog_prefix_matches_every_word_and_item_operand_or_explicit_a
         super::super::super::production_compiler::VerifiedCatalog::open(Path::new(&root), false)
             .unwrap();
     let expected_enchantments = catalog.execution_item_enchantments().unwrap();
-    let expected_items = catalog.execution_item_random_properties().unwrap();
+    let expected_items = catalog.execution_item_prototypes().unwrap();
     let mut recorded_enchantments = Vec::new();
     let mut recorded_items = BTreeMap::new();
     let mut address = String::new();
@@ -185,8 +206,13 @@ fn seal8_full08_catalog_prefix_matches_every_word_and_item_operand_or_explicit_a
             if relation == 1 && col == 2 {
                 recorded_enchantments.push((entry, ench, value.parse::<f64>().unwrap() as f32));
             }
-            if relation == 2 && col == property_col && entry != 0 {
-                recorded_items.insert(entry, value.parse::<i64>().unwrap() as u32);
+            if relation == 2 && col == property_col {
+                recorded_items.insert(
+                    entry,
+                    StartupItemPrototype {
+                        random_property: value.parse::<i64>().unwrap() as u32,
+                    },
+                );
             }
         }
         if kind == "mt_state" {
@@ -269,6 +295,16 @@ fn seal8_full08_catalog_prefix_matches_every_word_and_item_operand_or_explicit_a
     let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
     let items = SourceStartupItems::catalog_prefix(&mut catalog, &mut random).unwrap();
     assert_eq!(random.cursor().raw, 3387);
+    assert_eq!(recorded_items.len(), 17_718);
+    assert!(items
+        .item_prototypes
+        .as_ref()
+        .unwrap()
+        .keys()
+        .eq(recorded_items.keys()));
+    assert!(recorded_items
+        .keys()
+        .all(|&entry| items.item_prototype(entry).unwrap().is_some()));
     assert_eq!(
         items
             .validations

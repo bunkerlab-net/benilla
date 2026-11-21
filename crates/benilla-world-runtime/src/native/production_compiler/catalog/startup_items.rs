@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Bounded operands for the startup RandomProperty validation only.
+//! Bounded item prototype and random enchantment operands for startup.
 use super::*;
+use crate::native::source_execution::StartupItemPrototype;
 use spawns::{columns, fill, floating, position, uint};
 
 impl VerifiedCatalog {
@@ -25,7 +26,9 @@ impl VerifiedCatalog {
         })?;
         Ok(rows)
     }
-    pub(crate) fn execution_item_random_properties(&mut self) -> Result<BTreeMap<u32, u32>> {
+    pub(crate) fn execution_item_prototypes(
+        &mut self,
+    ) -> Result<BTreeMap<u32, StartupItemPrototype>> {
         let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
         let cols = columns(&schema, "item_template")?;
         let [entry, property] = [
@@ -36,11 +39,12 @@ impl VerifiedCatalog {
         self.scan("item_template", 0, 256, |row| {
             let mut cells = [None; 256];
             fill(&row, &mut cells)?;
-            let id = uint(cells[entry])?;
-            // ObjectMgr.cpp:2563 starts at one, even if storage contains entry zero.
-            if id != 0 {
-                rows.insert(id, uint(cells[property])?);
-            }
+            rows.insert(
+                uint(cells[entry])?,
+                StartupItemPrototype {
+                    random_property: uint(cells[property])?,
+                },
+            );
             check(rows.len() <= DECODED / 32, "startup_items.view_limit")
         })?;
         Ok(rows)

@@ -85,20 +85,4 @@ impl VerifiedCatalog {
         })?;
         Ok(result)
     }
-
-    // ObjectMgr.cpp:2557-2858 fixes items without erasing entries.
-    pub(crate) fn execution_quest_item_ids(&mut self) -> Result<std::collections::BTreeSet<u32>> {
-        const TABLE: &str = "item_template";
-        check(self.relations.contains_key(TABLE), "catalog.table")?;
-        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
-        let entry = position(&columns(&schema, TABLE)?, "entry")?;
-        let mut ids = std::collections::BTreeSet::new();
-        self.scan(TABLE, 0, 256, |row| {
-            let mut fields = [None; 256];
-            fill(&row, &mut fields)?;
-            ids.insert(uint(fields[entry])?);
-            check(ids.len() <= DECODED / 32, "execution.quests.item_id_limit")
-        })?;
-        Ok(ids)
-    }
 }

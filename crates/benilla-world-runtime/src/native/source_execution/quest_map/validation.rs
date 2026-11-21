@@ -14,6 +14,7 @@ impl SourceQuestTemplate {
         owner: &mut impl QuestLoaderOwner,
         used_mail: &mut BTreeSet<u32>,
         out: &mut Vec<QuestLoadNotice>,
+        spell_notices: &mut Vec<SpellValidityNotice>,
     ) -> Result<()> {
         let mut log = |line, operand| notice(out, line, self.id, operand);
         if self.method >= 3 {
@@ -121,7 +122,11 @@ impl SourceQuestTemplate {
             {
                 log(4490, 0);
                 self.source_spell = 0;
-            } else if !at(owner.spell_valid(self.source_spell), 4494, "spell_validity")? {
+            } else if !at(
+                owner.spell_valid(self.source_spell, spell_notices),
+                4494,
+                "spell_validity",
+            )? {
                 log(4496, 0);
                 self.source_spell = 0;
             }
@@ -291,7 +296,11 @@ impl SourceQuestTemplate {
             }
             let issue = if at(owner.spell_effects(*spell), lookup, "spell_template")?.is_none() {
                 missing
-            } else if !at(owner.spell_valid(*spell), valid, "spell_validity")? {
+            } else if !at(
+                owner.spell_valid(*spell, spell_notices),
+                valid,
+                "spell_validity",
+            )? {
                 broken
             } else if contains(owner, talent, Talent, *spell)? {
                 is_talent

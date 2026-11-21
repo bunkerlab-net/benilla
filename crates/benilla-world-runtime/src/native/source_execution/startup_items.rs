@@ -14,9 +14,16 @@ pub struct StartupItemValidation {
     pub raw_begin: u64,
     pub raw_end: u64,
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StartupItemPrototype {
+    pub random_property: u32,
+}
+
 #[derive(Default, Debug)]
 pub struct SourceStartupItems {
     enchantments: BTreeMap<u32, Vec<(u32, f32)>>,
+    item_prototypes: Option<BTreeMap<u32, StartupItemPrototype>>,
     pub definitions: usize,
     pub items_validated: usize,
     pub validations: Vec<StartupItemValidation>,
@@ -82,35 +89,47 @@ impl SourceStartupItems {
     /// Ascending storage IDs and sampled-result validation, ObjectMgr.cpp:2563,2769-2773.
     pub fn validate<E: RawGenerator, S: FnMut(TraceEvent)>(
         &mut self,
-        items: BTreeMap<u32, u32>,
+        mut items: BTreeMap<u32, StartupItemPrototype>,
         properties: &BTreeSet<u32>,
         random: &mut SourceRandom<'_, E, S>,
     ) -> Result<()> {
-        for (entry, property) in items {
+        for (&entry, prototype) in &mut items {
             if entry == 0 {
                 continue;
             }
             self.items_validated += 1;
+            let property = prototype.random_property;
             if property == 0 {
                 continue;
             }
             let raw_begin = random.cursor().raw;
             let selected = self.enchantment(property, random)?;
+            if !properties.contains(&selected) {
+                prototype.random_property = 0;
+            }
             self.validations.push(StartupItemValidation {
                 entry,
                 original_property: property,
                 selected_enchantment: selected,
-                effective_property: if properties.contains(&selected) {
-                    property
-                } else {
-                    0
-                },
+                effective_property: prototype.random_property,
                 raw_begin,
                 raw_end: random.cursor().raw,
             });
         }
+        // ObjectMgr.cpp:2557-2858 fixes fields without erasing item keys.
+        self.item_prototypes = Some(items);
         Ok(())
     }
+
+    /// ObjectMgr.cpp:4060 looks up an entry in the loaded item storage.
+    pub fn item_prototype(&self, entry: u32) -> Result<Option<&StartupItemPrototype>> {
+        Ok(self
+            .item_prototypes
+            .as_ref()
+            .ok_or_else(|| refuse("execution.startup_items.item_template_owner"))?
+            .get(&entry))
+    }
+
     /// Catalog order is diagnostic, not a sealed F1 occurrence binding.
     pub fn catalog_prefix<E: RawGenerator, S: FnMut(TraceEvent)>(
         catalog: &mut super::super::production_compiler::VerifiedCatalog,
@@ -121,7 +140,7 @@ impl SourceStartupItems {
             "execution.startup_items.initial_world_thread_position",
         )?;
         let mut this = Self::load_enchantments(catalog.execution_item_enchantments()?);
-        let items = catalog.execution_item_random_properties()?;
+        let items = catalog.execution_item_prototypes()?;
         let mut dbc = catalog.dbc_view("ItemRandomProperties.dbc")?;
         let mut properties = BTreeSet::new();
         for ordinal in 0..dbc.record_count() {

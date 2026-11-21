@@ -257,7 +257,7 @@ pub trait QuestLoaderOwner {
     fn spell_effects(&mut self, _id: u32) -> Result<Option<[(u32, i32); 3]>> {
         Err(unbound())
     }
-    fn spell_valid(&mut self, _id: u32) -> Result<bool> {
+    fn spell_valid(&mut self, _id: u32, _notices: &mut Vec<SpellValidityNotice>) -> Result<bool> {
         Err(unbound())
     }
     fn max_skill(&mut self) -> Result<u16> {
@@ -335,6 +335,7 @@ pub struct SourceQuestMap {
     exclusive_groups: BTreeMap<i32, Vec<u32>>,
     relations: [BTreeMap<u32, Vec<u32>>; 4],
     notices: Vec<QuestLoadNotice>,
+    spell_validity_notices: Vec<SpellValidityNotice>,
 }
 
 impl SourceQuestMap {
@@ -371,7 +372,12 @@ impl SourceQuestMap {
             self.templates
                 .get_mut(id)
                 .ok_or_else(|| refuse("execution.quests.quest_index"))?
-                .validate(owner, &mut used_mail, &mut self.notices)?;
+                .validate(
+                    owner,
+                    &mut used_mail,
+                    &mut self.notices,
+                    &mut self.spell_validity_notices,
+                )?;
             self.validate_links(id as u32)?;
         }
         self.load_dependent_breadcrumbs()
@@ -396,6 +402,9 @@ impl SourceQuestMap {
     }
     pub fn notices(&self) -> &[QuestLoadNotice] {
         &self.notices
+    }
+    pub fn spell_validity_notices(&self) -> &[SpellValidityNotice] {
+        &self.spell_validity_notices
     }
 
     /// GameEventMgr.cpp:1062-1069 changes the loaded Quest's activity.

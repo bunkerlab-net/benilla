@@ -24,7 +24,7 @@ impl QuestLoaderOwner for Inputs {
     fn spell_effects(&mut self, id: u32) -> Result<Option<[(u32, i32); 3]>> {
         Ok(self.spells.get(&id).copied())
     }
-    fn spell_valid(&mut self, id: u32) -> Result<bool> {
+    fn spell_valid(&mut self, id: u32, _: &mut Vec<SpellValidityNotice>) -> Result<bool> {
         Ok(!self.invalid.contains(&id))
     }
     fn max_skill(&mut self) -> Result<u16> {
@@ -790,7 +790,7 @@ fn spell_validity_and_talent_are_separate_ordered_owners() {
         fn spell_effects(&mut self, _: u32) -> Result<Option<[(u32, i32); 3]>> {
             Ok(self.present.then_some([(0, 0); 3]))
         }
-        fn spell_valid(&mut self, _: u32) -> Result<bool> {
+        fn spell_valid(&mut self, _: u32, _: &mut Vec<SpellValidityNotice>) -> Result<bool> {
             self.validity.ok_or_else(unbound)
         }
     }

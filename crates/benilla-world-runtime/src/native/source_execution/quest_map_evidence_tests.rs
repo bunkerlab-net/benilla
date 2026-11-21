@@ -297,14 +297,16 @@ fn northshire_recording_and_stock_dump_load_the_same_route_quests() {
 }
 
 #[test]
-fn full_stock_catalog_refuses_at_the_first_unbound_spell_validity_check() {
+fn full_stock_catalog_loads_with_the_recorded_item_owner() {
     use crate::native::production_compiler::VerifiedCatalog;
-    let (Some(root), Some(config)) = (
+    use benilla_sim::source_rng::{DrawCursor, Mt19937, MtState, SourceRandom};
+    let (Some(root), Some(config), Some(trace)) = (
         std::env::var_os("BENILLA_F5_AI_CATALOG"),
         std::env::var_os("BENILLA_F5_EVENT_AI_CONFIG"),
+        std::env::var_os("BENILLA_NORTHSHIRE_A_TRACE"),
     ) else {
         println!(
-            "SKIP full quest catalog: set BENILLA_F5_AI_CATALOG and BENILLA_F5_EVENT_AI_CONFIG"
+            "SKIP full quest catalog: set BENILLA_F5_AI_CATALOG, BENILLA_F5_EVENT_AI_CONFIG and BENILLA_NORTHSHIRE_A_TRACE"
         );
         return;
     };
@@ -323,26 +325,58 @@ fn full_stock_catalog_refuses_at_the_first_unbound_spell_validity_check() {
     )
     .unwrap();
     let mut catalog = VerifiedCatalog::open(Path::new(&root), false).unwrap();
+    let mut trace = Trace {
+        reader: BufReader::new(File::open(trace).unwrap()),
+        line: String::new(),
+    };
+    trace.seek(1724140589); // Northshire A trace.tsv:27942574, first world MT state.
+    let mut state = trace.event("mt_state").split_ascii_whitespace().skip(1);
+    let words = std::array::from_fn(|_| state.next().unwrap().parse().unwrap());
+    let index = state.next().unwrap().parse().unwrap();
+    assert!(state.next().is_none());
+    let mut mt = Mt19937::from_state(MtState { words, index }).unwrap();
+    let mut cursor = DrawCursor::default();
+    let mut sink = |_| {};
+    let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
+    let items = SourceStartupItems::catalog_prefix(&mut catalog, &mut random).unwrap();
+    assert_eq!(items.items_validated, 17_718);
     let creatures = LoadedCreatureTemplates::catalog_diagnostic(&mut catalog).unwrap();
     let gameobjects = LoadedGameObjectTemplates::catalog_diagnostic(&mut catalog).unwrap();
     struct NoLaterOwners;
     impl SpellLoaderOwner for NoLaterOwners {}
     let spells = SourceSpellStores::load(&mut catalog, &mut NoLaterOwners).unwrap();
     // Stock SQL:782869 has RewSpell=28272 for quest 9364; the spell is at :859114.
-    // ObjectMgr.cpp:4731 is its first unbound validation.
+    // The learned spell at stock :859120 points back to spell 28272.
     assert!(spells.template(28272).is_some());
-    let refused = SourceQuestMap::load_catalog(
+    let map = SourceQuestMap::load_catalog(
         &mut catalog,
         QuestCatalogInputs {
             creatures: Some(&creatures),
             gameobjects: Some(&gameobjects),
+            items: Some(&items),
             spells: Some(&spells),
             progression: Some(&rules),
         },
     )
-    .unwrap_err();
+    .unwrap();
+    assert_eq!(map.quest_count(), 4245);
+    let quest = map.template(9364).unwrap();
     assert_eq!(
-        refused.id,
-        "execution.quests.ObjectMgr_4731.spell_validity_owner"
+        (quest.reward_spell, quest.reward_spell_cast),
+        (28272, 28285)
+    );
+    assert_eq!(
+        map.relations
+            .each_ref()
+            .map(|rows| rows.values().map(Vec::len).sum::<usize>()),
+        [257, 208, 3827, 3951]
+    );
+    assert_eq!(
+        map.relations(QuestRelationKind::CreatureEnd, 197)
+            .iter()
+            .filter(|quest| QUEST_IDS.contains(quest))
+            .copied()
+            .collect::<Vec<_>>(),
+        [7, 783]
     );
 }
