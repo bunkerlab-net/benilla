@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Independent seal16 trace lines, used only as assertions after execution.
 use super::{
-    unhex, CreatureAddonAuras, CreatureAddonTable, GridSpawnKind, LoadedCreatureAddons,
+    unhex, CreatureAddonAuras, CreatureAddonTable, GridSpawnKind, HighGuid, LoadedCreatureAddons,
     LoadedCreatureTemplates, ObjectHandle, SourceContinent, SourceDynamicModels,
     SourceEffectiveSpawns, SourceObjectKind, SourceObjects, SourceSpellStores, SourceVMapManager,
     SpellTargetImplicitType, TransportTemplateEvent, SPELL_EFFECT_INFO_TABLE,
@@ -56,6 +56,40 @@ pub(super) fn assert_plaguelands_creature_census(spawns: &SourceEffectiveSpawns)
         counts[0],
         counts[1],
         &counts[2..]
+    );
+}
+
+pub(super) fn assert_garments_reach(spawns: &SourceEffectiveSpawns, addons: &LoadedCreatureAddons) {
+    // initial-classicmangos.sql :429338, :429341-429344.
+    let entries = [12423, 12427, 12428, 12429, 12430];
+    let rows = spawns
+        .pre_terrain_map()
+        .iter()
+        .filter(|(key, spawn)| {
+            key.kind == GridSpawnKind::Creature && entries.contains(&spawn.row.entry)
+        })
+        .map(|(key, spawn)| {
+            // SQL :437897 and :437899-437902. No stock Reset changes the stand byte.
+            assert_eq!(
+                addons
+                    .get(HighGuid::Creature, key.guid, spawn.row.entry)
+                    .unwrap()
+                    .stand_state,
+                8
+            );
+            (key.guid, spawn.row.entry, spawn.row.map)
+        })
+        .collect::<Vec<_>>();
+    // SQL :80645, :83660, :118956, :120782, :126198.
+    assert_eq!(
+        rows,
+        [
+            (224, 12427, 0),
+            (3431, 12430, 1),
+            (44557, 12428, 0),
+            (46717, 12429, 1),
+            (81085, 12423, 0)
+        ]
     );
 }
 
@@ -1122,6 +1156,59 @@ impl TransportTrace {
         }
         expected.len()
     }
+}
+
+pub(super) fn assert_after_garments(
+    births: &[u64],
+    completed: &[(u64, u32)],
+    words: &[(u64, u64, u64)],
+    clocks: &super::active_init::ActiveClocks,
+) {
+    // Map 0, :61479844 through the Elwynn guard factory at :61581173.
+    assert_eq!(
+        (births.len(), births[0], births[171]),
+        (172, 61479846, 61577266)
+    );
+    assert_eq!(
+        digest(births.iter().map(|&line| [line])),
+        "baab52ca3cec8a95455ae598a4f642f32f8aa52d447fb07d19b4e175c6badfdf"
+    );
+    assert_eq!(
+        (completed.len(), completed[0], completed[164]),
+        (165, (61479844, 81085), (61577264, 80161))
+    );
+    assert_eq!(
+        digest(
+            completed
+                .iter()
+                .map(|&(line, guid)| [line, u64::from(guid)])
+        ),
+        "9df53bd39fabcf25a1f5c19f587241e76f5f40d5a699de744860bcb550d05f31"
+    );
+    assert_eq!(
+        (words.len(), words[0], words[1044]),
+        (
+            1045,
+            (61479864, 33206, 907412437),
+            (61577601, 34250, 1316509942)
+        )
+    );
+    assert_eq!(
+        digest(words.iter().map(|&(line, raw, word)| [line, raw, word])),
+        "56a128597c0fce20f0bacb7bccd45815f75f9e4c59fe1de2f1a3b31ff9996683"
+    );
+    assert_eq!(clocks.0[1064].time_line, 61577608);
+    assert_eq!(
+        digest(clocks.0.range(921..1065).map(|c| [
+            c.site_line,
+            c.time_line,
+            c.thread,
+            c.site[2],
+            c.raw,
+            c.seconds as u64
+        ])),
+        "940745b654fc9d5c6f144f13073265d3972a989ae85c09b4e862658c9a6e2d75"
+    );
 }
 
 fn digest<const N: usize>(rows: impl Iterator<Item = [u64; N]>) -> String {

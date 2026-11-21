@@ -234,8 +234,16 @@ is meaningful without a bounded content/mechanics inventory.
   (`spell_scripts.cpp:88-92`, `SpellAuras.cpp:6199-6207`). Unapply leaves the
   period and timer unchanged. The periodic world update remains unported.
   The cast finishes before the respawn draw at trace :61417987. GUID156055
-  completes at :61418323. The map stops at Guard Roberts GUID81085's
-  `npc_garments_of_quests` factory (`ScriptDevAIMgr.cpp:370`, trace :61479761).
+  completes at :61418323.
+- **Garments startup.** `escort_ai.cpp:19-29` initializes the live escort
+  base. The Garments factory and inherited respawn call the same Reset
+  (`npcs_special.cpp:570,579-593`, `CreatureAI.cpp:124-128`). Guard Roberts
+  GUID81085 stays kneeling, gains the PvP flag, and drops to 95 of 137 health.
+  Both phases draw two timer words (trace :61479774-:61479824).
+  Roberts completes at :61479844. Escort movement, player lookup, and
+  spell-hit callbacks remain named refusals. Map 0 stops at the
+  `guard_elwynnforest` factory for GUID80263 (`ScriptDevAIMgr.cpp:370`,
+  trace :61581173).
 - **Stormwind guard startup.** `guard_ai.cpp:29-38,63-81` owns the guard
   base timers and the ranged check after inherited respawn. Stormwind
   calls its salute-only Reset in construction and respawn

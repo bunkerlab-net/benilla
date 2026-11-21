@@ -785,14 +785,26 @@ fn retained_catalog04_all_template_selection_census_or_explicit_absence() {
     assert_eq!(
         scripts
             .iter()
-            .filter(|(name, _)| SourceScriptedAiKind::for_registered_name(name).is_ok())
-            .map(|(name, &count)| (name.as_str(), count))
+            .filter_map(
+                |(name, &count)| match SourceScriptedAiKind::for_registered_name(name) {
+                    Ok(_) => Some((name.as_str(), count)),
+                    Err(error) => {
+                        assert_eq!(
+                            error.id,
+                            format!("execution.ai.ScriptDevAIMgr_370.GetAI_owner.{name}")
+                        );
+                        None
+                    }
+                }
+            )
             .collect::<Vec<_>>(),
         [
             ("boss_azuregos", 1),
             // initial-classicmangos.sql :421134, :422556, :422736.
             ("guard_stormwind", 3),
             ("npc_chicken_cluck", 1),
+            // initial-classicmangos.sql :429338, :429341-429344.
+            ("npc_garments_of_quests", 5),
             ("npc_solenor", 2)
         ]
     );

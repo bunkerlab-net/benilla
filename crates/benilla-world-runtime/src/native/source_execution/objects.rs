@@ -11,6 +11,7 @@ pub(super) const OBJECT_FIELD_GUID: usize = 0x00; // UpdateFields.h:26.
 pub(super) const OBJECT_FIELD_ENTRY: usize = 0x03; // UpdateFields.h:28.
 pub(super) const OBJECT_FIELD_SCALE_X: usize = 0x04; // UpdateFields.h:29.
 pub(super) const UNIT_FIELD_TARGET: usize = OBJECT_END + 0x0a; // UpdateFields.h:73.
+pub(super) const UNIT_FIELD_HEALTH: usize = OBJECT_END + 0x10; // UpdateFields.h:76.
 pub(super) const UNIT_FIELD_POWER2: usize = OBJECT_END + 0x12; // UpdateFields.h:78.
 pub(super) const UNIT_FIELD_FACTIONTEMPLATE: usize = OBJECT_END + 0x1d; // UpdateFields.h:89.
 pub(super) const UNIT_FIELD_BYTES_0: usize = OBJECT_END + 0x1e; // UpdateFields.h:90.

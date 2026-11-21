@@ -8,12 +8,15 @@ use std::sync::Arc;
 mod azuregos;
 #[path = "combat_ai.rs"]
 mod combat_ai;
+#[path = "escort.rs"]
+mod escort;
 #[path = "script_guard.rs"]
 mod script_guard;
 #[path = "solenor.rs"]
 mod solenor;
 pub use azuregos::BossAzuregosAi;
 pub use combat_ai::{CombatActionInitial, CombatAi};
+pub use escort::{EscortAi, GarmentsOfQuestsAi, GarmentsQuestState};
 pub use script_guard::{GuardStormwindAi, ScriptGuardAi};
 pub use solenor::{SolenorAi, SolenorResetOwner};
 
@@ -25,6 +28,7 @@ pub enum SourceScriptedAiKind {
     Azuregos,
     Solenor,
     GuardStormwind,
+    GarmentsOfQuests,
 }
 impl SourceScriptedAiKind {
     pub(crate) fn for_registered_name(name: &str) -> Result<Self> {
@@ -33,13 +37,15 @@ impl SourceScriptedAiKind {
             "boss_azuregos" => Ok(Self::Azuregos),
             "npc_solenor" => Ok(Self::Solenor),
             "guard_stormwind" => Ok(Self::GuardStormwind),
+            // npcs_special.cpp:1162-1165 registers GetAI_npc_garments_of_quests.
+            "npc_garments_of_quests" => Ok(Self::GarmentsOfQuests),
             _ => Err(refuse(&format!("{SCRIPTDEV_GET_AI_OWNER}.{name}"))),
         }
     }
 
     pub(crate) fn action_count(self) -> u32 {
         match self {
-            Self::ChickenCluck | Self::Solenor | Self::GuardStormwind => 0,
+            Self::ChickenCluck | Self::Solenor | Self::GuardStormwind | Self::GarmentsOfQuests => 0,
             Self::Azuregos => BossAzuregosAi::ACTION_COUNT,
         }
     }
@@ -51,6 +57,7 @@ pub enum SourceScriptedAi {
     Azuregos(BossAzuregosAi),
     Solenor(SolenorAi),
     GuardStormwind(GuardStormwindAi),
+    GarmentsOfQuests(GarmentsOfQuestsAi),
 }
 
 // sc_creature.cpp:22-25. ScriptedAI inherits CreatureAI::Reset.
@@ -96,6 +103,10 @@ impl SourceScriptedAi {
             SourceScriptedAiKind::GuardStormwind => {
                 GuardStormwindAi::construct(binding, random).map(Self::GuardStormwind)
             }
+            SourceScriptedAiKind::GarmentsOfQuests => {
+                GarmentsOfQuestsAi::construct(binding, base.unit, objects, units)
+                    .map(Self::GarmentsOfQuests)
+            }
         }
     }
 
@@ -105,6 +116,7 @@ impl SourceScriptedAi {
             Self::Azuregos(ai) => &ai.binding,
             Self::Solenor(ai) => &ai.binding,
             Self::GuardStormwind(ai) => &ai.binding,
+            Self::GarmentsOfQuests(ai) => &ai.binding,
         }
     }
 
@@ -129,6 +141,7 @@ impl SourceScriptedAi {
                 ai.reset();
                 Ok(())
             }
+            Self::GarmentsOfQuests(ai) => ai.reset(objects, units, base.unit),
         }
     }
 
@@ -159,13 +172,13 @@ impl SourceScriptedAi {
                 "execution.ai.ChatHandler_798.ReceiveEmote_owner.npc_chicken_cluck",
             )),
             Self::GuardStormwind(_) => Err(refuse("execution.ai.guards_133.ReceiveEmote_owner")),
-            // Azuregos inherits the empty UnitAI.h:282 callback.
-            Self::Azuregos(_) | Self::Solenor(_) => Ok(()),
+            // These scripts inherit the empty UnitAI.h:282 callback.
+            Self::Azuregos(_) | Self::Solenor(_) | Self::GarmentsOfQuests(_) => Ok(()),
         }
     }
 
     /// Unit.cpp:528 dispatches the override at npcs_special.cpp:90-103.
-    pub fn update_ai(&mut self, _diff: u32) -> Result<()> {
+    pub fn update_ai(&mut self, diff: u32) -> Result<()> {
         match self {
             Self::ChickenCluck(_) => Err(refuse(
                 "execution.ai.Unit_528.UpdateAI_owner.npc_chicken_cluck",
@@ -175,6 +188,7 @@ impl SourceScriptedAi {
             )),
             Self::Solenor(_) => Err(refuse("execution.ai.silithus_203.UpdateAI_owner")),
             Self::GuardStormwind(_) => Err(refuse("execution.ai.guards_120.UpdateAI_owner")),
+            Self::GarmentsOfQuests(ai) => ai.escort.update_ai(diff),
         }
     }
 }
