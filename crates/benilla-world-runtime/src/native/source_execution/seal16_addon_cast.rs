@@ -264,6 +264,7 @@ impl SelfAuraApplicationOwner for Owner<'_> {
             auras: &mut live.auras,
             visibility: &mut live.visibility,
             resistances: &mut live.resistances,
+            stat_modifiers: &mut live.stat_modifiers,
             damage: DamageAuraTarget::new(
                 &mut live.creature_damage,
                 &live.loaded_creature,

@@ -129,6 +129,48 @@ fn skill_bonus_writes_only_the_learned_slot_and_selected_half() {
 }
 
 #[test]
+fn percent_stat_buff_marks_both_live_words_and_can_be_removed() {
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let mut player = construct(&mut objects, &mut units);
+    let object = objects.get(player.object()).unwrap();
+    for amount in [25.0, -100.0] {
+        player.positive_stats[4] = 16.0;
+        player.negative_stats[4] = -8.0;
+        player
+            .apply_stat_percent_buff_mod(&objects, 4, amount, true)
+            .unwrap();
+        if amount == 25.0 {
+            assert_eq!(
+                (player.positive_stats[4], player.negative_stats[4]),
+                (20.0, -10.0)
+            );
+        } else {
+            assert!(player.positive_stats[4] > 0.0 && player.positive_stats[4] < 0.017);
+            assert!(player.negative_stats[4] < 0.0 && player.negative_stats[4] > -0.009);
+        }
+        player
+            .apply_stat_percent_buff_mod(&objects, 4, amount, false)
+            .unwrap();
+        assert_eq!(
+            (player.positive_stats[4], player.negative_stats[4]),
+            (16.0, -8.0)
+        );
+    }
+    assert!(object.field_changed(0x49d).unwrap());
+    assert!(object.field_changed(0x4a2).unwrap());
+    assert!(!object.field_changed(0x49c).unwrap());
+    assert!(!object.field_changed(0x4a1).unwrap());
+    assert_eq!(
+        player
+            .apply_stat_percent_buff_mod(&objects, 5, 25.0, true)
+            .unwrap_err()
+            .id,
+        "execution.player.Player_1824.stat_buff_index"
+    );
+}
+
+#[test]
 fn defense_refresh_keeps_real_dodge_and_marks_only_changed_ui() {
     let mut objects = SourceObjects::default();
     let mut units = SourceUnits::default();
@@ -648,18 +690,22 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             || Ok(107),
         )
         .unwrap_err();
-    assert_eq!(error.id, "execution.spells.AuraHandler.type_137_owner");
-    // Northshire-01 A trace :68133905-68133908,68133982-68133993,68134067-68134073.
-    assert_eq!(clock_reads, 7);
-    // Trace :68133282,68133496. The racial auras add no draw.
+    assert_eq!(error.id, "execution.player.Player_861.outfit_owner");
+    // Northshire-01 A trace :68133905-68133908,68133982-68133993,
+    // :68134067-68134073,68134169-68134198.
+    assert_eq!(clock_reads, 10);
+    // Trace :68133282,68133496. Later creation casts add no draw.
     assert_eq!(raw, [(0, 132_753_960), (1, 40_231_698)]);
     assert_eq!(draws.raw, 2);
     let unit = units.get(&objects, player.object()).unwrap();
     let queue = unit.unit_events.inventory();
-    // SkillLineAbility keys 490,689,1424,1236,700,2927,11728,11730,11731.
-    // Northshire-01 A trace :68133335,68133417,68133506,68133583,
-    // :68133667,68133743,68133825,68133911,68133996.
-    let casts = [204, 81, 522, 203, 227, 5009, 20599, 20597, 20598];
+    // SkillLineAbility keys 490,689,1424,1236,700,2927,11728,11730,11731,11861,590.
+    // Northshire-01 A trace :68133335,68133417,68133506,68133583,68133667,
+    // :68133743,68133825,68133911,68133996,68134076,68134201,68134280,
+    // :68134359,68134441,68134518. Perception 20600 does not cast.
+    let casts = [
+        204, 81, 522, 203, 227, 5009, 20599, 20597, 20598, 20864, 668, 2382, 3050, 9078, 9125,
+    ];
     assert_eq!(queue.queued.len(), casts.len());
     assert_eq!(queue.clock_ms, 0);
     for (index, (event, id)) in queue.queued.iter().zip(casts).enumerate() {
@@ -689,30 +735,27 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             );
             assert!(!target.missed && target.processed && cast.pending_aura.is_none());
         }
-        if id == 20598 {
-            assert_eq!(cast.state, SourceSpellState::Landing);
-            assert!(cast.executing);
-            assert_eq!(player.active_mod_spell, Some(spell));
-        } else {
-            assert_eq!(cast.state, SourceSpellState::Finished);
-            assert!(!cast.executing);
-        }
+        assert_eq!(cast.state, SourceSpellState::Finished);
+        assert!(!cast.executing);
         if insertion <= 3 {
             assert_eq!(cast.creation_time, 100);
         }
-        // Stock SQL :853804-853806 use fixed effect values.
+        // Stock SQL :853804-853806,854031 use fixed effect values.
         assert_eq!(
             cast.damage_per_effect,
             match id {
                 20599 => [10, 0, 0],
                 20597 => [5, 5, 0],
                 20598 => [5, 0, 0],
+                20864 => [5, 5, 0],
                 _ => [0; 3],
             }
         );
     }
-    // Spell.cpp:3170 and trace :68133996. The ninth cast has not returned.
-    assert_eq!(unit.auras.cast_counter, 1);
+    // Spell.cpp:3356,3735,8109. All fifteen casts have returned.
+    assert_eq!(unit.auras.cast_counter, 0);
+    assert_eq!(player.active_mod_spell, None);
+    assert_eq!(unit.auras.aura_holders().count(), 4);
     let diplomacy = unit.auras.first_aura_holder(20599).unwrap();
     assert!(diplomacy.ready && diplomacy.passive && diplomacy.permanent);
     assert!(diplomacy.skip_update);
@@ -742,14 +785,46 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             .any(|row| row.id_step[0] == skill as u16));
     }
     let spirit = unit.auras.first_aura_holder(20598).unwrap();
-    assert!(!spirit.ready);
+    assert!(spirit.ready && spirit.passive && spirit.permanent);
+    assert_eq!(spirit.apply_time, 1_795_246_040);
     let aura = spirit.effects[0].as_ref().unwrap();
     assert_eq!((aura.kind, aura.misc, aura.amount), (137, 4, 5));
-    assert!(!aura.applied);
-    // SQL :837917 and :841758 add the Staves and Wands masks. The session
-    // drops both packets before the Create response at trace :68135391-68135392.
-    assert_eq!(player.weapon_proficiency, 0x0008_0400);
-    assert_eq!(player.armor_proficiency, 0);
+    assert!(aura.applied);
+    // Unit.cpp:363,8996-9017. Creation writes the multiplier without UpdateStats.
+    assert_eq!(
+        unit.stat_modifiers
+            .map(|group| group.total_percent.to_bits()),
+        [
+            0x3f80_0000,
+            0x3f80_0000,
+            0x3f80_0000,
+            0x3f80_0000,
+            0x3f86_6666
+        ]
+    );
+    assert_eq!(player.mental_and_stamina[2], 22);
+    assert_eq!(player.positive_stats, [0.0; 5]);
+    assert_eq!(player.negative_stats, [0.0; 5]);
+    let mace = unit.auras.first_aura_holder(20864).unwrap();
+    assert!(mace.ready && mace.passive && mace.permanent);
+    assert_eq!(mace.apply_time, 1_795_246_040);
+    assert!(mace.effects[2].is_none());
+    // Stock SQL :854031; trace :68134169-68134198.
+    for (aura, skill) in mace.effects[..2].iter().zip([54, 160]) {
+        let aura = aura.as_ref().unwrap();
+        assert_eq!(
+            (aura.kind, aura.misc, aura.amount, aura.apply_time),
+            (98, skill, 5, 1_795_246_040)
+        );
+        assert!(aura.applied);
+        assert!(!player
+            .skills()
+            .iter()
+            .any(|row| row.id_step[0] == skill as u16));
+    }
+    // Northshire-01 A client-packets.jsonl:16-17; SQL :839555,845058,845096.
+    assert_eq!(player.weapon_proficiency, 0x0008_4400);
+    assert_eq!(player.armor_proficiency, 0x3);
     // Stock SQL :671412; SkillLine.dbc key 95; StatSystem.cpp:484,493-502.
     assert_eq!(unit.mod_dodge_chance.to_bits(), 0x4099_9cc6);
     assert_eq!(player.dodge_percentage.to_bits(), 0x4094_7e0e);
@@ -765,25 +840,13 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         dependent: true,
         disabled: false,
     };
-    assert_eq!(
-        player.spellbook(),
-        &BTreeMap::from([
-            (81, learned),
-            (133, learned),
-            (168, learned),
-            (203, learned),
-            (204, learned),
-            (227, learned),
-            (522, learned),
-            (5009, learned),
-            (5019, learned),
-            (20597, learned),
-            (20598, learned),
-            (20599, learned),
-            (20600, learned), // SkillLineAbility keys 11728-11730 grant it before Sword.
-        ])
-    );
-    assert!(player.action_buttons().is_empty());
+    assert!(player.spellbook().values().all(|&spell| spell == learned));
+    // Keys 11728-11730 grant Perception 20600 before Sword without a cast.
+    for id in [
+        81, 133, 168, 203, 204, 227, 522, 5009, 5019, 20597, 20598, 20599, 20600,
+    ] {
+        assert_eq!(player.spellbook().get(&id), Some(&learned));
+    }
     // Northshire-01 A proxy-requests.jsonl:534-535,1647-1648.
     assert_eq!(
         rows.skills(1, 8)
@@ -805,6 +868,9 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             ([228, 0], [1, 5]),
             ([237, 1], [5, 5]),
             ([754, 1], [5, 5]),
+            ([98, 0], [300, 300]), // SkillLine.dbc key 98 and Player.cpp:5833-5835.
+            // Ability key 4999, SkillRaceClassInfo key 148 and Player.cpp:5776.
+            ([415, 0], [1, 1]),
         ]
         .map(|(id_step, value_max)| SourcePlayerSkill {
             id_step,
@@ -816,6 +882,14 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     assert!(object.field_changed(0x2ce).unwrap());
     assert!(object.field_changed(0x2cf).unwrap());
     assert!(!object.field_changed(0x2d0).unwrap());
+    assert!(object.field_changed(0x2e6).unwrap());
+    assert!(object.field_changed(0x2e7).unwrap());
+    assert!(!object.field_changed(0x2e8).unwrap());
+    assert!(object.field_changed(0x2e9).unwrap());
+    assert!(object.field_changed(0x2ea).unwrap());
+    assert!(!object.field_changed(0x2eb).unwrap());
+    assert!(!object.field_changed(PLAYER_FIELD_POSSTAT0 + 4).unwrap());
+    assert!(!object.field_changed(PLAYER_FIELD_NEGSTAT0 + 4).unwrap());
     assert!(!object.field_changed(0x452).unwrap());
     assert!(object.field_changed(0x453).unwrap());
     assert!(!object.field_changed(0x454).unwrap());
@@ -835,29 +909,29 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     assert_eq!(unit.power_type, Some(0));
     assert_eq!(player.create_stats, [20, 20, 20, 23, 22]);
     assert_eq!(unit.creature_damage.attack_power_words(), [10, 10]);
-    // Northshire-01 A client-packets.jsonl:26 and trace:68539472.
-    // Compare the SQL grant order to the packet's sorted spell IDs.
-    assert_eq!(
-        rows.spells(1, 8),
-        [
-            81, 133, 168, 203, 204, 227, 522, 668, 2382, 2479, 3050, 3365, 5009, 5019, 6233, 6246,
-            6247, 6477, 6478, 6603, 7266, 7267, 7355, 8386, 9078, 9125, 20597, 20598, 20599, 20600,
-            20864, 21651, 21652, 22027, 22810
-        ]
-    );
+    // Northshire-01 A client-packets.jsonl:26 and trace :68539472.
+    let packet_spells = [
+        81, 133, 168, 203, 204, 227, 522, 668, 2382, 2479, 3050, 3365, 5009, 5019, 6233, 6246,
+        6247, 6477, 6478, 6603, 7266, 7267, 7355, 8386, 9078, 9125, 20597, 20598, 20599, 20600,
+        20864, 21651, 21652, 22027, 22810,
+    ];
+    assert_eq!(rows.spells(1, 8), packet_spells);
     // Northshire-01 A client-packets.jsonl:27 and trace:68539567.
+    let packet_actions = [
+        (0, 6603),
+        (1, 133),
+        (2, 168),
+        (10, 0x8000_009f),
+        (11, 0x8000_0816),
+    ];
+    assert_eq!(player.action_buttons().len(), packet_actions.len());
+    assert_eq!(player.spellbook().len(), packet_spells.len());
     assert_eq!(
         rows.actions(1, 8)
             .iter()
             .map(|row| (row.button, row.action | (u32::from(row.kind) << 24)))
             .collect::<Vec<_>>(),
-        [
-            (0, 6603),
-            (1, 133),
-            (2, 168),
-            (10, 0x8000_009f),
-            (11, 0x8000_0816)
-        ]
+        packet_actions
     );
     assert!(rows.items(1, 8).is_empty());
 

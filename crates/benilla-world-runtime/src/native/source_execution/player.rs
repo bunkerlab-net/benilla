@@ -49,6 +49,8 @@ const PLAYER_GUILD_TIMESTAMP: usize = 0xc5;
 const PLAYER_NEXT_LEVEL_XP: usize = 0x2cd;
 const PLAYER_CHARACTER_POINTS2: usize = 0x44f;
 const PLAYER_FIELD_COINAGE: usize = 0x498;
+const PLAYER_FIELD_POSSTAT0: usize = 0x499;
+const PLAYER_FIELD_NEGSTAT0: usize = 0x49e;
 const PLAYER_FIELD_MOD_DAMAGE_DONE_PCT: usize = 0x4bf;
 const PLAYER_FIELD_WATCHED_FACTION_INDEX: usize = 0x4ed;
 
@@ -119,6 +121,9 @@ pub struct SourcePlayer {
     pub next_level_xp: u32,
     pub attack_times: [f32; 3],
     pub damage_done_percent: [f32; 7],
+    // Object.cpp:105-108 zeros the positive and negative stat update words.
+    positive_stats: [f32; 5],
+    negative_stats: [f32; 5],
     // Object.cpp:105-108 and Player.cpp:2883-2887 start the display words at zero.
     block_percentage: f32,
     parry_percentage: f32,
@@ -208,6 +213,8 @@ impl SourcePlayer {
                 next_level_xp: 0,
                 attack_times: [0.0; 3],
                 damage_done_percent: [0.0; 7],
+                positive_stats: [0.0; 5],
+                negative_stats: [0.0; 5],
                 block_percentage: 0.0,
                 parry_percentage: 0.0,
                 dodge_percentage: 0.0,
@@ -616,6 +623,41 @@ impl SourcePlayer {
             PLAYER_CHARACTER_POINTS2,
             &mut self.free_primary_professions,
             count.into(),
+        )?;
+        Ok(())
+    }
+
+    // Player.h:1824-1828 and Object.h:456-459.
+    fn apply_stat_percent_buff_mod(
+        &mut self,
+        objects: &SourceObjects,
+        stat: usize,
+        amount: f32,
+        apply: bool,
+    ) -> Result<()> {
+        require(
+            stat < self.positive_stats.len(),
+            "execution.player.Player_1824.stat_buff_index",
+        )?;
+        let amount = if amount == -100.0 { -99.9 } else { amount };
+        let factor = if apply {
+            (100.0 + amount) / 100.0
+        } else {
+            100.0 / (100.0 + amount)
+        };
+        let positive = &mut self.positive_stats[stat];
+        let negative = &mut self.negative_stats[stat];
+        objects.set_update_value(
+            self.object,
+            PLAYER_FIELD_POSSTAT0 + stat,
+            positive,
+            *positive * factor,
+        )?;
+        objects.set_update_value(
+            self.object,
+            PLAYER_FIELD_NEGSTAT0 + stat,
+            negative,
+            *negative * factor,
         )?;
         Ok(())
     }

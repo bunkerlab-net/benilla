@@ -605,6 +605,11 @@ impl SelfAuraApplicationOwner for PlayerCast<'_, '_> {
             .modify_skill_bonus(self.objects, unit, skill, delta, permanent)
     }
 
+    fn apply_stat_percent_buff_mod(&mut self, stat: usize, amount: f32, apply: bool) -> Result<()> {
+        self.player
+            .apply_stat_percent_buff_mod(self.objects, stat, amount, apply)
+    }
+
     fn self_aura_application(&mut self) -> Result<SelfAuraApplication<'_>> {
         let target = self.player.object;
         let live = self.units.get_mut(self.objects, target)?;
@@ -619,6 +624,7 @@ impl SelfAuraApplicationOwner for PlayerCast<'_, '_> {
             auras: &mut live.auras,
             visibility: &mut live.visibility,
             resistances: &mut live.resistances,
+            stat_modifiers: &mut live.stat_modifiers,
             damage: DamageAuraTarget::new(
                 &mut live.creature_damage,
                 &live.loaded_creature,

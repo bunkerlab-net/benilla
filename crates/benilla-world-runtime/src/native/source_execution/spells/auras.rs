@@ -1360,6 +1360,7 @@ pub struct SelfAuraApplication<'a> {
     pub auras: &'a mut SourceUnitAuras,
     pub visibility: &'a mut SourceUnitVisibility,
     pub resistances: &'a mut SourceUnitResistances,
+    pub(in crate::native::source_execution) stat_modifiers: &'a mut [StatModifierGroup; 5],
     pub damage: DamageAuraTarget<'a>,
     pub can_modify_stats: bool,
     pub threat_modifier: &'a mut [f32; 7],
@@ -1385,6 +1386,16 @@ pub trait SelfAuraApplicationOwner: SpellExecutionOwner {
         ))
     }
 
+    // SpellAuras.cpp:3562 applies the client stat buff after the Unit modifier.
+    fn apply_stat_percent_buff_mod(
+        &mut self,
+        _stat: usize,
+        _amount: f32,
+        _apply: bool,
+    ) -> Result<()> {
+        Err(refuse("execution.spells.AuraHandler.type_137_owner"))
+    }
+
     fn cast_aura_boost(&mut self, _caster: ObjectHandle, _spell: u32, _aura: u32) -> Result<()> {
         Err(refuse("execution.spells.Aura_4291.CastSpell_owner"))
     }
@@ -1406,6 +1417,7 @@ pub(crate) enum SelfAuraApplyHandler {
     DamagePercent,
     SkillBonus,
     SpellModifier,
+    TotalPercentStat,
     NoImmediateEffect,
     Ghost,
 }
@@ -1434,6 +1446,7 @@ impl SelfAuraApplyHandler {
             // SpellAuras.cpp:168-169.
             107 | 108 => Self::SpellModifier,
             126 | 156 => Self::NoImmediateEffect, // SpellAuras.cpp:187,217.
+            137 => Self::TotalPercentStat,        // SpellAuras.cpp:198.
             _ => return None,
         })
     }
@@ -1487,6 +1500,15 @@ pub fn apply_self_aura_holder(
                 continue;
             }
             Some(SelfAuraApplyHandler::SkillBonus) => {} // SpellAuras.cpp:2062-2063.
+            Some(SelfAuraApplyHandler::TotalPercentStat) => {
+                let (misc, amount) = (aura.misc, aura.amount);
+                handle_mod_total_percent_stat(owner, t, misc, amount, true)?;
+                owner
+                    .self_aura_application()?
+                    .auras
+                    .mark_effect_applied(holder, i)?;
+                continue;
+            }
             Some(SelfAuraApplyHandler::SpellModifier) => {
                 handle_add_spell_modifier(unit.player, aura.misc)?;
             }
@@ -1631,6 +1653,63 @@ pub fn apply_self_aura_holder(
         .self_aura_application()?
         .auras
         .apply_holder_boosts(stores, t, holder)
+}
+
+// SpellAuras.cpp:3542-3572. SharedDefines.h:138-147 defines the stat indices.
+fn handle_mod_total_percent_stat(
+    owner: &mut impl SelfAuraApplicationOwner,
+    spell: &SpellTemplate,
+    misc: i32,
+    amount: i32,
+    apply: bool,
+) -> Result<()> {
+    use super::resistance::{StatModifierUnit, UnitMod};
+
+    require(
+        (-1..=4).contains(&misc),
+        "execution.spells.SpellAuras_3544.stat_misc_range",
+    )?;
+    let mut live = owner.self_aura_application()?;
+    let before = live
+        .vitals
+        .as_ref()
+        .ok_or_else(|| refuse("execution.spells.SpellAuras_3553.health_owner"))?;
+    let (health, max_health) = (before.health, before.max_health);
+    let amount = amount as f32;
+    for stat in 0..live.stat_modifiers.len() {
+        if misc != -1 && misc != stat as i32 {
+            continue;
+        }
+        StatModifierUnit {
+            objects: live.unit.objects,
+            unit: live.unit.target,
+            can_modify: live.can_modify_stats,
+            player: live.unit.player,
+            totem: live.unit.totem,
+        }
+        .handle_stat_modifier(
+            UnitMod::Stat(&mut live.stat_modifiers[stat]),
+            ResistanceModifier::TotalPercent,
+            amount,
+            apply,
+        )?;
+        if live.unit.player {
+            owner.apply_stat_percent_buff_mod(stat, amount, apply)?;
+            live = owner.self_aura_application()?;
+        }
+    }
+    // SpellDefines.h:34. Only a stamina ability preserves the health ratio.
+    if misc == 2 && max_health > 0 && spell.attributes & 0x10 != 0 {
+        let after = live
+            .vitals
+            .as_ref()
+            .ok_or_else(|| refuse("execution.spells.SpellAuras_3567.health_owner"))?;
+        if after.health > 0 {
+            let _new_health = (after.max_health.wrapping_mul(health) / max_health).max(1);
+            return Err(refuse("execution.spells.SpellAuras_3571.SetHealth_owner"));
+        }
+    }
+    Ok(())
 }
 // SpellAuras.cpp:2621-2624; ObjectVisibility.h:80 adds an unsigned value.
 fn handle_mod_stealth_detect(

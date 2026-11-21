@@ -173,6 +173,9 @@ pub struct SourceUnitFields {
     /// Unit.cpp:367-386. Live resistance groups and derived armor field.
     #[serde(skip)]
     pub resistances: SourceUnitResistances,
+    /// Unit.cpp:367-373 initializes all five primary stat modifier groups.
+    #[serde(skip)]
+    pub(super) stat_modifiers: [StatModifierGroup; 5],
     #[serde(skip)]
     pub creature_damage: SourceCreatureDamage,
     /// Unit.cpp:398-400 initializes the unadjusted modifiers to zero.
@@ -524,6 +527,7 @@ impl SourceUnitFields {
             auras: SourceUnitAuras::default(),
             visibility: SourceUnitVisibility::default(),
             resistances: SourceUnitResistances::default(),
+            stat_modifiers: [StatModifierGroup::default(); 5],
             creature_damage: SourceCreatureDamage::default(),
             mod_dodge_chance: 0.0,
             mod_parry_chance: 0.0,

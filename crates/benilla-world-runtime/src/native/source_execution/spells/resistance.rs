@@ -13,11 +13,11 @@ pub enum ResistanceModifier {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct StatModifierGroup {
+pub(in crate::native::source_execution) struct StatModifierGroup {
     pub(super) base_value: f32,
     pub(super) base_percent: f32,
     pub(super) total_value: f32,
-    pub(super) total_percent: f32,
+    pub(in crate::native::source_execution) total_percent: f32,
 }
 
 impl Default for StatModifierGroup {
@@ -62,6 +62,7 @@ impl StatModifierGroup {
 }
 
 pub(super) enum UnitMod<'a> {
+    Stat(&'a mut StatModifierGroup),
     Resistance(&'a mut SourceUnitResistances, usize),
     Damage(
         &'a mut SourceCreatureDamage,
@@ -89,6 +90,7 @@ impl StatModifierUnit<'_> {
         apply: bool,
     ) -> Result<()> {
         match &mut group {
+            UnitMod::Stat(group) => group,
             UnitMod::Resistance(state, school) => &mut state.groups[*school],
             UnitMod::Damage(state, attack, _) => state.group(*attack),
         }
@@ -97,6 +99,7 @@ impl StatModifierUnit<'_> {
             return Ok(());
         }
         match group {
+            UnitMod::Stat(_) => Err(refuse("execution.spells.Unit_9017.UpdateStats_owner")),
             UnitMod::Resistance(state, 0) => {
                 require(
                     !self.player,

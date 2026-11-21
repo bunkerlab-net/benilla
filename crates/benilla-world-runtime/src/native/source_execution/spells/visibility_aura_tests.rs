@@ -115,19 +115,117 @@ impl SelfAuraApplicationOwner for Target {
             auras: &mut self.unit.auras,
             visibility: &mut self.unit.visibility,
             resistances: &mut self.unit.resistances,
+            stat_modifiers: &mut self.unit.stat_modifiers,
             damage: DamageAuraTarget::new(
                 &mut self.unit.creature_damage,
                 &self.unit.loaded_creature,
                 self.unit.flags,
                 self.unit.shapeshift_form,
             ),
-            can_modify_stats: false,
+            can_modify_stats: self.unit.loaded_creature.can_modify_stats,
             threat_modifier: &mut self.unit.threat_modifier,
             power_fields: &mut self.unit.power_fields,
             power_type: self.unit.power_type.as_mut(),
             vitals: &mut self.unit.vitals,
             form: &mut self.unit.shapeshift_form,
         })
+    }
+}
+
+#[test]
+fn total_percent_stat_changes_unit_groups_before_the_player_or_health_write() {
+    let stores = SourceSpellStores::default();
+    let single = [false, false, true, false, false];
+    for (player, misc, attributes, vitals, can_modify, changed, error) in [
+        (
+            false,
+            -2,
+            0,
+            None,
+            false,
+            [false; 5],
+            Some("execution.spells.SpellAuras_3544.stat_misc_range"),
+        ),
+        (
+            false,
+            5,
+            0,
+            None,
+            false,
+            [false; 5],
+            Some("execution.spells.SpellAuras_3544.stat_misc_range"),
+        ),
+        (
+            false,
+            0,
+            0,
+            None,
+            false,
+            [false; 5],
+            Some("execution.spells.SpellAuras_3553.health_owner"),
+        ),
+        (false, -1, 0x10, Some((5, 10)), false, [true; 5], None),
+        (false, 2, 0, Some((5, 10)), false, single, None),
+        (false, 2, 0x10, Some((0, 10)), false, single, None),
+        (false, 2, 0x10, Some((5, 0)), false, single, None),
+        (
+            false,
+            2,
+            0x10,
+            Some((5, 10)),
+            false,
+            single,
+            Some("execution.spells.SpellAuras_3571.SetHealth_owner"),
+        ),
+        (
+            true,
+            -1,
+            0,
+            Some((5, 10)),
+            true,
+            [true, false, false, false, false],
+            Some("execution.spells.Unit_9017.UpdateStats_owner"),
+        ),
+        (
+            true,
+            -1,
+            0,
+            Some((5, 10)),
+            false,
+            [true, false, false, false, false],
+            Some("execution.spells.AuraHandler.type_137_owner"),
+        ),
+    ] {
+        let mut target = Target::new(player, false);
+        target.unit.loaded_creature.can_modify_stats = can_modify;
+        target.unit.vitals = vitals.map(|(health, max_health)| SourceUnitVitals {
+            health,
+            max_health,
+            mana: 0,
+            max_mana: 0,
+            has_mana: false,
+            energy: 0,
+            max_energy: 0,
+        });
+        let t = SpellTemplate {
+            id: 1,
+            attributes,
+            effect1: 6,
+            effectapplyauraname1: 137,
+            effectmiscvalue1: misc,
+            ..Default::default()
+        };
+        let id = target.holder(&t, 25);
+        assert_eq!(
+            apply_self_aura_holder(&mut target, &stores, &t, id)
+                .err()
+                .map(|err| err.id),
+            error.map(str::to_owned),
+        );
+        assert_eq!(
+            target.unit.stat_modifiers.map(|group| group.total_percent),
+            changed.map(|changed| if changed { 1.25 } else { 1.0 }),
+        );
     }
 }
 
