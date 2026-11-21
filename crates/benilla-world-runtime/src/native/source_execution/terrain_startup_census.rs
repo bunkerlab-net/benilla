@@ -183,7 +183,10 @@ fn frozen_startup(later: bool) {
         trace_line += 1;
         let mut fields = line.trim_end().splitn(4, '\t');
         let thread = fields.next().unwrap().parse::<u64>().unwrap();
-        if thread != 1 && !(later && matches!(thread, 6 | 7)) {
+        if thread != 1
+            && !(later
+                && (matches!(thread, 6 | 7) || seal16::MAP_UPDATER_TRACE.contains(&trace_line)))
+        {
             continue;
         }
         let _seq = fields.next().unwrap();

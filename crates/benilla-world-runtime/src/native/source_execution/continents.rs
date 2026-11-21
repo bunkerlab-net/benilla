@@ -114,6 +114,36 @@ impl ContinentConfig {
     }
 }
 
+pub struct MapUpdaterConfig(i32);
+
+impl MapUpdaterConfig {
+    // World.cpp:625,2395-2402 defaults a missing or negative MapUpdate.Threads to 3.
+    pub fn parse(bytes: &[u8]) -> Result<Self> {
+        const DEFAULT_MAP_THREADS: i32 = 3;
+        let value = match spawn_loader_config::assignment(bytes, "MapUpdate.Threads") {
+            Ok((_, raw)) => {
+                // Config.cpp:127-132 uses std::stoi and accepts a decimal prefix.
+                let raw = raw.trim_ascii_start();
+                let digits = raw.strip_prefix(['+', '-']).unwrap_or(raw);
+                let end = raw.len() - digits.len()
+                    + digits.bytes().take_while(u8::is_ascii_digit).count();
+                raw[..end]
+                    .parse::<i32>()
+                    .map_err(|_| refuse("execution.continents.config_integer"))?
+            }
+            Err(e) if e.id == "execution.spawn_loader.config_missing.MapUpdate.Threads" => {
+                DEFAULT_MAP_THREADS
+            }
+            Err(e) => return Err(e),
+        };
+        Ok(Self(if value < 0 {
+            DEFAULT_MAP_THREADS
+        } else {
+            value
+        }))
+    }
+}
+
 /// These are actual cold constructor fields, not initialized manager outcomes.
 pub struct SourceContinent {
     pub identity: MapIdentity,
@@ -313,6 +343,7 @@ pub struct SourceContinents {
     pub grid_states: [NGridPhase; 4],
     pub max_instance_id: u32,
     pub maps: [SourceContinent; 2],
+    updater: SourceScheduler,
 }
 
 pub struct ReadySourceContinents(SourceContinents);
@@ -321,10 +352,49 @@ impl ReadySourceContinents {
         &self.0
     }
 
-    // MapManager.cpp:58 activates the updater only after the continent join.
-    pub fn activate_map_updater(&self) -> Result<()> {
+    // MapManager.cpp:56-58 reads the signed thread count after the continent join.
+    pub fn activate_map_updater(
+        &mut self,
+        config: &MapUpdaterConfig,
+        worker_births: &[ThreadBirth],
+    ) -> Result<()> {
+        if config.0 > 0 {
+            self.activate(config.0 as usize, worker_births)?;
+        }
+        Ok(())
+    }
+
+    // MapUpdater.cpp:28-35,61-64 derives activation from the presence of workers.
+    fn activate(&mut self, workers: usize, worker_births: &[ThreadBirth]) -> Result<()> {
+        if self.0.updater.worker_count() != 0 {
+            return Ok(());
+        }
+        require(
+            workers == worker_births.len(),
+            "execution.continents.map_updater_birth_count",
+        )?;
+        // Deviation: Use logical workers because replay follows recorded thread identities.
+        for &birth in worker_births {
+            self.0.updater.birth(birth, ThreadRole::MapWorker)?;
+        }
+        Ok(())
+    }
+
+    pub fn map_updater(&self) -> &SourceScheduler {
+        &self.0.updater
+    }
+
+    // MapManager.cpp:203 queues an update when the updater is active.
+    pub fn schedule_map_update(&mut self, _job: MapJob) -> Result<()> {
         Err(refuse(
-            "execution.continents.MapManager_58.activate_map_updater_owner",
+            "execution.continents.MapManager_203.schedule_update_owner",
+        ))
+    }
+
+    // World.cpp:1394 calls BattleGroundMgr after MapManager::Initialize returns.
+    pub fn create_initial_battlegrounds(&self) -> Result<()> {
+        Err(refuse(
+            "execution.world.World_1394.create_initial_battlegrounds_owner",
         ))
     }
 }
@@ -412,6 +482,7 @@ impl SourceContinents {
             grid_states,
             max_instance_id,
             maps: [map0, map1],
+            updater: SourceScheduler::default(), // MapUpdater.h:36,49-56.
         })
     }
 }

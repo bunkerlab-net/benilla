@@ -53,6 +53,93 @@ fn both_completed_jobs_make_continents_ready() {
     );
 }
 
+fn updater_config(setting: &str) -> Result<MapUpdaterConfig> {
+    MapUpdaterConfig::parse(setting.as_bytes())
+}
+
+fn worker_births() -> [ThreadBirth; 3] {
+    [8, 9, 10].map(|thread| ThreadBirth {
+        thread,
+        creator: 1,
+        ordinal: thread - 1,
+    })
+}
+
+#[test]
+fn map_updater_activates_once_after_both_continents_join() {
+    let mut ready = join_jobs([Ok(()), Ok(())]).unwrap();
+    assert_eq!(ready.map_updater().worker_count(), 0);
+    let cfg = updater_config("MapUpdate.Threads = 3\nmapupdate.threads = \"+2 inline\"\n").unwrap();
+    ready
+        .activate_map_updater(&cfg, &worker_births()[..2])
+        .unwrap();
+    let different = updater_config("MapUpdate.Threads = 1\n").unwrap();
+    ready.activate_map_updater(&different, &[]).unwrap();
+    assert_eq!(ready.map_updater().worker_count(), 2);
+    assert_eq!(ready.map_updater().pending(), 0);
+}
+
+#[test]
+fn zero_map_workers_leave_updater_inactive() {
+    let mut ready = join_jobs([Ok(()), Ok(())]).unwrap();
+    let cfg = updater_config("MapUpdate.Threads = 0\n").unwrap();
+    ready.activate_map_updater(&cfg, &[]).unwrap();
+    assert_eq!(ready.map_updater().worker_count(), 0);
+    assert_eq!(ready.map_updater().pending(), 0);
+}
+
+#[test]
+fn map_updater_uses_source_default_for_missing_or_negative_count() {
+    for setting in ["", "MapUpdate.Threads = -5\n"] {
+        let mut ready = join_jobs([Ok(()), Ok(())]).unwrap();
+        let cfg = updater_config(setting).unwrap();
+        ready.activate_map_updater(&cfg, &worker_births()).unwrap();
+        assert_eq!(ready.map_updater().worker_count(), 3);
+    }
+}
+
+#[test]
+fn map_updater_refuses_invalid_config_and_incomplete_births() {
+    for setting in [
+        "MapUpdate.Threads = - nope\n",
+        "MapUpdate.Threads = 2147483648\n",
+    ] {
+        assert_eq!(
+            updater_config(setting).err().unwrap().id,
+            "execution.continents.config_integer"
+        );
+    }
+    let mut ready = join_jobs([Ok(()), Ok(())]).unwrap();
+    let cfg = updater_config("MapUpdate.Threads = 2\n").unwrap();
+    assert_eq!(
+        ready
+            .activate_map_updater(&cfg, &worker_births()[..1])
+            .unwrap_err()
+            .id,
+        "execution.continents.map_updater_birth_count"
+    );
+    assert_eq!(ready.map_updater().worker_count(), 0);
+}
+
+#[test]
+fn map_updater_refuses_the_first_unported_queue_submission() {
+    let mut ready = join_jobs([Ok(()), Ok(())]).unwrap();
+    let cfg = updater_config("MapUpdate.Threads = 1\n").unwrap();
+    ready
+        .activate_map_updater(&cfg, &worker_births()[..1])
+        .unwrap();
+    let job = MapJob {
+        id: 1,
+        map: ready.continents().maps[0].identity,
+        diff: 100,
+    };
+    assert_eq!(
+        ready.schedule_map_update(job).unwrap_err().id,
+        "execution.continents.MapManager_203.schedule_update_owner"
+    );
+    assert_eq!(ready.map_updater().pending(), 0);
+}
+
 #[test]
 fn map_zero_refusal_prevents_readiness() {
     let id = "execution.continents.test_map_zero";

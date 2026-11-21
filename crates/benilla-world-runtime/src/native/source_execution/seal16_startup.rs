@@ -70,6 +70,64 @@ const MAP0_FIRST_STORMWIND_LINE: u64 = 61339352;
 const MAP0_NEXT_OWNER_LINE: u64 = 61721576; // First transport birth.
 const MAP0_INITIALIZE_RETURN: u64 = 61721693;
 const MAP0_LAST_STORMWIND_COMPLETION: u64 = 61390644;
+pub(super) const MAP_UPDATER_TRACE: std::ops::RangeInclusive<u64> = 61721695..=61721719;
+const BATTLEGROUND_TEMPLATE_QUERY: &[u8] = b"SELECT id, MinPlayersPerTeam,MaxPlayersPerTeam,MinLvl,MaxLvl,AllianceStartLoc,HordeStartLoc,StartMaxDist,PlayerSkinReflootId FROM battleground_template";
+
+#[derive(Default)]
+struct MapUpdaterTrace {
+    queue: Option<(u64, u64)>,
+    thread_births: Vec<(u64, ThreadBirth)>,
+    worker_queues: Vec<(u64, u64, u64)>,
+}
+
+impl MapUpdaterTrace {
+    fn observe(&mut self, thread: u64, line: u64, kind: &str, fields: &[&str]) {
+        let queue =
+            |address: &str| u64::from_str_radix(address.strip_prefix("0x").unwrap(), 16).unwrap();
+        match (kind, fields) {
+            ("worker_queue_binding", [owner, fifo]) => {
+                assert_eq!(thread, 1);
+                let identity = queue(fifo);
+                assert_ne!(identity, 0);
+                assert_eq!(queue(owner), identity);
+                assert!(self.queue.replace((line, identity)).is_none());
+            }
+            ("thread_birth", [id, creator, ordinal, ..]) => {
+                let birth = ThreadBirth {
+                    thread: id.parse().unwrap(),
+                    creator: creator.parse().unwrap(),
+                    ordinal: ordinal.parse().unwrap(),
+                };
+                assert_eq!(thread, birth.thread);
+                self.thread_births.push((line, birth));
+            }
+            ("worker_birth", [fifo]) => self.worker_queues.push((line, thread, queue(fifo))),
+            _ => {}
+        }
+    }
+
+    fn bind(&self) -> [ThreadBirth; 3] {
+        let (line, queue) = self.queue.unwrap();
+        assert_eq!(line, 61721695);
+        assert_eq!(
+            self.worker_queues,
+            [
+                (61721705, 8, queue),
+                (61721710, 9, queue),
+                (61721719, 10, queue)
+            ]
+        );
+        assert_eq!(self.thread_births.len(), 3);
+        for (&(line, birth), expected) in self.thread_births.iter().zip([
+            (61721699, 8, 1, 7),
+            (61721706, 9, 1, 8),
+            (61721715, 10, 1, 9),
+        ]) {
+            assert_eq!((line, birth.thread, birth.creator, birth.ordinal), expected);
+        }
+        std::array::from_fn(|i| self.thread_births[i].1)
+    }
+}
 
 #[derive(Default)]
 struct StormwindTrace {
@@ -1211,7 +1269,8 @@ pub(super) struct Inputs {
     map_identities: BTreeMap<u64, (u64, String)>,
     map_bindings: BTreeMap<u32, (u64, u64, u64)>,
     map_threads: BTreeMap<u64, MapThreadEvidence>,
-    map_updater_activation_line: Option<u64>,
+    map_updater: MapUpdaterTrace,
+    battleground_query_line: Option<u64>,
     event_initialize_line: Option<u64>,
     event_status_writes: Vec<(u64, String)>,
     graveyard_query_line: Option<u64>,
@@ -1256,8 +1315,8 @@ impl Inputs {
         if thread == 1 && (46233402..=46233818).contains(&line) {
             self.transport_sql.observe(line, kind, p);
         }
-        if thread == 1 && kind == "worker_queue_binding" {
-            self.map_updater_activation_line.get_or_insert(line);
+        if MAP_UPDATER_TRACE.contains(&line) {
+            self.map_updater.observe(thread, line, kind, p);
         }
         // The transport trace whitelist excludes clocks, RNG words and SQL.
         if thread == 6 && (MAP0_NEXT_OWNER_LINE..=MAP0_INITIALIZE_RETURN).contains(&line)
@@ -1397,6 +1456,9 @@ impl Inputs {
             }
             if query == RANDOM_TEMPLATE_QUERY.as_bytes() {
                 assert!(self.random_template_request_line.replace(line).is_none());
+            }
+            if query == BATTLEGROUND_TEMPLATE_QUERY {
+                assert!(self.battleground_query_line.replace(line).is_none());
             }
         }
         if thread == 1 && kind == "mt_raw" {
@@ -3215,6 +3277,7 @@ pub(super) fn continue_startup(
         world_graveyards.entries().get(&139)
     );
     let continent_config = ContinentConfig::parse(&config).unwrap();
+    let map_updater_config = MapUpdaterConfig::parse(&config).unwrap();
     let definitions = ContinentDefinitions::load(catalog, &inputs.maps, &config).unwrap();
     // Map.h:201 reads the loaded Map.dbc entry for PathFinder.cpp:395.
     geometry.bind_pathfinder_maps(catalog).unwrap();
@@ -6994,10 +7057,21 @@ pub(super) fn continue_startup(
     };
     let [(map0, pool0, transport0), (map1, pool1, transport1)] =
         [(0, 6, 60100952, 2440933613), (1, 7, 60117712, 159038541)].map(run_job);
-    let ready = continents.join_initialization([map0, map1]).unwrap();
-    // The world binds the updater queue at :61721695 after both map returns.
-    assert_eq!(observed.map_updater_activation_line, Some(61721695));
-    let refusal = ready.activate_map_updater().unwrap_err();
+    let mut ready = continents.join_initialization([map0, map1]).unwrap();
+    assert_eq!(
+        spawn_loader_config::assignment(&config, "MapUpdate.Threads").unwrap(),
+        (275, "3".to_owned())
+    );
+    let worker_births = observed.map_updater.bind();
+    ready
+        .activate_map_updater(&map_updater_config, &worker_births)
+        .unwrap();
+    let queue_bindings = usize::from(observed.map_updater.queue.is_some());
+    let worker_count = ready.map_updater().worker_count();
+    assert_eq!(worker_count, worker_births.len());
+    assert_eq!(ready.map_updater().pending(), 0);
+    assert_eq!(observed.battleground_query_line, Some(61721736));
+    let refusal = ready.create_initial_battlegrounds().unwrap_err();
     assert_eq!(refusal.id, active_init::STARTUP_NEXT_OWNER);
     let next_owner = refusal.id;
     let next_source = active_init::STARTUP_NEXT_SOURCE;
@@ -7017,7 +7091,7 @@ pub(super) fn continue_startup(
         .count();
     assert!(results > 0);
     println!(
-        "F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_script_names_sql=1 matched_template_sql=6 matched_creature_model_sql=3 matched_equipment_sql=3 matched_creature_immunity_sql=1 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={next_owner} next_owner_map1={next_owner} next_raw={} next_word={} clone_next_word_checked=true matched_transport_sql={matched_transport_sql}",
+        "F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_script_names_sql=1 matched_template_sql=6 matched_creature_model_sql=3 matched_equipment_sql=3 matched_creature_immunity_sql=1 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={next_owner} next_owner_map1={next_owner} next_raw={} next_word={} clone_next_word_checked=true matched_transport_sql={matched_transport_sql} world_updater_queue_bindings={queue_bindings} world_updater_worker_births={worker_count}",
         owner.cursor.raw, next_word.0, next_word.1
     );
 }
