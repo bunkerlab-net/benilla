@@ -280,6 +280,41 @@ impl SourcePlayer {
             })
     }
 
+    // Player.cpp:5551-5576. The live skill slot owns both signed halves.
+    pub(super) fn modify_skill_bonus(
+        &mut self,
+        objects: &SourceObjects,
+        unit: &mut SourceUnitFields,
+        skill: u16,
+        delta: i16,
+        permanent: bool,
+    ) -> Result<()> {
+        if skill == 0 || delta == 0 {
+            return Ok(());
+        }
+        let Some((index, entry)) = self
+            .skills
+            .iter_mut()
+            .enumerate()
+            .find(|(_, entry)| entry.id_step[0] == skill)
+        else {
+            return Ok(());
+        };
+        let mut bonus = entry.bonus;
+        let half = usize::from(permanent);
+        bonus[half] = bonus[half].wrapping_add(delta);
+        objects.set_update_value(
+            self.object,
+            PLAYER_SKILL_INFO + index * 3 + 2,
+            &mut entry.bonus,
+            bonus,
+        )?;
+        if skill == SKILL_DEFENSE {
+            self.update_defense_bonuses(objects, unit)?;
+        }
+        Ok(())
+    }
+
     // Player.cpp:5885-5897.
     pub(super) fn spell_rank(&self, inputs: &PlayerSkillInputs, t: &SpellTemplate) -> Result<u32> {
         let Some(id) = inputs.rank_skill(t.id) else {

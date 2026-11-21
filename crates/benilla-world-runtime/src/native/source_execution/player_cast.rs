@@ -589,6 +589,22 @@ impl SpellAuraHitOwner for PlayerCast<'_, '_> {
 }
 
 impl SelfAuraApplicationOwner for PlayerCast<'_, '_> {
+    fn modify_player_skill_bonus(
+        &mut self,
+        target: ObjectHandle,
+        skill: u16,
+        delta: i16,
+        permanent: bool,
+    ) -> Result<()> {
+        require(
+            target == self.player.object,
+            "execution.spells.SpellAuras_2072.ModifySkillBonus_owner",
+        )?;
+        let unit = self.units.get_mut(self.objects, target)?;
+        self.player
+            .modify_skill_bonus(self.objects, unit, skill, delta, permanent)
+    }
+
     fn self_aura_application(&mut self) -> Result<SelfAuraApplication<'_>> {
         let target = self.player.object;
         let live = self.units.get_mut(self.objects, target)?;

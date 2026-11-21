@@ -190,7 +190,8 @@ fn catalog04_creature_addon_branch_census_and_4692_lookup() {
     // Shadowform's type 126 slot at initial-classicmangos.sql :850374.
     // Detection slots for 8278, 8279 and 18950: SQL :844497, :844498, :852354.
     // Type 16 adds Hide and Onin's Camouflage (:843391 and :845343).
-    assert_eq!(static_covered, 203);
+    // Spell 25163's type-30 slot at initial-classicmangos.sql :857265 (SpellAuras.cpp:91,2062-2063 non-player return).
+    assert_eq!(static_covered, 204);
     assert_eq!(covered_stealth, [6920, 9572]);
     assert_eq!(aura_types.len(), 43);
     assert_eq!(aura_types.values().sum::<usize>(), 292);

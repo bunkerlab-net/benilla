@@ -1049,6 +1049,10 @@ impl SourceUnitAuras {
             Some(SelfAuraApplyHandler::SpellModifier) => {
                 handle_add_spell_modifier(live.unit.player, aura.misc)
             }
+            Some(SelfAuraApplyHandler::SkillBonus) => require(
+                !live.unit.player,
+                "execution.spells.SpellAuras_2072.ModifySkillBonus_owner",
+            ),
             Some(SelfAuraApplyHandler::ProcTrigger | SelfAuraApplyHandler::NoImmediateEffect) => {
                 Ok(())
             }
@@ -1368,6 +1372,19 @@ pub struct SelfAuraApplication<'a> {
 pub trait SelfAuraApplicationOwner: SpellExecutionOwner {
     fn self_aura_application(&mut self) -> Result<SelfAuraApplication<'_>>;
 
+    // SpellAuras.cpp:2072 writes the live Player skill slot.
+    fn modify_player_skill_bonus(
+        &mut self,
+        _target: ObjectHandle,
+        _skill: u16,
+        _delta: i16,
+        _permanent: bool,
+    ) -> Result<()> {
+        Err(refuse(
+            "execution.spells.SpellAuras_2072.ModifySkillBonus_owner",
+        ))
+    }
+
     fn cast_aura_boost(&mut self, _caster: ObjectHandle, _spell: u32, _aura: u32) -> Result<()> {
         Err(refuse("execution.spells.Aura_4291.CastSpell_owner"))
     }
@@ -1387,6 +1404,7 @@ pub(crate) enum SelfAuraApplyHandler {
     Shapeshift,
     ProcTrigger,
     DamagePercent,
+    SkillBonus,
     SpellModifier,
     NoImmediateEffect,
     Ghost,
@@ -1406,6 +1424,8 @@ impl SelfAuraApplyHandler {
             19 => Self::InvisibilityDetect, // SpellAuras.cpp:80.
             22 => Self::Resistance,
             23 => Self::PeriodicTrigger,
+            // SpellAuras.cpp:91,159.
+            30 | 98 => Self::SkillBonus,
             36 => Self::Shapeshift,
             42 => Self::ProcTrigger,
             79 => Self::DamagePercent,
@@ -1455,6 +1475,18 @@ pub fn apply_self_aura_holder(
             Some(SelfAuraApplyHandler::Null) => {} // SpellAuras.cpp:61 dispatches type 0 to HandleNULL.
             // SpellAuras.h:283-286. Later damage calculations inspect the aura list.
             Some(SelfAuraApplyHandler::NoImmediateEffect) => {}
+            Some(SelfAuraApplyHandler::SkillBonus) if unit.player => {
+                // SpellAuras.cpp:2068-2072. Both narrowing casts precede ModifySkillBonus.
+                let (skill, amount) = (aura.misc as u16, aura.amount as i16);
+                let target = unit.target;
+                owner.modify_player_skill_bonus(target, skill, amount, kind == 98)?;
+                owner
+                    .self_aura_application()?
+                    .auras
+                    .mark_effect_applied(holder, i)?;
+                continue;
+            }
+            Some(SelfAuraApplyHandler::SkillBonus) => {} // SpellAuras.cpp:2062-2063.
             Some(SelfAuraApplyHandler::SpellModifier) => {
                 handle_add_spell_modifier(unit.player, aura.misc)?;
             }

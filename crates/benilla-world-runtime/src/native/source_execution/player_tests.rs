@@ -99,6 +99,36 @@ fn avoidance_capabilities_keep_unit_and_player_constructor_defaults() {
 }
 
 #[test]
+fn skill_bonus_writes_only_the_learned_slot_and_selected_half() {
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let mut player = construct(&mut objects, &mut units);
+    let handle = player.object();
+    let unit = units.get_mut(&objects, handle).unwrap();
+    let object = objects.get(handle).unwrap();
+    player
+        .modify_skill_bonus(&objects, unit, 43, 5, true)
+        .unwrap();
+    assert!(player.skills().is_empty());
+    assert!(!object.field_changed(0x2d0).unwrap());
+    player.skills.push(SourcePlayerSkill {
+        id_step: [43, 0],
+        value_max: [1, 5],
+        bonus: [-3, 7],
+    });
+    player
+        .modify_skill_bonus(&objects, unit, 43, 5, true)
+        .unwrap();
+    assert_eq!(player.skills()[0].bonus, [-3, 12]);
+    assert!(object.field_changed(0x2d0).unwrap());
+    player
+        .modify_skill_bonus(&objects, unit, 43, -1, false)
+        .unwrap();
+    assert_eq!(player.skills()[0].bonus, [-4, 12]);
+    assert!(!object.field_changed(0x2cf).unwrap());
+}
+
+#[test]
 fn defense_refresh_keeps_real_dodge_and_marks_only_changed_ui() {
     let mut objects = SourceObjects::default();
     let mut units = SourceUnits::default();
@@ -618,18 +648,18 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             || Ok(107),
         )
         .unwrap_err();
-    assert_eq!(error.id, "execution.spells.AuraHandler.type_98_owner");
-    // Northshire-01 A trace :68133905-68133908,68133982-68133993.
-    assert_eq!(clock_reads, 5);
+    assert_eq!(error.id, "execution.spells.AuraHandler.type_137_owner");
+    // Northshire-01 A trace :68133905-68133908,68133982-68133993,68134067-68134073.
+    assert_eq!(clock_reads, 7);
     // Trace :68133282,68133496. The racial auras add no draw.
     assert_eq!(raw, [(0, 132_753_960), (1, 40_231_698)]);
     assert_eq!(draws.raw, 2);
     let unit = units.get(&objects, player.object()).unwrap();
     let queue = unit.unit_events.inventory();
-    // SkillLineAbility keys 490, 689, 1424, 1236, 700, 2927 and 11728.
-    // Northshire-01 A trace:68133335,68133417,68133506,68133583,
-    // :68133667,68133743,68133825,68133911. Sword Specialization reaches type 98.
-    let casts = [204, 81, 522, 203, 227, 5009, 20599, 20597];
+    // SkillLineAbility keys 490,689,1424,1236,700,2927,11728,11730,11731.
+    // Northshire-01 A trace :68133335,68133417,68133506,68133583,
+    // :68133667,68133743,68133825,68133911,68133996.
+    let casts = [204, 81, 522, 203, 227, 5009, 20599, 20597, 20598];
     assert_eq!(queue.queued.len(), casts.len());
     assert_eq!(queue.clock_ms, 0);
     for (index, (event, id)) in queue.queued.iter().zip(casts).enumerate() {
@@ -659,7 +689,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             );
             assert!(!target.missed && target.processed && cast.pending_aura.is_none());
         }
-        if id == 20597 {
+        if id == 20598 {
             assert_eq!(cast.state, SourceSpellState::Landing);
             assert!(cast.executing);
             assert_eq!(player.active_mod_spell, Some(spell));
@@ -670,17 +700,18 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         if insertion <= 3 {
             assert_eq!(cast.creation_time, 100);
         }
-        // Stock SQL :853806 and :853804 use fixed effect values.
+        // Stock SQL :853804-853806 use fixed effect values.
         assert_eq!(
             cast.damage_per_effect,
             match id {
                 20599 => [10, 0, 0],
                 20597 => [5, 5, 0],
+                20598 => [5, 0, 0],
                 _ => [0; 3],
             }
         );
     }
-    // Spell.cpp:3170 and trace :68133911. The eighth cast has not returned.
+    // Spell.cpp:3170 and trace :68133996. The ninth cast has not returned.
     assert_eq!(unit.auras.cast_counter, 1);
     let diplomacy = unit.auras.first_aura_holder(20599).unwrap();
     assert!(diplomacy.ready && diplomacy.passive && diplomacy.permanent);
@@ -695,16 +726,26 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     );
     assert!(aura.applied);
     let sword = unit.auras.first_aura_holder(20597).unwrap();
-    assert!(!sword.ready && sword.effects[2].is_none());
+    assert!(sword.ready && sword.effects[2].is_none());
     assert_eq!(sword.apply_time, 1_795_246_040);
-    for aura in &sword.effects[..2] {
+    for (aura, skill) in sword.effects[..2].iter().zip([43, 55]) {
         let aura = aura.as_ref().unwrap();
         assert_eq!(
             (aura.kind, aura.amount, aura.apply_time),
             (98, 5, 1_795_246_040)
         );
-        assert!(!aura.applied);
+        assert_eq!(aura.misc, skill);
+        assert!(aura.applied);
+        assert!(!player
+            .skills()
+            .iter()
+            .any(|row| row.id_step[0] == skill as u16));
     }
+    let spirit = unit.auras.first_aura_holder(20598).unwrap();
+    assert!(!spirit.ready);
+    let aura = spirit.effects[0].as_ref().unwrap();
+    assert_eq!((aura.kind, aura.misc, aura.amount), (137, 4, 5));
+    assert!(!aura.applied);
     // SQL :837917 and :841758 add the Staves and Wands masks. The session
     // drops both packets before the Create response at trace :68135391-68135392.
     assert_eq!(player.weapon_proficiency, 0x0008_0400);
@@ -737,6 +778,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             (5009, learned),
             (5019, learned),
             (20597, learned),
+            (20598, learned),
             (20599, learned),
             (20600, learned), // SkillLineAbility keys 11728-11730 grant it before Sword.
         ])
