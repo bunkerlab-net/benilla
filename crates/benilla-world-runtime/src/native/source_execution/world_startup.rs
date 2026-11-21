@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use super::world_state::start_war_effort_event;
 use super::*;
 use benilla_sim::source_calendar::{self, Tm};
 use std::fmt;
@@ -54,6 +55,9 @@ pub enum WorldStartupSql {
         rows_present: bool,
     },
     SpamRecords(usize),
+    SelectWorldState {
+        rows: usize,
+    },
 }
 impl fmt::Display for WorldStartupSql {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -95,6 +99,7 @@ impl fmt::Display for WorldStartupSql {
                 "SELECT guid,SUM(honor) as honor_sum FROM character_honor_cp WHERE TYPE = {HONORABLE} AND date BETWEEN {from} AND {through} GROUP BY guid ORDER BY honor_sum DESC"
             ),
             Self::SpamRecords(_) => out.write_str("SELECT record FROM spam_records"),
+            Self::SelectWorldState { .. } => out.write_str("SELECT Id, Data FROM world_state"),
         }
     }
 }
@@ -134,6 +139,8 @@ pub fn initialize_world_tail(
     owner: &mut impl WorldTailOwner,
     config: WorldTailConfig,
     spam_rows: Vec<Vec<u8>>,
+    state_rows: &[WorldStateRow<'_>],
+    clock: &SourceWorldClock,
     work: &mut impl WorldStartupWork,
     events: &mut SourceGameEventManager,
 ) -> Result<()> {
@@ -161,7 +168,22 @@ pub fn initialize_world_tail(
     // Deviation: Omit World.cpp:1424 because solo worlds have no realm anticheat service.
 
     // CMakeCache.txt:18 disables BUILD_AHBOT, so World.cpp:1426-1430 does not run.
-    Err(refuse("execution.world.World_1433.world_state_owner"))
+    // World.cpp:1433 and WorldState.cpp:108-214 load the live world state.
+    work.observe(WorldStartupObservation::Sql(
+        WorldStartupSql::SelectWorldState {
+            rows: state_rows.len(),
+        },
+    ))?;
+    let state = &mut owner.ready_world()?.world_state;
+    state.load_rows(state_rows, clock)?;
+    // WorldState.cpp:215 starts the war effort event before the resource spawns.
+    let (phase, killed_bosses) = state.war_effort();
+    start_war_effort_event(phase, killed_bosses, |id| {
+        events.start_event(id, false, false, config.event_announce, owner)
+    })?;
+    Err(refuse(
+        "execution.world.WorldState_216.war_effort_spawn_owner",
+    ))
 }
 
 #[derive(Default)]

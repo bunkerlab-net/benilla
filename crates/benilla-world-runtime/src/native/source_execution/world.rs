@@ -10,6 +10,9 @@ pub use startup::{
     initialize_world_tail, SourceHonorStanding, WeeklyQuestResetConfig, WorldStartupClockSite,
     WorldStartupObservation, WorldStartupSql, WorldStartupWork, WorldTailConfig, WorldTailOwner,
 };
+#[path = "world_state.rs"]
+mod world_state;
+pub use world_state::WorldStateRow;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorldPhase {
@@ -231,6 +234,7 @@ pub struct SourceWorld {
     saved_variables: startup::SourceSavedVariables,
     honor: startup::SourceHonor,
     spam_records: Vec<Vec<u8>>,
+    world_state: world_state::SourceWorldState,
     stopped: bool,
 }
 impl SourceWorld {
@@ -248,6 +252,7 @@ impl SourceWorld {
             saved_variables: startup::SourceSavedVariables::default(),
             honor: startup::SourceHonor::default(),
             spam_records: Vec::new(),
+            world_state: world_state::SourceWorldState::default(),
             stopped: false,
         })
     }

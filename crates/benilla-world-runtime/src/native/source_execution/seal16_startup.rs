@@ -41,6 +41,8 @@ pub(super) mod templates;
 mod waypoints;
 #[path = "seal16_world_tail_weekly.rs"]
 mod weekly_tail;
+#[path = "seal16_world_state.rs"]
+mod world_state;
 #[path = "seal16_world_tail.rs"]
 mod world_tail;
 
@@ -1354,6 +1356,9 @@ impl Inputs {
         }
         if matches!(thread, 1 | 11) && (61727921..61738404).contains(&line) {
             self.anticheat.observe(thread, line, kind, p);
+        }
+        if thread == 1 && (61738404..=61738412).contains(&line) {
+            self.weekly.world_state.observe(line, kind, p);
         }
         self.event_startup.observe_subscriber(thread, line, kind, p);
         if thread == 1 && (46233402..=46233818).contains(&line) {
@@ -7346,6 +7351,7 @@ pub(super) fn continue_startup(
     assert_eq!(owner.checks.len(), 1024);
     assert!(owner.checks.iter().all(|&value| value == 1794314193));
     let (calendar, maintenance_weekday) = observed.weekly.maintenance_inputs();
+    let state_rows = observed.weekly.world_state.bind_rows(recording);
     let refusal = initialize_world_tail(
         &mut owner,
         WorldTailConfig {
@@ -7355,6 +7361,8 @@ pub(super) fn continue_startup(
             event_announce,
         },
         weekly_tail::stock_spam_records(f1_root),
+        state_rows,
+        &world_clock,
         &mut observed.weekly,
         &mut events,
     )

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Weekly reset and maintenance trace bindings.
+use super::world_state::WorldStateEvidence;
 use super::{
     tm, unhex, CalendarOwner, ClockKind, ClockSample, Result, SourceWorld, WeeklyQuestResetConfig,
     WorldStartupClockSite, WorldStartupObservation, WorldStartupSql, WorldStartupWork,
@@ -51,6 +52,7 @@ pub(super) struct WeeklyEvidence {
     pending_sql: Option<String>,
     wrapper_clocks: Vec<(u64, u64)>,
     maintenance: maintenance::MaintenanceEvidence,
+    pub(super) world_state: WorldStateEvidence,
 }
 
 enum WeeklyObservation {
@@ -151,6 +153,7 @@ impl WeeklyEvidence {
             [(61722130, 136475), (61722162, 136476)]
         );
         self.maintenance.assert_consumed();
+        self.world_state.assert_loaded();
     }
 }
 
@@ -162,6 +165,11 @@ impl WorldStartupWork for WeeklyEvidence {
     }
 
     fn observe(&mut self, value: WorldStartupObservation) -> Result<()> {
+        if let WorldStartupObservation::Sql(sql @ WorldStartupSql::SelectWorldState { .. }) = value
+        {
+            self.world_state.observe_load(sql);
+            return Ok(());
+        }
         if self.reads.is_empty() {
             self.maintenance.observe(value);
             return Ok(());
