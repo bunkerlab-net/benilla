@@ -137,24 +137,8 @@ fn total_percent_stat_changes_unit_groups_before_the_player_or_health_write() {
     let stores = SourceSpellStores::default();
     let single = [false, false, true, false, false];
     for (player, misc, attributes, vitals, can_modify, changed, error) in [
-        (
-            false,
-            -2,
-            0,
-            None,
-            false,
-            [false; 5],
-            Some("execution.spells.SpellAuras_3544.stat_misc_range"),
-        ),
-        (
-            false,
-            5,
-            0,
-            None,
-            false,
-            [false; 5],
-            Some("execution.spells.SpellAuras_3544.stat_misc_range"),
-        ),
+        (false, -2, 0, None, false, [false; 5], None),
+        (false, 5, 0, Some((5, 10)), false, [false; 5], None),
         (
             false,
             0,
@@ -207,6 +191,7 @@ fn total_percent_stat_changes_unit_groups_before_the_player_or_health_write() {
             energy: 0,
             max_energy: 0,
         });
+        let before = target.unit.vitals;
         let t = SpellTemplate {
             id: 1,
             attributes,
@@ -226,6 +211,9 @@ fn total_percent_stat_changes_unit_groups_before_the_player_or_health_write() {
             target.unit.stat_modifiers.map(|group| group.total_percent),
             changed.map(|changed| if changed { 1.25 } else { 1.0 }),
         );
+        assert_eq!(target.unit.vitals, before);
+        let holder = target.unit.auras.first_aura_holder(t.id).unwrap();
+        assert_eq!(holder.effects[0].as_ref().unwrap().applied, error.is_none());
     }
 }
 

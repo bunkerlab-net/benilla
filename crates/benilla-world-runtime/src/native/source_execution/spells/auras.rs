@@ -1665,10 +1665,10 @@ fn handle_mod_total_percent_stat(
 ) -> Result<()> {
     use super::resistance::{StatModifierUnit, UnitMod};
 
-    require(
-        (-1..=4).contains(&misc),
-        "execution.spells.SpellAuras_3544.stat_misc_range",
-    )?;
+    // SpellAuras.cpp:3544-3548 warns and returns before reading vitals.
+    if !(-1..=4).contains(&misc) {
+        return Ok(());
+    }
     let mut live = owner.self_aura_application()?;
     let before = live
         .vitals
