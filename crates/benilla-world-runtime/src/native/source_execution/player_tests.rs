@@ -237,10 +237,26 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             || Ok(107),
         )
         .unwrap_err();
+    assert_eq!(error.id, "execution.player.Player_5694.add_spell_owner.204");
+    // Northshire-01 A proxy-requests.jsonl:534-535,1647-1648.
     assert_eq!(
-        error.id,
-        "execution.player.Player_850.learn_default_skills_owner"
+        rows.skills(1, 8)
+            .iter()
+            .map(|row| row.id)
+            .collect::<Vec<_>>(),
+        [95, 162, 183, 415, 6, 8, 136, 228, 237, 754, 98]
     );
+    assert_eq!(
+        player.skills(),
+        &[SourcePlayerSkill {
+            id_step: [95, 0],
+            value_max: [1, 5]
+        }]
+    );
+    let object = objects.get(player.object()).unwrap();
+    assert!(object.field_changed(0x2ce).unwrap());
+    assert!(object.field_changed(0x2cf).unwrap());
+    assert!(!object.field_changed(0x2d0).unwrap());
     // Seal16 client-packets.jsonl:5,9,16-17. The pose words are from opcode 566.
     let object = objects.get(player.object()).unwrap();
     let unit = units.get(&objects, player.object()).unwrap();

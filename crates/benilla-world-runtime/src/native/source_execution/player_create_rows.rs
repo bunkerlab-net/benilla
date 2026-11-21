@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
+use super::player_skills::{CreationSkillRow, PlayerSkillInputs};
 use super::*;
 use crate::native::production_compiler::{CatalogRowView, ProductionDiagnostic, VerifiedCatalog};
 use std::{collections::BTreeMap, str::FromStr};
@@ -37,6 +38,8 @@ pub(super) struct PlayerCreateRace {
 /// The retained cursor order supplies grants and buttons. These rows do not run startup.
 #[derive(Debug, Default)]
 pub struct PlayerCreateRows {
+    pub(super) skill_inputs: Option<PlayerSkillInputs>,
+    skills: BTreeMap<Pair, Vec<PlayerCreateSkill>>,
     pub(super) races: BTreeMap<u8, PlayerCreateRace>,
     pub(super) classes: BTreeMap<u8, u8>,
     pub(super) starts: BTreeMap<Pair, PlayerCreateStart>,
@@ -73,6 +76,10 @@ impl PlayerCreateRows {
 
     pub fn spells(&self, race: u8, class: u8) -> &[u32] {
         self.spells.get(&(race, class)).map_or(&[], Vec::as_slice)
+    }
+
+    pub fn skills(&self, race: u8, class: u8) -> &[PlayerCreateSkill] {
+        self.skills.get(&(race, class)).map_or(&[], Vec::as_slice)
     }
 
     pub fn actions(&self, race: u8, class: u8) -> &[PlayerCreateAction] {
@@ -157,6 +164,21 @@ impl PlayerCreateRows {
                 loaded.items.entry(key).or_default().push(item);
             }
         }
+        let skill_inputs = PlayerSkillInputs::load(catalog)?;
+        let mut skill_rows = Vec::new();
+        scan(catalog, "playercreateinfo_skills", |cells| {
+            skill_rows.push(CreationSkillRow {
+                race: number(cells)?,
+                class: number(cells)?,
+                skill: PlayerCreateSkill {
+                    id: number(cells)?,
+                    step: number(cells)?,
+                },
+            });
+            Ok(())
+        })?;
+        loaded.skills = skill_inputs.creation_rows(skill_rows);
+        loaded.skill_inputs = Some(skill_inputs);
 
         let mut spells = Vec::new();
         scan(catalog, "playercreateinfo_spell", |cells| {
@@ -334,7 +356,7 @@ fn template_exists(catalog: &mut VerifiedCatalog, table: &str, id: u32) -> Resul
     Ok(found)
 }
 
-fn dbc_word(row: &serde_json::Value, column: u32) -> Result<u32> {
+pub(super) fn dbc_word(row: &serde_json::Value, column: u32) -> Result<u32> {
     row["values"]
         .as_array()
         .and_then(|values| values.iter().find(|value| value[0] == column))

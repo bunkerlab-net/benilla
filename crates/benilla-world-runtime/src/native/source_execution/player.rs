@@ -7,6 +7,10 @@ mod player_rows;
 use player_rows::{playable_class, playable_race, PlayerCreateRace};
 pub use player_rows::{PlayerCreateAction, PlayerCreateItem, PlayerCreateRows, PlayerCreateStart};
 
+#[path = "player_skills.rs"]
+mod player_skills;
+pub use player_skills::{PlayerCreateSkill, SourcePlayerSkill};
+
 // UpdateFields.h:27,77-88,114-120,133,140-151,180-186,215,218,228,243,263.
 const OBJECT_FIELD_TYPE: usize = 0x02;
 const UNIT_FIELD_POWER1: usize = 0x17;
@@ -103,6 +107,7 @@ pub struct SourcePlayer {
     pub damage_done_percent: [f32; 7],
     pub taxi_mask: [u32; 8],
     pub free_primary_professions: u32,
+    skills: Vec<SourcePlayerSkill>,
 }
 
 impl SourcePlayer {
@@ -174,6 +179,7 @@ impl SourcePlayer {
                 damage_done_percent: [0.0; 7],
                 taxi_mask: [0; 8],
                 free_primary_professions: 0,
+                skills: Vec::new(),
             })
         })();
         if result.is_err() {
@@ -330,7 +336,7 @@ impl SourcePlayer {
         self.init_primary_professions(objects, config.max_primary_professions)?;
         self.fill_health_and_mana(objects, unit)?;
 
-        self.learn_default_skills()?;
+        self.learn_default_skills(objects, unit, rows, class)?;
         self.learn_default_spells()?;
         for action in rows.actions(race, class) {
             self.add_action_button(*action)?;
@@ -598,12 +604,6 @@ impl SourcePlayer {
         )?;
         objects.set_update_value(self.object, UNIT_FIELD_POWER1, &mut vitals.mana, mana)?;
         Ok(())
-    }
-
-    fn learn_default_skills(&mut self) -> Result<()> {
-        Err(refuse(
-            "execution.player.Player_850.learn_default_skills_owner",
-        ))
     }
 
     fn learn_default_spells(&mut self) -> Result<()> {
