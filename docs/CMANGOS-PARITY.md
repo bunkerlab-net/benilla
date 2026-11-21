@@ -391,6 +391,12 @@ is meaningful without a bounded content/mechanics inventory.
   historical casts/auras to owner-specific journal prefixes within unchanged
   count/byte bounds. Authored headless fixtures do not establish real-data
   playability or full Classic parity.
+- **Detached source creation items:** `Player.cpp:858-949` creates and
+  places the eight starting items for the recorded Human Mage. Northshire A
+  trace lines 68134600-68134687 bind all 16 item GUID assignments and eight
+  probe destructions. Login packet 31 agrees on the eight entries, GUIDs,
+  slots, stack counts, and owner and contained GUIDs. The next unported
+  caller edge is `CharacterHandler.cpp:506`.
 - **Dependencies:** player creation/level tables; class/race DBC information;
   item/aura modifiers; skills, talents, spell learning, faction/reputation;
   death/rested state; kill attribution; local rates with explicit semantics.

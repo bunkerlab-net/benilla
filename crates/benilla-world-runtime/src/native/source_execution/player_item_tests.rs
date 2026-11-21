@@ -166,13 +166,6 @@ fn probe_checks_template_and_live_equip_refusals_before_placement() {
     for (proto, expected) in [
         (
             StartupItemPrototype {
-                max_count: 1,
-                ..shirt()
-            },
-            "Player_8565.item_max_count_owner",
-        ),
-        (
-            StartupItemPrototype {
                 allowable_class: 0,
                 ..shirt()
             },
@@ -426,4 +419,105 @@ fn staff_refuses_unbound_damage_or_speed_paths_at_their_source_writes() {
         );
         assert_eq!(player.attack_times[0], 2900.0);
     });
+}
+
+fn backpack_item() -> StartupItemPrototype {
+    StartupItemPrototype {
+        class: 15,
+        inventory_type: 0,
+        max_count: 1,
+        bonding: 1,
+        ..shirt()
+    }
+}
+
+#[test]
+fn backpack_recheck_excludes_the_moving_bound_item() {
+    fixture(backpack_item(), |player, live| {
+        player.store_new_item_in_best_slots(live, 1, 1).unwrap();
+        let handle = player.items[23].unwrap();
+        let guid = live.objects.get(handle).unwrap().guid;
+        let item = live.items.get(handle).unwrap();
+        assert_eq!(
+            (
+                item.slot,
+                item.flags,
+                item.owner.raw(),
+                item.contained.raw()
+            ),
+            (23, 1, 1, 1)
+        );
+        assert_eq!(item.queue_pos, Some(0));
+        assert_eq!(player.item_update_queue, [handle]);
+        assert_eq!(live.objects.construction_count(1), 3);
+
+        let proto = live.templates.item_prototype(1).unwrap().unwrap();
+        assert_eq!(
+            player
+                .can_store_item(live, None, 1, 1, proto)
+                .unwrap_err()
+                .id,
+            "execution.player.Player_8571.item_max_count_exceeded"
+        );
+        player.recheck_backpack(live).unwrap();
+        assert_eq!(live.objects.construction_count(1), 3);
+        assert_eq!(player.items[23], Some(handle));
+        assert_eq!(player.item_update_queue, [handle]);
+        assert_eq!(live.objects.get(handle).unwrap().guid, guid);
+        let item = live.items.get(handle).unwrap();
+        assert_eq!(
+            (
+                item.slot,
+                item.flags,
+                item.owner.raw(),
+                item.contained.raw()
+            ),
+            (23, 1, 1, 1)
+        );
+        assert_eq!(item.queue_pos, Some(0));
+
+        assert_eq!(
+            player.can_equip_new_item(live, 1).unwrap_err().id,
+            "execution.player.Player_8571.item_max_count_exceeded"
+        );
+        player.remove_backpack_item(live, handle, 23).unwrap();
+        let item = live.items.get(handle).unwrap();
+        assert_eq!(
+            (item.slot, item.owner.raw(), item.contained.raw()),
+            (u8::MAX, 1, 0)
+        );
+        assert!(player.items[23].is_none());
+        assert_eq!(player.item_update_queue, [handle]);
+    });
+}
+
+#[test]
+fn backpack_refuses_unreached_placement_behaviors() {
+    fixture(
+        StartupItemPrototype {
+            bag_family: 9,
+            ..backpack_item()
+        },
+        |player, live| {
+            let error = player.store_new_item_in_best_slots(live, 1, 1).unwrap_err();
+            assert_eq!(error.id, "execution.player.Player_8964.keyring_owner");
+            assert!(player.items.iter().all(Option::is_none));
+            assert_eq!(live.objects.construction_count(1), 2);
+        },
+    );
+    fixture(
+        StartupItemPrototype {
+            max_count: 0,
+            stackable: 20,
+            ..backpack_item()
+        },
+        |player, live| {
+            player.store_new_item_in_best_slots(live, 1, 5).unwrap();
+            let before = player.items[23].unwrap();
+            let error = player.store_new_item_in_best_slots(live, 1, 1).unwrap_err();
+            assert_eq!(error.id, "execution.player.Player_8798.stack_merge_owner");
+            assert_eq!(live.items.get(before).unwrap().count, 5);
+            assert_eq!(live.objects.construction_count(1), 4);
+        },
+    );
 }

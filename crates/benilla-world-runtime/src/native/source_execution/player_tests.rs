@@ -681,7 +681,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     let mut item_guids = item_recording::guid_allocators();
     let first_item = objects.construction_count(12) + 1;
     let mut item_events = Vec::new();
-    let error = player
+    player
         .create(
             &mut objects,
             &mut units,
@@ -713,21 +713,17 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             }),
             || Ok(107),
         )
-        .unwrap_err();
-    assert_eq!(
-        error.id,
-        "execution.player.Player_975.store_new_item_check_owner"
-    );
+        .unwrap();
     item_recording::assert_item_prefix(
         Path::new(&trace),
         &objects,
         &player,
         &live_items,
         first_item,
-        (5, 6),
+        (8, 8),
         &item_events,
     );
-    assert_eq!(item_guids.allocate(HighGuid::Item).unwrap().counter, 12);
+    assert_eq!(item_guids.allocate(HighGuid::Item).unwrap().counter, 17);
     // Northshire-01 A trace :68133905-68133908,68133982-68133993,
     // :68134067-68134073,68134169-68134198.
     assert_eq!(clock_reads, 10);
@@ -1010,7 +1006,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         )
         .unwrap();
     assert!(objects.get(handle).is_err());
-    assert_eq!(placed.len(), 5);
+    assert_eq!(placed.len(), 8);
     for item in placed {
         assert!(objects.get(item).is_err());
         assert!(live_items.get(item).is_err());

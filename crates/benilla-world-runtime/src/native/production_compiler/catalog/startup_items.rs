@@ -52,6 +52,7 @@ impl VerifiedCatalog {
             position(&cols, "MaxDurability")?,
             position(&cols, "duration")?,
         ];
+        let bag_family = position(&cols, "BagFamily")?;
         let [item_set, armor, block, delay, dmg_min, dmg_max, dmg_school, dmg_second] = [
             position(&cols, "itemset")?,
             position(&cols, "armor")?,
@@ -163,6 +164,7 @@ impl VerifiedCatalog {
                     delay: word(delay)?,
                     spell_ids: item_words(spell_cols, &word)?,
                     spell_triggers: item_words(trigger_cols, &word)?,
+                    bag_family: word(bag_family)?,
                 },
             );
             check(

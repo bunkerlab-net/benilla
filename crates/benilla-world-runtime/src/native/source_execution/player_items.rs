@@ -5,6 +5,7 @@ use super::*;
 // UpdateFields.h:26-54,193-201.
 const ITEM_OWNER: usize = 6;
 const ITEM_CONTAINED: usize = 8;
+const ITEM_FLAGS: usize = 21;
 const ITEM_COUNT: usize = 14;
 const ITEM_DURATION: usize = 15;
 const ITEM_CHARGES: usize = 16;
@@ -12,6 +13,11 @@ const ITEM_DURABILITY: usize = 46;
 const ITEM_MAX_DURABILITY: usize = 47;
 const PLAYER_VISIBLE_ENTRY: usize = 0x104;
 const PLAYER_INV_HEAD: usize = 0x1e6;
+
+// Player.h:583-618. All positions here are in INVENTORY_SLOT_BAG_0.
+const BACKPACK: std::ops::Range<usize> = 23..39;
+const BAG_SLOTS: std::ops::Range<usize> = 19..23;
+const KEYRING: std::ops::Range<usize> = 81..97;
 
 // Item.cpp:208 and Player.cpp:9425 observe the actual identity lifetime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -241,9 +247,7 @@ impl SourcePlayer {
             rows.items(self.race, class).is_empty(),
             "execution.player.Player_911.custom_item_grant_owner",
         )?;
-        Err(refuse(
-            "execution.player.Player_916.backpack_second_pass_owner",
-        ))
+        self.recheck_backpack(&mut live)
     }
 
     // Player.cpp:952-985.
@@ -269,9 +273,7 @@ impl SourcePlayer {
         if remaining == 0 {
             return Ok(());
         }
-        Err(refuse(
-            "execution.player.Player_975.store_new_item_check_owner",
-        ))
+        self.store_new_item(live, entry, remaining)
     }
 
     // Player.cpp:10054-10078. The fresh quest log is empty at :13446-13450.
@@ -336,6 +338,12 @@ impl SourcePlayer {
         // Player.cpp:10173-10187. Creator, enchantment and property words remain zero.
         if equip && item.entry != 0 {
             objects.force_update_field(self.object, PLAYER_VISIBLE_ENTRY + 12 * slot)?;
+        }
+        if !equip {
+            require(
+                !objects.get(self.object)?.in_world,
+                "execution.player.Player_9996.store_in_world_owner",
+            )?;
         }
         // Item.cpp:684-739. An item marked CHANGED while NEW stays NEW.
         if item.queue_pos.is_none() {
@@ -550,10 +558,7 @@ impl SourcePlayer {
             owner.guid == Some(item.owner) || item.flags & 1 == 0,
             "execution.player.Player_9446.item_owner",
         )?;
-        require(
-            proto.max_count <= 0,
-            "execution.player.Player_8565.item_max_count_owner",
-        )?;
+        self.can_take_more_similar_items(live, proto, item.entry, item.count, Some(handle))?;
         require(
             live.unit.flags & 0x0004_0000 == 0,
             "execution.player.Player_9459.stunned",
@@ -670,6 +675,215 @@ impl SourcePlayer {
         require(
             level >= proto.required_level,
             "execution.player.Player_9843.item_level",
+        )
+    }
+
+    // Player.cpp:8552-8577,8170-8208. Named refusals cover other containers.
+    fn can_take_more_similar_items(
+        &self,
+        live: &Outfit<'_>,
+        proto: &StartupItemPrototype,
+        entry: u32,
+        count: u32,
+        source: Option<ObjectHandle>,
+    ) -> Result<()> {
+        if proto.max_count <= 0 {
+            return Ok(());
+        }
+        let count_entry = |i, total: &mut u32| -> Result<()> {
+            if let Some(handle) = self.items[i] {
+                if Some(handle) != source {
+                    let item = live.items.get(handle)?;
+                    if item.entry == entry {
+                        *total = total.wrapping_add(item.count);
+                    }
+                }
+            }
+            Ok(())
+        };
+        let mut total = 0;
+        for slot in (0..39).chain(KEYRING) {
+            count_entry(slot, &mut total)?;
+        }
+        require(
+            self.items[BAG_SLOTS].iter().all(Option::is_none),
+            "execution.player.Player_8189.bag_item_count_owner",
+        )?;
+        for slot in 39..63 {
+            count_entry(slot, &mut total)?;
+        }
+        require(
+            self.items[63..69].iter().all(Option::is_none),
+            "execution.player.Player_8204.bank_bag_item_count_owner",
+        )?;
+        require(
+            total.wrapping_add(count) <= proto.max_count as u32,
+            "execution.player.Player_8571.item_max_count_exceeded",
+        )
+    }
+
+    // Player.cpp:8822-9194. Direct bag-zero and auto-bag, no specific slot or swap.
+    fn can_store_item(
+        &self,
+        live: &Outfit<'_>,
+        source: Option<ObjectHandle>,
+        entry: u32,
+        count: u32,
+        proto: &StartupItemPrototype,
+    ) -> Result<usize> {
+        if let Some(handle) = source {
+            let item = live.items.get(handle)?;
+            require(
+                live.objects.get(self.object)?.guid == Some(item.owner) || item.flags & 1 == 0,
+                "execution.player.Player_8848.item_owner",
+            )?;
+        }
+        self.can_take_more_similar_items(live, proto, entry, count, source)?;
+        if proto.stackable > 1 {
+            for handle in KEYRING.chain(BACKPACK).filter_map(|i| self.items[i]) {
+                if Some(handle) == source {
+                    continue;
+                }
+                let present = live.items.get(handle)?;
+                require(
+                    present.entry != entry || present.count >= proto.stackable,
+                    "execution.player.Player_8798.stack_merge_owner",
+                )?;
+            }
+            if source.is_some() {
+                require(
+                    self.items[BAG_SLOTS].iter().all(Option::is_none),
+                    "execution.player.Player_9092.merge_into_bag_owner",
+                )?;
+            }
+        }
+        if source.is_some() {
+            require(
+                proto.bag_family == 0,
+                "execution.player.Player_9109.special_bag_owner",
+            )?;
+        } else {
+            require(
+                proto.bag_family != 9,
+                "execution.player.Player_8964.keyring_owner",
+            )?;
+        }
+        let mut slots = BACKPACK;
+        let slot = slots
+            .find(|&i| self.items[i].is_none() || self.items[i] == source)
+            .ok_or_else(|| refuse("execution.player.Player_9194.backpack_full"))?;
+        require(
+            count <= proto.stackable,
+            "execution.player.Player_9949.split_stack_owner",
+        )?;
+        Ok(slot)
+    }
+
+    // Player.cpp:9914-9927. The fresh quest log has no occupied slots (:13446-13450).
+    fn store_new_item(&mut self, live: &mut Outfit<'_>, entry: u32, count: u32) -> Result<()> {
+        let proto = live
+            .templates
+            .item_prototype(entry)?
+            .ok_or_else(|| refuse("execution.player.Player_8827.store_template_owner"))?;
+        let slot = self.can_store_item(live, None, entry, count, proto)?;
+        require(
+            proto.random_property == 0,
+            "execution.item.Item_649.random_property_owner",
+        )?;
+        if let Some(handle) = live.items.create(
+            live.objects,
+            live.guids,
+            self.object,
+            entry,
+            count,
+            live.templates,
+            live.observe,
+        )? {
+            let result = self.store_item(live, handle, slot, count, proto);
+            if result.is_err() && self.items[slot] != Some(handle) {
+                live.items.destroy(live.objects, handle, live.observe)?;
+            }
+            result?;
+        }
+        Ok(())
+    }
+
+    // Player.cpp:9929-10015. A single empty backpack destination reuses the original item.
+    fn store_item(
+        &mut self,
+        live: &mut Outfit<'_>,
+        handle: ObjectHandle,
+        slot: usize,
+        count: u32,
+        proto: &StartupItemPrototype,
+    ) -> Result<()> {
+        let item = live.items.get_mut(handle)?;
+        live.objects
+            .set_update_value(handle, ITEM_COUNT, &mut item.count, count)?;
+        if matches!(proto.bonding, 1 | 4) {
+            live.objects
+                .update_flags(handle, ITEM_FLAGS, &mut item.flags, 1, true)?;
+        }
+        self.place_item(live.objects, handle, slot, item, false)?;
+        require(
+            item.duration == 0,
+            "execution.player.Player_18607.item_duration_owner",
+        )
+    }
+
+    // Player.cpp:916-949. This pass checks the existing Item rather than creating another probe.
+    fn recheck_backpack(&mut self, live: &mut Outfit<'_>) -> Result<()> {
+        for slot in BACKPACK {
+            let Some(handle) = self.items[slot] else {
+                continue;
+            };
+            require(
+                self.can_equip_item(live, handle)?.is_none(),
+                "execution.player.Player_925.backpack_equip_owner",
+            )?;
+            let item = live.items.get(handle)?;
+            let (entry, count) = (item.entry, item.count);
+            let proto = live
+                .templates
+                .item_prototype(entry)?
+                .ok_or_else(|| refuse("execution.player.Player_8827.store_template_owner"))?;
+            let destination = self.can_store_item(live, Some(handle), entry, count, proto)?;
+            self.remove_backpack_item(live, handle, slot)?;
+            self.store_item(live, handle, destination, count, proto)?;
+            // Player.cpp:9850-9874. A live non-ammo item returns ONLY_AMMO_CAN_GO_HERE.
+            if live.objects.get(self.object)?.alive {
+                require(
+                    proto.inventory_type != 24,
+                    "execution.player.Player_9863.ammo_use_owner",
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    // Player.cpp:10229-10294. Remove only the placement; preserve the owner and queue position.
+    fn remove_backpack_item(
+        &mut self,
+        live: &mut Outfit<'_>,
+        handle: ObjectHandle,
+        slot: usize,
+    ) -> Result<()> {
+        let item = live.items.get_mut(handle)?;
+        require(
+            item.duration == 0,
+            "execution.player.Player_18599.remove_item_duration_owner",
+        )?;
+        self.set_item_slot(live.objects, slot, None)?;
+        live.objects.set_update_guid(
+            handle,
+            ITEM_CONTAINED,
+            &mut item.contained,
+            SourceGuid::default(),
+        )?;
+        item.slot = u8::MAX;
+        require(
+            !live.objects.get(self.object)?.in_world,
+            "execution.player.Player_10293.remove_in_world_owner",
         )
     }
 }

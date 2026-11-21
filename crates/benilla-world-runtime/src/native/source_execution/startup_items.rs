@@ -46,6 +46,7 @@ pub struct StartupItemPrototype {
     pub delay: u32,
     pub spell_ids: [u32; 5],
     pub spell_triggers: [u32; 5],
+    pub bag_family: u32,
 }
 
 impl StartupItemPrototype {

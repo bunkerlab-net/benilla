@@ -242,7 +242,7 @@ impl SourcePlayer {
         result
     }
 
-    /// Player.cpp:747-945. The caller owns destruction if this partial port refuses.
+    /// Player.cpp:747-949. The caller owns destruction if detached creation refuses.
     #[allow(clippy::too_many_arguments)]
     pub fn create(
         &mut self,
