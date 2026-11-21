@@ -1,7 +1,67 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Pinned loot input validation, without random draws or runtime execution.
 use super::*;
+use crate::native::source_execution::ReferenceLootRow;
 use std::collections::BTreeSet;
+
+impl VerifiedCatalog {
+    pub fn execution_reference_loot_rows(&mut self) -> Result<Vec<ReferenceLootRow>> {
+        let table = "reference_loot_template";
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let columns = spawns::columns(&schema, table)?;
+        let mut positions = [0; 7];
+        for (position, name) in positions.iter_mut().zip([
+            "entry",
+            "item",
+            "ChanceOrQuestChance",
+            "groupid",
+            "mincountOrRef",
+            "maxcount",
+            "condition_id",
+        ]) {
+            *position = spawns::position(&columns, name)?;
+        }
+        let mut rows = Vec::new();
+        self.scan(table, 0, 256, |raw| {
+            let mut cells = [None; 256];
+            spawns::fill(&raw, &mut cells)?;
+            let [entry, item, chance, group, minimum, maximum, condition] =
+                positions.map(|at| cells[at]);
+            rows.push(ReferenceLootRow {
+                entry: spawns::uint(entry)?,
+                item: spawns::uint(item)?,
+                chance: spawns::floating(chance)?,
+                group: spawns::uint(group)? as u8,
+                min_count_or_ref: spawns::uint(minimum)? as i32,
+                max_count: spawns::uint(maximum)?,
+                condition: spawns::uint(condition)? as u16,
+            });
+            check(
+                rows.len() <= DECODED / std::mem::size_of::<ReferenceLootRow>(),
+                "loot.reference_view_limit",
+            )
+        })?;
+        // The restored MyISAM table is inserted in primary-key order.
+        rows.sort_unstable_by_key(|row| (row.entry, row.item));
+        Ok(rows)
+    }
+
+    pub fn execution_reference_loot_condition_ids(&mut self) -> Result<BTreeSet<u32>> {
+        let table = "conditions";
+        let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
+        let columns = spawns::columns(&schema, table)?;
+        let id = spawns::position(&columns, "condition_entry")?;
+        let mut conditions = BTreeSet::new();
+        self.scan(table, 0, 256, |raw| {
+            let mut cells = [None; 256];
+            spawns::fill(&raw, &mut cells)?;
+            conditions.insert(spawns::uint(cells[id])?);
+            Ok(())
+        })?;
+        Ok(conditions)
+    }
+}
+
 pub(super) const STORES: &[&str] = &[
     "creature_loot_template",
     "disenchant_loot_template",

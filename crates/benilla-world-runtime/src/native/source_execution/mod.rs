@@ -146,6 +146,8 @@ pub use grids::*;
 mod seal8_grids;
 pub use seal8_grids::{compare_seal8_unsealed_grids, Seal8GridReport};
 mod continents;
+mod reference_loot;
+pub use reference_loot::*;
 mod graveyards;
 pub use graveyards::*;
 mod outdoor_pvp;

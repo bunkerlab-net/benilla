@@ -17,6 +17,8 @@ mod formation_path;
 mod gameobject_models;
 #[path = "seal16_immunities.rs"]
 mod immunities;
+#[path = "seal16_reference_loot.rs"]
+mod reference_loot_evidence;
 #[path = "seal16_relations_evidence.rs"]
 mod relations_evidence;
 #[path = "seal16_script_registry.rs"]
@@ -1270,6 +1272,7 @@ pub(super) struct Inputs {
     map_bindings: BTreeMap<u32, (u64, u64, u64)>,
     map_threads: BTreeMap<u64, MapThreadEvidence>,
     map_updater: MapUpdaterTrace,
+    reference_loot: reference_loot_evidence::Evidence,
     battleground_query_line: Option<u64>,
     event_initialize_line: Option<u64>,
     event_status_writes: Vec<(u64, String)>,
@@ -1312,6 +1315,9 @@ impl Inputs {
         addons
     }
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
+        if thread == 1 && (51647696..=52609100).contains(&line) {
+            self.reference_loot.observe(line, kind, p);
+        }
         if thread == 1 && (46233402..=46233818).contains(&line) {
             self.transport_sql.observe(line, kind, p);
         }
@@ -2793,6 +2799,7 @@ pub(super) fn continue_startup(
         "F6_CORPSES loaded=0 matched_sql=1 query_line={}",
         observed.corpse_query_line.unwrap()
     );
+    let reference_loot = observed.reference_loot.load(catalog, recording);
     assert_eq!(
         observed
             .group_queries
@@ -7058,6 +7065,8 @@ pub(super) fn continue_startup(
     let [(map0, pool0, transport0), (map1, pool1, transport1)] =
         [(0, 6, 60100952, 2440933613), (1, 7, 60117712, 159038541)].map(run_job);
     let mut ready = continents.join_initialization([map0, map1]).unwrap();
+    ready.bind_reference_loot(reference_loot);
+    assert!(ready.reference_loot().unwrap().have_loot_for(1));
     assert_eq!(
         spawn_loader_config::assignment(&config, "MapUpdate.Threads").unwrap(),
         (275, "3".to_owned())

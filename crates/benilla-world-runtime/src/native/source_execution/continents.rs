@@ -346,10 +346,18 @@ pub struct SourceContinents {
     updater: SourceScheduler,
 }
 
-pub struct ReadySourceContinents(SourceContinents);
+pub struct ReadySourceContinents(SourceContinents, Option<SourceReferenceLootStore>);
 impl ReadySourceContinents {
     pub fn continents(&self) -> &SourceContinents {
         &self.0
+    }
+
+    pub fn bind_reference_loot(&mut self, store: SourceReferenceLootStore) {
+        self.1 = Some(store);
+    }
+
+    pub fn reference_loot(&self) -> Option<&SourceReferenceLootStore> {
+        self.1.as_ref()
     }
 
     // MapManager.cpp:56-58 reads the signed thread count after the continent join.
@@ -406,7 +414,7 @@ impl SourceContinents {
         let [map0, map1] = outcomes;
         map0?;
         map1?;
-        Ok(ReadySourceContinents(self))
+        Ok(ReadySourceContinents(self, None))
     }
 
     /// MapManager.cpp:52-54,96-106; only constructors have a world-thread order.
