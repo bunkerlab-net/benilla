@@ -5,7 +5,7 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
-    "execution.ai.ScriptDevAIMgr_370.GetAI_owner.guard_elwynnforest",
+    "execution.continents.load_transports_owner",
     "execution.continents.MapManager_110.future_join_owner",
 ];
 #[path = "seal16_active_clocks.rs"]

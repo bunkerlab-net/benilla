@@ -2690,8 +2690,8 @@ Static coverage at stock template levels is 29 of 31 nonzero-slope addon
 effect slots and 13 of 16 direct EventAI Spawn-cast slots. The other two and
 three slots reach the dice RNG at `Object.cpp:2955`. This census counts effect
 value arithmetic and does not execute casts.
-Map 0 completes 1,364 objects in 1,448 allocations. It matches 34,251 random
-words, 1,065 clocks, 127 paths, and two map SQL requests. Defias Conjurers
+Map 0 completes 1,604 objects in 1,688 allocations. It matches 35,785 random
+words, 1,284 clocks, 142 paths, and two map SQL requests. Defias Conjurers
 GUID89544 and GUID89542 finish Frost Armor with 36 armor and two effect clocks
 each (trace :61221527-61221531, :61241174-61241178). All 23 Stormwind guards
 complete (trace :61339475-61390644). Bolvar GUID10495 retains Retribution Aura
@@ -2715,9 +2715,10 @@ Lordaeron shrines bind their GUIDs and finish their AI spawn callbacks
 (trace :61451279-:61451535). Guard Roberts GUID81085 completes at :61479844.
 Garments keeps his Kneel state, sets the PvP flag, and sets health to 95
 of 137 (`npcs_special.cpp:579-593`). Construction and respawn each draw
-two timer words (trace :61479774-:61479824). Map 0 stops at the
-`guard_elwynnforest` factory for GUID80263 (`ScriptDevAIMgr.cpp:370`,
-trace :61581173).
+two timer words (trace :61479774-:61479824). The Elwynn guard GUID80263
+completes at :61581298. Its bare `guardAI` resets both cooldowns at respawn
+(`guard_ai.cpp:29-38,63-81`). Map 0 finishes active preload at :61721572.
+It stops at `LoadTransports` (`Map.cpp:216`, first birth :61721576).
 Map 1 completes all 531 active preload objects in 571 allocations. It matches
 15,783 random words, 535 clocks, 35 paths, and two map SQL requests.
 Silithyst Geyser GUID49337 completes at trace :60741339.

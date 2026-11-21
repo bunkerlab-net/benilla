@@ -209,13 +209,13 @@ struct StormwindFixture {
 }
 
 impl StormwindFixture {
-    fn new() -> Self {
+    fn new(script: &str) -> Self {
         let mut binding = super::super::creature_tests::chicken_binding();
-        binding.name = "guard_stormwind".into();
+        binding.name = script.into();
         let mut builder = AiRegistryBuilder::builtin();
         builder.load_scripts([binding]).unwrap();
         let mut t = template("");
-        t.script_name = "guard_stormwind".into();
+        t.script_name = script.into();
         let mut objects = SourceObjects::default();
         let unit = objects.construct(1, SourceObjectKind::Creature).unwrap();
         let mut units = SourceUnits::default();
@@ -232,7 +232,7 @@ impl StormwindFixture {
             )
             .unwrap();
         let AiExecutable::ScriptDevGetAi(binding) = selected.executable() else {
-            panic!("Stormwind must use ScriptDev GetAI");
+            panic!("guard must use ScriptDev GetAI");
         };
         let mut ais = SourceCreatureAis::default();
         let mut random = Random::new();
@@ -281,7 +281,7 @@ impl StormwindFixture {
 
 #[test]
 fn stormwind_constructor_and_respawn_dispatch_salute_only_reset() {
-    let mut f = StormwindFixture::new();
+    let mut f = StormwindFixture::new("guard_stormwind");
     let unit = f.unit;
     assert_eq!(f.random.cursor.raw, 4); // Seal16 :61339365-61339395.
     let ai = f.ai();
@@ -384,6 +384,46 @@ fn stormwind_constructor_and_respawn_dispatch_salute_only_reset() {
     assert!(guard.guard.combat.on_kill_cooldown);
 }
 
+#[test]
+fn bare_guard_respawn_resets_guard_state_and_inherited_timers() {
+    let mut f = StormwindFixture::new("guard_elwynnforest");
+    assert_eq!(f.random.cursor.raw, 4); // :61581186-61581218.
+    let live = f.ai();
+    let LoadedCreatureAiClass::Scripted(SourceScriptedAi::Guard { ai, .. }) =
+        &mut live.loaded_class
+    else {
+        panic!("expected bare guardAI");
+    };
+    assert_eq!((ai.global_cooldown_ms, ai.buff_timer_ms), (0, 0));
+    ai.global_cooldown_ms = 13;
+    ai.buff_timer_ms = 17;
+    ai.combat.on_kill_cooldown = true;
+    live.base.generic_timers[0].remaining = 31;
+    live.base.chase_distance = 35.;
+    live.base.attack_distance = 11.;
+
+    f.respawn(None).unwrap();
+    assert_eq!(f.random.cursor.raw, 8); // :61581248-61581278.
+    let live = f.ai();
+    assert_eq!(live.base.attack_distance, 11.);
+    assert_eq!(
+        live.base
+            .generic_timers
+            .map(|t| (t.id, t.remaining, t.disabled)),
+        [(2000, 0, true), (2001, 0, true)]
+    );
+    let LoadedCreatureAiClass::Scripted(SourceScriptedAi::Guard { ai, .. }) = &live.loaded_class
+    else {
+        panic!("expected bare guardAI");
+    };
+    assert_eq!((ai.global_cooldown_ms, ai.buff_timer_ms), (0, 0));
+    assert!(ai.combat.on_kill_cooldown);
+    assert_eq!(
+        (*ai.combat.custom_timers()).map(|t| (t.id, t.remaining, t.disabled)),
+        [(1000, 0, true), (1001, 0, true)]
+    );
+}
+
 fn stormwind_test_list() -> CreatureSpellList {
     let (mut loaded, census) = LoadedCreatureSpellLists::load(
         vec![SqlTemplateRow {
@@ -411,7 +451,7 @@ fn stormwind_test_list() -> CreatureSpellList {
 
 #[test]
 fn stormwind_unwritten_chance_only_continues_for_empty_spells() {
-    let mut f = StormwindFixture::new();
+    let mut f = StormwindFixture::new("guard_stormwind");
     f.respawn(None).unwrap(); // The fresh DB creature has no list.
 
     let live = f.units.get_mut(&f.objects, f.unit).unwrap();
@@ -434,7 +474,7 @@ fn stormwind_unwritten_chance_only_continues_for_empty_spells() {
 
 #[test]
 fn stormwind_written_ranged_chance_uses_first_flagged_spell_with_template() {
-    let mut f = StormwindFixture::new();
+    let mut f = StormwindFixture::new("guard_stormwind");
     let mut stores = SourceSpellStores::default();
     let mut list = stormwind_test_list();
     list.chance_ranged = 0;
@@ -487,7 +527,7 @@ fn stormwind_written_ranged_chance_uses_first_flagged_spell_with_template() {
     );
 
     // SpellMgr.h:60 defines a missing range row as zero.
-    let mut f = StormwindFixture::new();
+    let mut f = StormwindFixture::new("guard_stormwind");
     let live = f.units.get_mut(&f.objects, f.unit).unwrap();
     live.spell_list_disabled = Some(true); // guard_ai.cpp:67 does not read Disabled.
     live.spell_list = Some(stormwind_test_list());

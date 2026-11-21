@@ -1211,6 +1211,59 @@ pub(super) fn assert_after_garments(
     );
 }
 
+pub(super) fn assert_after_elwynn(
+    births: &[u64],
+    completed: &[(u64, u32)],
+    words: &[(u64, u64, u64)],
+    clocks: &super::active_init::ActiveClocks,
+) {
+    // Map 0, :61581298 through the last active preload at :61721572.
+    assert_eq!(
+        (births.len(), births[0], births[239]),
+        (240, 61581300, 61720856)
+    );
+    assert_eq!(
+        digest(births.iter().map(|&line| [line])),
+        "fc4cd309b0de74d8d6a837e93960f8468928659c3376dc72fc4e2c7d21bc6b2f"
+    );
+    assert_eq!(
+        (completed.len(), completed[0], completed[239]),
+        (240, (61581298, 80263), (61721572, 92563))
+    );
+    assert_eq!(
+        digest(
+            completed
+                .iter()
+                .map(|&(line, guid)| [line, u64::from(guid)])
+        ),
+        "86880ee41fe401041f562140c384eead8ac04601051deaf6e9f8f2d3a9d9e368"
+    );
+    assert_eq!(
+        (words.len(), words[0], words[1525]),
+        (
+            1526,
+            (61581318, 34259, 3652573144),
+            (61721552, 35784, 3678788077)
+        )
+    );
+    assert_eq!(
+        digest(words.iter().map(|&(line, raw, word)| [line, raw, word])),
+        "4de8d9c16ffa8d80c68a2f5034691474c4d1ff1e071c1a3be5cb04c9691853f9"
+    );
+    assert_eq!(clocks.0[1283].time_line, 61721153);
+    assert_eq!(
+        digest(clocks.0.range(1065..1284).map(|c| [
+            c.site_line,
+            c.time_line,
+            c.thread,
+            c.site[2],
+            c.raw,
+            c.seconds as u64
+        ])),
+        "190a376d85a649157942c18256c8b670a9532024b12dbe17b5a308026ca6dfa6"
+    );
+}
+
 fn digest<const N: usize>(rows: impl Iterator<Item = [u64; N]>) -> String {
     use sha2::{Digest, Sha256};
     let mut hash = Sha256::new();

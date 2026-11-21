@@ -27,6 +27,7 @@ pub enum SourceScriptedAiKind {
     ChickenCluck,
     Azuregos,
     Solenor,
+    Guard,
     GuardStormwind,
     GarmentsOfQuests,
 }
@@ -36,6 +37,17 @@ impl SourceScriptedAiKind {
             "npc_chicken_cluck" => Ok(Self::ChickenCluck),
             "boss_azuregos" => Ok(Self::Azuregos),
             "npc_solenor" => Ok(Self::Solenor),
+            "guard_bluffwatcher" // guards.cpp:45-48,165-167.
+            | "guard_contested" // guards.cpp:50-53,170-172.
+            | "guard_darnassus" // guards.cpp:55-58,175-177.
+            | "guard_dunmorogh" // guards.cpp:60-63,180-182.
+            | "guard_durotar" // guards.cpp:65-68,185-187.
+            | "guard_elwynnforest" // guards.cpp:70-73,190-192.
+            | "guard_ironforge" // guards.cpp:75-78,195-197.
+            | "guard_mulgore" // guards.cpp:80-83,200-202.
+            | "guard_teldrassil" // guards.cpp:145-148,215-217.
+            | "guard_tirisfal" // guards.cpp:150-153,220-222.
+            | "guard_undercity" => Ok(Self::Guard), // guards.cpp:155-158,225-227.
             "guard_stormwind" => Ok(Self::GuardStormwind),
             // npcs_special.cpp:1162-1165 registers GetAI_npc_garments_of_quests.
             "npc_garments_of_quests" => Ok(Self::GarmentsOfQuests),
@@ -45,7 +57,11 @@ impl SourceScriptedAiKind {
 
     pub(crate) fn action_count(self) -> u32 {
         match self {
-            Self::ChickenCluck | Self::Solenor | Self::GuardStormwind | Self::GarmentsOfQuests => 0,
+            Self::ChickenCluck
+            | Self::Solenor
+            | Self::Guard
+            | Self::GuardStormwind
+            | Self::GarmentsOfQuests => 0,
             Self::Azuregos => BossAzuregosAi::ACTION_COUNT,
         }
     }
@@ -56,6 +72,10 @@ pub enum SourceScriptedAi {
     ChickenCluck(ChickenCluckAi),
     Azuregos(BossAzuregosAi),
     Solenor(SolenorAi),
+    Guard {
+        binding: Arc<ScriptDevAiBinding>,
+        ai: ScriptGuardAi,
+    },
     GuardStormwind(GuardStormwindAi),
     GarmentsOfQuests(GarmentsOfQuestsAi),
 }
@@ -100,6 +120,10 @@ impl SourceScriptedAi {
                 SolenorAi::construct(binding, base.unit, objects, units, random, reset_owner)
                     .map(Self::Solenor)
             }
+            SourceScriptedAiKind::Guard => Ok(Self::Guard {
+                binding: Arc::clone(binding),
+                ai: ScriptGuardAi::construct(random)?,
+            }),
             SourceScriptedAiKind::GuardStormwind => {
                 GuardStormwindAi::construct(binding, random).map(Self::GuardStormwind)
             }
@@ -115,6 +139,7 @@ impl SourceScriptedAi {
             Self::ChickenCluck(ai) => &ai.binding,
             Self::Azuregos(ai) => &ai.binding,
             Self::Solenor(ai) => &ai.binding,
+            Self::Guard { binding, .. } => binding,
             Self::GuardStormwind(ai) => &ai.binding,
             Self::GarmentsOfQuests(ai) => &ai.binding,
         }
@@ -137,11 +162,23 @@ impl SourceScriptedAi {
                 Ok(())
             }
             Self::Solenor(ai) => ai.reset(base.unit, objects, units, random, reset_owner),
+            Self::Guard { ai, .. } => {
+                ai.reset();
+                Ok(())
+            }
             Self::GuardStormwind(ai) => {
                 ai.reset();
                 Ok(())
             }
             Self::GarmentsOfQuests(ai) => ai.reset(objects, units, base.unit),
+        }
+    }
+
+    pub(crate) fn guard_mut(&mut self) -> Option<&mut ScriptGuardAi> {
+        match self {
+            Self::Guard { ai, .. } => Some(ai),
+            Self::GuardStormwind(ai) => Some(&mut ai.guard),
+            _ => None,
         }
     }
 
@@ -173,7 +210,10 @@ impl SourceScriptedAi {
             )),
             Self::GuardStormwind(_) => Err(refuse("execution.ai.guards_133.ReceiveEmote_owner")),
             // These scripts inherit the empty UnitAI.h:282 callback.
-            Self::Azuregos(_) | Self::Solenor(_) | Self::GarmentsOfQuests(_) => Ok(()),
+            Self::Azuregos(_)
+            | Self::Solenor(_)
+            | Self::Guard { .. }
+            | Self::GarmentsOfQuests(_) => Ok(()),
         }
     }
 
@@ -187,6 +227,7 @@ impl SourceScriptedAi {
                 "execution.ai.UnitAI_1084.UpdateAI_owner.boss_azuregos",
             )),
             Self::Solenor(_) => Err(refuse("execution.ai.silithus_203.UpdateAI_owner")),
+            Self::Guard { .. } => Err(refuse("execution.ai.UnitAI_1084.UpdateAI_owner.guardAI")),
             Self::GuardStormwind(_) => Err(refuse("execution.ai.guards_120.UpdateAI_owner")),
             Self::GarmentsOfQuests(ai) => ai.escort.update_ai(diff),
         }

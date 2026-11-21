@@ -800,8 +800,21 @@ fn retained_catalog04_all_template_selection_census_or_explicit_absence() {
             .collect::<Vec<_>>(),
         [
             ("boss_azuregos", 1),
+            ("guard_bluffwatcher", 1), // initial-classicmangos.sql :423745.
+            // SQL :424154, :425139, :427808, :428606, :430463.
+            ("guard_contested", 5),
+            ("guard_darnassus", 1),    // SQL :424822.
+            ("guard_dunmorogh", 2),    // SQL :421625, :429517.
+            ("guard_durotar", 1),      // SQL :426205.
+            ("guard_elwynnforest", 1), // SQL :422246.
+            ("guard_ironforge", 1),    // SQL :425857.
+            ("guard_mulgore", 10),     // SQL :423871, :423874, :423876-423883.
             // initial-classicmangos.sql :421134, :422556, :422736.
             ("guard_stormwind", 3),
+            ("guard_teldrassil", 1), // SQL :424220.
+            // SQL :422535, :422538, :422542-422546, :422933-422934, :425984.
+            ("guard_tirisfal", 10),
+            ("guard_undercity", 1), // SQL :425885.
             ("npc_chicken_cluck", 1),
             // initial-classicmangos.sql :429338, :429341-429344.
             ("npc_garments_of_quests", 5),

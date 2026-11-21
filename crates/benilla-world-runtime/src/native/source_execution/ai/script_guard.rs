@@ -11,7 +11,7 @@ pub struct ScriptGuardAi {
 
 impl ScriptGuardAi {
     // guard_ai.cpp:29-32. The live CreatureAI base already has zero actions.
-    fn construct(random: &mut dyn CreatureRandom) -> Result<Self> {
+    pub(super) fn construct(random: &mut dyn CreatureRandom) -> Result<Self> {
         Ok(Self {
             combat: CombatAi::construct(random)?,
             global_cooldown_ms: 0,
@@ -25,6 +25,13 @@ impl ScriptGuardAi {
         self.buff_timer_ms = 0;
     }
 
+    pub(crate) fn reset_timers(
+        &mut self,
+        base: &mut SourceUnitAi,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<()> {
+        self.combat.reset_timers(base, random)
+    }
     // guard_ai.cpp:66-81 follows CreatureAI::JustRespawned and its virtual Reset.
     pub(crate) fn after_inherited_respawn(
         base: &mut SourceUnitAi,
@@ -94,14 +101,6 @@ impl GuardStormwindAi {
     // guards.cpp:106-109 leaves guardAI and CombatAI fields alone.
     pub(crate) fn reset(&mut self) {
         self.salute_wait_timer_ms = 0;
-    }
-
-    pub(crate) fn reset_timers(
-        &mut self,
-        base: &mut SourceUnitAi,
-        random: &mut dyn CreatureRandom,
-    ) -> Result<()> {
-        self.guard.combat.reset_timers(base, random)
     }
 
     pub fn spell_hit(&mut self, _caster: ObjectHandle, _spell: u32) -> Result<()> {

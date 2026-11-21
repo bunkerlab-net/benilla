@@ -408,12 +408,12 @@ impl SourceCreatureAi {
         {
             return Err(refuse("execution.ai.silithus_134.Aggro_owner"));
         }
-        if let (
-            Some(enemy),
-            LoadedCreatureAiClass::Scripted(SourceScriptedAi::GuardStormwind(ai)),
-        ) = (enemy, &mut self.loaded_class)
+        if let (Some(enemy), LoadedCreatureAiClass::Scripted(script)) =
+            (enemy, &mut self.loaded_class)
         {
-            ai.guard.aggro(enemy)?;
+            if let Some(guard) = script.guard_mut() {
+                guard.aggro(enemy)?;
+            }
         }
         Ok(())
     }
@@ -492,6 +492,11 @@ impl SourceCreatureAi {
         // TimerAI.cpp:153-156 excludes both generic TIMER_ALWAYS timers on evade.
         self.require_combat_timer_owner()?;
         match &mut self.loaded_class {
+            LoadedCreatureAiClass::Scripted(SourceScriptedAi::Guard { ai, .. }) => {
+                // CreatureAI.cpp:70 calls guardAI::Reset without resetting ALWAYS timers.
+                ai.reset();
+                Ok(())
+            }
             LoadedCreatureAiClass::Scripted(SourceScriptedAi::GuardStormwind(ai)) => {
                 // CreatureAI.cpp:70 dispatches the same virtual Reset as respawn.
                 ai.reset();
@@ -523,8 +528,12 @@ impl SourceCreatureAi {
                 }
                 ai.reset_timers(&mut self.base, random)?;
             }
-            LoadedCreatureAiClass::Scripted(SourceScriptedAi::GuardStormwind(ai)) if all => {
-                ai.reset_timers(&mut self.base, random)?;
+            LoadedCreatureAiClass::Scripted(script) if all => {
+                if let Some(guard) = script.guard_mut() {
+                    guard.reset_timers(&mut self.base, random)?;
+                } else {
+                    self.require_combat_timer_owner()?;
+                }
             }
             _ => self.require_combat_timer_owner()?,
         }
@@ -549,7 +558,7 @@ impl SourceCreatureAi {
         match &mut self.loaded_class {
             LoadedCreatureAiClass::Scripted(ai) => {
                 ai.reset(objects, units, &mut self.base, random, reset_owner)?;
-                if matches!(ai, SourceScriptedAi::GuardStormwind(_)) {
+                if ai.guard_mut().is_some() {
                     // guard_ai.cpp:63-81 wraps the inherited respawn above.
                     ScriptGuardAi::after_inherited_respawn(
                         &mut self.base,

@@ -62,11 +62,13 @@ const MAP0_WATCHER_RESPAWN_RAW: usize = 32650; // :61417987.
 const MAP0_BANNER_RAW: usize = 32950; // First word after the banner, :61442437.
 const MAP0_GARMENTS_RAW: usize = 33202; // Roberts's first AI timer word, :61479774.
 const MAP0_AFTER_GARMENTS_RAW: usize = 33206; // Next display draw, :61479864.
-const MAP0_NEXT_RAW: usize = 34251; // First Elwynn guard timer word, :61581186.
+const MAP0_ELWYNN_RAW: usize = 34251; // First Elwynn guard timer word, :61581186.
+const MAP0_AFTER_ELWYNN_RAW: usize = 34259; // Next display draw, :61581318.
+const MAP0_NEXT_RAW: usize = 35785; // Last preload word consumed, :61721552.
 
 const MAP0_FIRST_STORMWIND_LINE: u64 = 61339352;
-const MAP0_NEXT_OWNER_LINE: u64 = 61581173; // Elwynn guard ScriptDev factory.
-const MAP0_NEXT_SOURCE: &str = "ScriptDevAIMgr.cpp:370";
+const MAP0_NEXT_OWNER_LINE: u64 = 61721576; // First transport birth.
+const MAP0_NEXT_SOURCE: &str = "Map.cpp:216";
 const MAP0_LAST_STORMWIND_COMPLETION: u64 = 61390644;
 
 #[derive(Default)]
@@ -178,7 +180,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     // the trap at :60493861 and both duplicate creature attempts.
     // The continuation through the Bell GO adds 51 births, :60580681-60637267.
     // :61339477-61350362 add 17 births after entering GUID10507's factory.
-    assert_eq!(evidence.continuation_births.len(), 1360);
+    assert_eq!(evidence.continuation_births.len(), 1600);
     let births = &evidence.continuation_births[1..54];
     assert_eq!((births[0], births[52]), (60478620, 60571587));
     assert_eq!(
@@ -439,7 +441,7 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         map0_receipt(births.iter().map(|&line| [line])),
         "05ebe2a062d4f5d3ac6a1f625a85e91fe4d1e84ccf31d15186ee7807b593fade"
     );
-    assert_eq!(evidence.continuation_completed.len(), 1277);
+    assert_eq!(evidence.continuation_completed.len(), 1517);
     let completions = &evidence.continuation_completed[1009..1032];
     assert_eq!(
         (completions[0], completions[22]),
@@ -490,9 +492,15 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
         "1d9360893e6435380e5d9e6d54ef3eff8fe705b9be1c08efcfebe22a0aa0b260"
     );
     relations_evidence::assert_after_garments(
-        &evidence.continuation_births[1188..],
-        &evidence.continuation_completed[1112..],
-        &evidence.words[MAP0_AFTER_GARMENTS_RAW..MAP0_NEXT_RAW],
+        &evidence.continuation_births[1188..1360],
+        &evidence.continuation_completed[1112..1277],
+        &evidence.words[MAP0_AFTER_GARMENTS_RAW..MAP0_ELWYNN_RAW],
+        &evidence.active_clocks,
+    );
+    relations_evidence::assert_after_elwynn(
+        &evidence.continuation_births[1360..],
+        &evidence.continuation_completed[1277..],
+        &evidence.words[MAP0_AFTER_ELWYNN_RAW..MAP0_NEXT_RAW],
         &evidence.active_clocks,
     );
     // The replay also compares each word, request and result in order below.
@@ -743,7 +751,39 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
             (33205, "urand", 0, 0, Some(0))
         ]
     );
-    assert_eq!(evidence.words[MAP0_NEXT_RAW], (61581186, 34251, 4076703022));
+    // :61581185-61581218 constructs four timers. :61581247-61581278 resets them.
+    assert_eq!(
+        &evidence.words[MAP0_ELWYNN_RAW..MAP0_AFTER_ELWYNN_RAW],
+        [
+            (61581186, 34251, 4076703022),
+            (61581198, 34252, 4145950362),
+            (61581208, 34253, 2053999515),
+            (61581218, 34254, 1742331340),
+            (61581248, 34255, 3575521538),
+            (61581258, 34256, 2347570294),
+            (61581268, 34257, 3295915367),
+            (61581278, 34258, 2815846518),
+        ]
+    );
+    assert!(evidence
+        .candidate_requests
+        .iter()
+        .filter(|request| (MAP0_ELWYNN_RAW..MAP0_AFTER_ELWYNN_RAW).contains(&request.0))
+        .map(|request| (
+            request.0,
+            request.1.as_str(),
+            request.2,
+            request.3,
+            request.4
+        ))
+        .eq((MAP0_ELWYNN_RAW..MAP0_AFTER_ELWYNN_RAW).map(|position| (
+            position,
+            "urand",
+            0,
+            0,
+            Some(0)
+        ))));
+    assert_eq!(evidence.words.len(), MAP0_NEXT_RAW);
     assert_eq!(
         map0_receipt(
             evidence.words[MAP0_BANNER_RAW..MAP0_GARMENTS_RAW]
@@ -762,8 +802,8 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     // :61339887-61350846 add nine respawn clocks; :61351112/:61351114 add
     // the holder and effect clocks before handling aura 15.
     // :61351269/:61351279 add the holder and effect clocks for 18943.
-    assert_eq!(consumed, 1065); // :61479952-61577608 adds 144 clocks.
-    assert_eq!(new_clocks.clone().count(), 987);
+    assert_eq!(consumed, 1284); // :61581430-61721153 adds 219 clocks.
+    assert_eq!(new_clocks.clone().count(), 1206);
     assert_eq!(
         map0_receipt(new_clocks.clone().take(34).map(|clock| [
             clock.site_line,
@@ -888,7 +928,8 @@ fn assert_map0_continuation(evidence: &MapThreadEvidence, clocks: &active_init::
     assert_eq!(evidence.active_clocks.0[882].time_line, 61442756);
     assert_eq!(evidence.active_clocks.0[920].time_line, 61479756);
     assert_eq!(evidence.active_clocks.0[921].time_line, 61479952);
-    assert_eq!(clocks.0.front().unwrap().time_line, 61581430);
+    assert_eq!(evidence.active_clocks.0[1065].time_line, 61581430);
+    assert!(clocks.0.is_empty());
     assert_eq!(
         map0_receipt(evidence.active_clocks.0.range(841..882).map(|clock| [
             clock.site_line,
@@ -3530,6 +3571,10 @@ pub(super) fn continue_startup(
         let mut transport_count = 0;
         let refusal = active_result
             .and_then(|()| {
+                // Map.cpp:216. Keep the map-0 replay boundary before transports in this commit.
+                if slot == 0 {
+                    return Err(refuse("execution.continents.load_transports_owner"));
+                }
                 let map = &mut continents.maps[slot];
                 let before_guid = map.guids.as_ref().unwrap().next_gameobject_counter();
                 let before = active_objects.construction_count(thread);
@@ -3676,11 +3721,18 @@ pub(super) fn continue_startup(
                 ]
             );
             assert_eq!(
-                &evidence.path_calculations[104..],
+                &evidence.path_calculations[104..127],
                 [
                     61484172, 61486690, 61488943, 61491340, 61492304, 61493275, 61494234, 61496033,
                     61496985, 61531362, 61532094, 61550459, 61552881, 61555324, 61559992, 61560967,
                     61563250, 61565702, 61567913, 61568932, 61571255, 61573308, 61578045,
+                ]
+            );
+            assert_eq!(
+                &evidence.path_calculations[127..],
+                [
+                    61621045, 61621703, 61622359, 61647058, 61648189, 61649320, 61659633, 61660671,
+                    61661709, 61663773, 61664924, 61666068, 61696957, 61698387, 61699833,
                 ]
             );
             assert_eq!(evidence.sql_lines, [60100980, 60101139]);
@@ -3899,7 +3951,6 @@ pub(super) fn continue_startup(
                     "go_instance_data",
                     "go_instance_on_object_spawn",
                 ]));
-            assert!(!completed_objects.contains(&candidate));
             assert_eq!(
                 (
                     attempt.guid,
@@ -3908,10 +3959,48 @@ pub(super) fn continue_startup(
                     attempt.cell.x(),
                     attempt.cell.y()
                 ),
-                (80263, GridSpawnKind::Creature, 1423, 239, 510)
+                (92563, GridSpawnKind::Creature, 9452, 568, 348)
+            ); // :61720855-61720861, last preload completion :61721572.
+            assert_eq!(completed_objects.last(), Some(&candidate));
+            assert!(active_objects.get(candidate).unwrap().in_world);
+            let elwynn = completed_objects[1364]; // :61581298.
+            let object = active_objects.get(elwynn).unwrap();
+            assert_eq!(
+                (
+                    object.database_guid,
+                    object.guid.unwrap().entry(),
+                    object.current_cell.map(|c| (c.x, c.y))
+                ),
+                (80263, 1423, Some((239, 510)))
             ); // :61577265-61577276, factory :61581173.
-            assert!(active_objects.get(candidate).unwrap().in_world); // :61577609.
-            assert_eq!(motions[&candidate].current_type(), 2); // :61577271.
+            assert!(object.in_world); // :61577609.
+            assert_eq!(motions[&elwynn].current_type(), 2); // :61577271.
+            let live = units.get(&active_objects, elwynn).unwrap();
+            assert!(live.has_ai);
+            assert!(live.spell_list.is_none()); // Creature.cpp:612, SQL :422246 has no list 142300.
+            let ai = ais.get(&active_objects, elwynn).unwrap();
+            let LoadedCreatureAiClass::Scripted(SourceScriptedAi::Guard { binding, ai: guard }) =
+                &ai.loaded_class
+            else {
+                panic!("expected bare guardAI");
+            };
+            assert_eq!(
+                (binding.script_id, binding.name.as_str()),
+                (192, "guard_elwynnforest")
+            );
+            assert_eq!(ai.base.action_count(), 0);
+            assert_eq!((guard.global_cooldown_ms, guard.buff_timer_ms), (0, 0));
+            assert_eq!(guard.combat.evade_check_cooldown_ms, 2500);
+            assert_eq!(
+                (*guard.combat.custom_timers()).map(|t| (t.id, t.remaining, t.disabled)),
+                [(1000, 0, true), (1001, 0, true)]
+            );
+            assert_eq!(
+                ai.base
+                    .generic_timers
+                    .map(|t| (t.id, t.remaining, t.disabled)),
+                [(2000, 0, true), (2001, 0, true)]
+            ); // :61581247-61581279.
             let roberts_handle = completed_objects[1199]; // :61479844.
             let object = active_objects.get(roberts_handle).unwrap();
             assert_eq!(
@@ -4881,7 +4970,7 @@ pub(super) fn continue_startup(
             zone_lookups.len());
         assert_eq!(
             continents.maps[slot].cells.active().len(),
-            if slot == 0 { 20 } else { 9 }
+            if slot == 0 { 21 } else { 9 }
         );
         let active_guids = continents.maps[slot]
             .cells
@@ -4894,7 +4983,7 @@ pub(super) fn continue_startup(
             if slot == 0 {
                 BTreeSet::from([
                     636, 2129, 4185, 4603, 14514, 14515, 14516, 14517, 14772, 14773, 14774, 14775,
-                    14776, 15423, 15424, 15508, 20802, 45525, 45707, 53169,
+                    14776, 15423, 15424, 15508, 20802, 45525, 45707, 53169, 92847,
                 ])
             } else {
                 BTreeSet::from([
@@ -4920,6 +5009,8 @@ pub(super) fn continue_startup(
                         (61376935, 0, 45707),
                         (61426868, 0, 53169),
                         (61426870, 0, 53169),
+                        (61620747, 0, 92847),
+                        (61620749, 0, 92847),
                     ]
                 } else {
                     vec![
@@ -4957,6 +5048,8 @@ pub(super) fn continue_startup(
                         (61376936, 2),
                         (61426869, 1),
                         (61426871, 2),
+                        (61620748, 1),
+                        (61620750, 2),
                     ]
                 } else {
                     vec![
@@ -6023,8 +6116,9 @@ pub(super) fn continue_startup(
         // :61426545 and :61431657 add Idle GUID84780 and GUID90969 (SQL :127067, :128469).
         // Eight more map-0 Idle completions run from :61447249 to :61479534.
         // Roberts and 36 more map-0 Idle creatures complete at :61479844-61577264.
+        // :61590893-61718979 adds 93 completed map-0 Idle creatures.
         // :60943949-:61049110 adds no map-1 Idle rows.
-        assert_eq!(idle_count, if slot == 0 { 262 } else { 55 });
+        assert_eq!(idle_count, if slot == 0 { 355 } else { 55 });
         if slot == 1 {
             // :60777881 binds GUID42899's fixed-path movement type.
             let fixed = completed_objects
@@ -6037,12 +6131,12 @@ pub(super) fn continue_startup(
         assert_eq!(
             geometry.pathfinder_constructor_completions,
             // WaypointMovementGenerator.cpp:264 constructs per BuildIntPath.
-            // Map 0 records 127 paths for 82 creatures through :61578045.
+            // Map 0 records 142 paths for 87 creatures through :61699833.
             // Map 1 calculates 35 paths for 15 waypoint creatures.
             // Static Idle constructs none (MotionMaster.cpp:79-81).
             pathfinders_before + motion_initializations - idle_count
                 + if slot == 0 {
-                    127 - 82
+                    142 - 87
                 } else {
                     // PathMovementGenerator.cpp:240 initializes fixed paths without a PathFinder.
                     35 - 15 - 1
@@ -6393,8 +6487,9 @@ pub(super) fn continue_startup(
         assert_eq!(attempt.guid, if slot == 0 { 18 } else { 28044 });
         // :61442419-:61479536 adds 41 map-0 births.
         // :61479846-61577266 adds 172 map-0 births, including linked traps.
+        // :61581300-61720856 adds 240 map-0 births before the transport boundary.
         // :60943951-:61048471 adds 97 map-1 births after the Outrider.
-        assert_eq!(candidates, if slot == 0 { 1448 } else { 571 });
+        assert_eq!(candidates, if slot == 0 { 1688 } else { 571 });
         assert_eq!(entry, if slot == 0 { 3211 } else { 4692 });
         if slot == 0 {
             assert_eq!(init_entry_fields, None);
@@ -6692,8 +6787,8 @@ pub(super) fn continue_startup(
                 attempt.cell.y(),
             ))
         );
-        // :61577264 completes GUID80161. Map 1 ends with GUID45604.
-        assert_eq!(completed, if slot == 0 { 1364 } else { 531 });
+        // :61721572 completes GUID92563. Map 1 ends with GUID45604.
+        assert_eq!(completed, if slot == 0 { 1604 } else { 531 });
         println!(
             "F6_VISIBILITY map={slot} census={visibility:?} invalidated_camera_iterator_stock_reach={}",
             visibility.cameras

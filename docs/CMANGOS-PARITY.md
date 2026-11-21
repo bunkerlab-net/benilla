@@ -241,9 +241,7 @@ is meaningful without a bounded content/mechanics inventory.
   GUID81085 stays kneeling, gains the PvP flag, and drops to 95 of 137 health.
   Both phases draw two timer words (trace :61479774-:61479824).
   Roberts completes at :61479844. Escort movement, player lookup, and
-  spell-hit callbacks remain named refusals. Map 0 stops at the
-  `guard_elwynnforest` factory for GUID80263 (`ScriptDevAIMgr.cpp:370`,
-  trace :61581173).
+  spell-hit callbacks remain named refusals.
 - **Stormwind guard startup.** `guard_ai.cpp:29-38,63-81` owns the guard
   base timers and the ranged check after inherited respawn. Stormwind
   calls its salute-only Reset in construction and respawn
@@ -254,6 +252,13 @@ is meaningful without a bounded content/mechanics inventory.
   reach across 58 direct stock spawns (`initial-classicmangos.sql:421134,
   422556,422736`). Combat callbacks remain named refusals. The script
   state lives on the installed AI and does not change native format 91.
+- **Bare guard startup.** Eleven named factories construct `guardAI`
+  directly (`guards.cpp:45-83,145-158`). These guards reset their two
+  cooldowns and use the same inherited timers and ranged check as
+  Stormwind guards. The Elwynn guard GUID80263 draws four words in each
+  phase (trace :61581186-:61581278) and completes at :61581298.
+  Map 0 finishes active preload at :61721572 and stops at `LoadTransports`
+  (`Map.cpp:216`, first birth :61721576).
 - **Creature damage fields.** `Creature.cpp:1459-1485,599-600` binds the
   base weapon damage, attack power, and damage multiplier on the live unit.
   `StatSystem.cpp:614-642,675-806` recalculates attack power and mainhand,
