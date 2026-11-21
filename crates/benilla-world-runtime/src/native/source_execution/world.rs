@@ -388,7 +388,11 @@ impl SourceWorld {
                         work.run_map_jobs(self.thread, &jobs, &mut self.scheduler)?;
                         self.scheduler.barrier(self.thread)?;
                     }
-                    work.unload_maps(self.maps.active_diff.unwrap(), &mut self.maps)?;
+                    let active_diff = self
+                        .maps
+                        .active_diff
+                        .ok_or_else(|| refuse("execution.map.MapManager_216.active_diff_owner"))?;
+                    work.unload_maps(active_diff, &mut self.maps)?;
                     self.maps.finish()?;
                 }
             }

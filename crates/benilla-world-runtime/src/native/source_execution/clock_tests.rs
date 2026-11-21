@@ -157,6 +157,20 @@ fn world_source_phases_and_map_accumulation() {
 }
 
 #[test]
+fn world_unloads_empty_map_batch_with_accumulated_diff() {
+    let mut world = SourceWorld::new(1, 100).unwrap();
+    world.event_timer.set_interval(86_401_000);
+    let mut work = Work::default();
+    world.update(45, &mut work).unwrap();
+    assert_eq!(world.maps.current(), 45);
+    assert!(work.unload_diffs.is_empty());
+    world.update(60, &mut work).unwrap();
+    assert_eq!(work.unload_diffs, [105]);
+    assert!(work.jobs.is_empty());
+    assert_eq!(world.maps.current(), 0);
+}
+
+#[test]
 fn event_timer_refuses_a_due_update_without_its_owner() {
     let mut world = SourceWorld::new(1, 100).unwrap();
     world.event_timer.set_interval(10);
