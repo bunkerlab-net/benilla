@@ -156,7 +156,7 @@
 - **benilla-world-controller-tests** (lib.rs): native_geometry speech whispers world world_setup
 - **benilla-world-data** (lib.rs): model validate
 - **benilla-world-runtime** (lib.rs): engine model native persistence rules
-- **benilla-world-store** (lib.rs): envelope native storage tests
+- **benilla-world-store** (lib.rs): envelope native source_cold storage tests
 - **benilla-world** (lib.rs): art_scope assets bgwin billboard boot build_id clouds clutter collision decal dev_state doodad_anim entity_shade exterior_cull ffx_glow final_pass frame_pace ground_fx instance_tint interact interior layout_keys lighting liquid log_ring mac_quit map_proj mat_anim_table mesh_tag model_fade model_forms model_render modkeys particles ribbons ride_frame rig_anim rig_palette rig_rider schedule shaders sky sky_order skybox static_gx static_merge straddle sun surface terrain_stream thread_qos view vis_chain water_fx wdl weather wmo_portal world_census world_flags world_map world_plugins world_point world_unit worldview zfill
 
 ## CLI binaries

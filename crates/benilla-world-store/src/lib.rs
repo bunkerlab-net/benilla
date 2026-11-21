@@ -8,6 +8,7 @@ use sha2::{Digest as _, Sha256};
 use std::{fmt, path::Path};
 mod envelope;
 pub mod native;
+pub mod source_cold;
 mod storage;
 use envelope::Envelope;
 use storage::Storage;
