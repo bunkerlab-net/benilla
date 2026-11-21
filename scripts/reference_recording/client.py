@@ -2,6 +2,7 @@
 """Qualify character login and ordinary logout on a private Classic 5875 rig."""
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
 import json
@@ -14,6 +15,8 @@ import struct
 import time
 import zlib
 
+from objects import COMPRESSED_UPDATE_OBJECT, UPDATE_OBJECT, update_payload
+
 
 BUILD = 5875
 HUMAN_MAGE = b'\x01\x08\x00'
@@ -22,7 +25,7 @@ CHAR_CREATE, CHAR_ENUM, PLAYER_LOGIN = 0x36, 0x37, 0x3d
 CHAR_CREATED, ROSTER = 0x3a, 0x3b
 LOGOUT, LOGOUT_RESPONSE, LOGOUT_COMPLETE = 0x4b, 0x4c, 0x4d
 AUTH_CHALLENGE, AUTH_SESSION, AUTH_RESPONSE = 0x1ec, 0x1ed, 0x1ee
-UPDATE_OBJECT, COMPRESSED_UPDATE_OBJECT, VERIFY_WORLD = 0xa9, 0x1f6, 0x236
+VERIFY_WORLD = 0x236
 LOGIN_FAILED = 0x41
 
 
@@ -49,11 +52,12 @@ class HeaderCipher:
 
 
 class WorldConnection:
-    def __init__(self, sock, key, event):
+    def __init__(self, sock, key, event, *, on_packet=None):
         if len(key) != 40:
             raise ValueError('Expected a 40-byte world session key')
         self.sock = sock
         self.event = event
+        self.on_packet = on_packet
         self.tx = HeaderCipher(key)
         self.rx = HeaderCipher(key)
         self.encrypted = False
@@ -95,6 +99,8 @@ class WorldConnection:
         body = self.read_exact(size, deadline)
         self.pending = None
         self.event('receive', opcode=opcode, bytes=len(body), hex=body.hex())
+        if self.on_packet is not None:
+            self.on_packet(opcode, body)
         return opcode, body
 
     def expect(self, wanted, timeout=60):
@@ -147,16 +153,10 @@ def parse_single_character(roster):
 
 
 def update_block_count(opcode, body):
-    if opcode == COMPRESSED_UPDATE_OBJECT:
-        if len(body) < 4:
-            raise RuntimeError('Missing compressed update length')
-        declared_size, = struct.unpack_from('<I', body)
-        inflate = zlib.decompressobj()
-        body = inflate.decompress(body[4:], declared_size + 1)
-        if not inflate.eof or inflate.unused_data or len(body) != declared_size:
-            raise RuntimeError('Compressed object update length mismatch')
-    elif opcode != UPDATE_OBJECT:
-        raise ValueError(f'Not an object update opcode: {opcode:#x}')
+    try:
+        body = update_payload(opcode, body)
+    except (ValueError, struct.error) as error:
+        raise RuntimeError(str(error)) from error
     if len(body) < 5:
         raise RuntimeError('Missing object update header')
     blocks, = struct.unpack_from('<I', body)
@@ -165,7 +165,7 @@ def update_block_count(opcode, body):
     return blocks
 
 
-def qualify(world, *, mode, name, expected_guid, dwell, event):
+def enter_world(world, *, mode, name, expected_guid, event):
     encoded_name = name.encode('ascii')
     if mode == 'create':
         world.send(CHAR_ENUM)
@@ -181,7 +181,7 @@ def qualify(world, *, mode, name, expected_guid, dwell, event):
     if (character.name != name or bytes((character.race, character.player_class, character.gender))
             != HUMAN_MAGE or (expected_guid is not None and character.guid != expected_guid)):
         raise RuntimeError(f'Unexpected character in roster: {character}')
-    if character.level != 1:
+    if mode == 'create' and character.level != 1:
         raise RuntimeError(f'Expected a level-one character: {character}')
     event('character', **vars(character))
     world.send(PLAYER_LOGIN, struct.pack('<Q', character.guid))
@@ -189,6 +189,11 @@ def qualify(world, *, mode, name, expected_guid, dwell, event):
     if map_id != 0 or not all(math.isfinite(value) for value in pose):
         raise RuntimeError(f'Unexpected world location: map {map_id}, pose {pose}')
     event('world_verified', guid=character.guid, map=map_id, pose=pose)
+    return character, pose
+
+
+def qualify(world, *, mode, name, expected_guid, dwell, event):
+    character, _ = enter_world(world, mode=mode, name=name, expected_guid=expected_guid, event=event)
 
     deadline = time.monotonic() + 45
     while time.monotonic() < deadline:
@@ -209,30 +214,32 @@ def qualify(world, *, mode, name, expected_guid, dwell, event):
         if opcode in (UPDATE_OBJECT, COMPRESSED_UPDATE_OBJECT):
             event('object_update', blocks=update_block_count(opcode, body))
     event('in_world_end')
+    ordinary_logout(world, character.guid, event)
+
+
+def ordinary_logout(world, guid, event):
     world.send(LOGOUT)
     status = world.expect(LOGOUT_RESPONSE, timeout=15)
     if len(status) != 5 or status[:4] != b'\0' * 4:
         raise RuntimeError(f'Ordinary logout refused: {status.hex()}')
     if world.expect(LOGOUT_COMPLETE, timeout=35):
         raise RuntimeError('Unexpected logout completion payload')
-    event('logout_complete', guid=character.guid)
+    event('logout_complete', guid=guid)
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=('create', 'reconnect'))
+def add_fixture_arguments(parser):
     parser.add_argument('--port', required=True, type=int)
     parser.add_argument('--account', required=True)
     parser.add_argument('--name', required=True)
     parser.add_argument('--session-key-file', required=True, type=Path)
     parser.add_argument('--events', required=True, type=Path)
     parser.add_argument('--guid', type=int)
-    parser.add_argument('--dwell', type=float, default=5)
-    args = parser.parse_args()
+
+
+@contextmanager
+def private_fixture(parser, args, *, on_packet=None):
     if (args.guid is not None) != (args.mode == 'reconnect'):
         parser.error('Reconnect requires --guid; create must not supply it')
-    if not 1 <= args.dwell <= 30:
-        parser.error('--dwell must be between 1 and 30 seconds')
     for variable, value in {'WOW_UNATTENDED': '1', 'WOW_NOSOUND': '1', 'WOW_GM': 'off', 'WOW_GOD': 'off'}.items():
         if os.environ.get(variable) != value:
             parser.error(f'Private recording requires {variable}={value}')
@@ -244,10 +251,21 @@ def main():
             events.write(json.dumps({'kind': kind, 'monotonic_ns': time.monotonic_ns(), **details}) + '\n')
 
         with socket.create_connection(('127.0.0.1', args.port), timeout=15) as sock:
-            world = WorldConnection(sock, key, event)
+            world = WorldConnection(sock, key, event, on_packet=on_packet)
             world.authenticate(account, key)
-            qualify(world, mode=args.mode, name=args.name, expected_guid=args.guid,
-                    dwell=args.dwell, event=event)
+            yield world, event
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('mode', choices=('create', 'reconnect'))
+    add_fixture_arguments(parser)
+    parser.add_argument('--dwell', type=float, default=5)
+    args = parser.parse_args()
+    if not 1 <= args.dwell <= 30:
+        parser.error('--dwell must be between 1 and 30 seconds')
+    with private_fixture(parser, args) as (world, event):
+        qualify(world, mode=args.mode, name=args.name, expected_guid=args.guid, dwell=args.dwell, event=event)
 
 
 if __name__ == '__main__':
