@@ -258,7 +258,7 @@ class Northshire:
     def recover(self):
         f = self.player.fields
         self.wait_until(lambda: not f.get(FLAGS, 0) & IN_COMBAT and f.get(HEALTH, 0) >= f[MAX_HEALTH] * .94
-                        and f.get(MANA, 0) >= min(4 * FIREBALL_MANA, f[MAX_MANA]), 'natural health and mana recovery', 140)
+                        and f.get(MANA, 0) >= f[MAX_MANA], 'natural health and full mana recovery', 140)
 
     def vermin(self, killed):
         if not self.find(VERMIN, alive=True, exclude=killed):
@@ -276,6 +276,7 @@ class Northshire:
         if len(self.credits) > credit_before:
             return
         start = time.monotonic()
+        mana_before = f[MANA]
         self.face(target.position)
         self.world.send(p.CAST, p.cast_body(p.FIREBALL, target.guid))
         started = False
@@ -286,8 +287,14 @@ class Northshire:
                 spell, status = struct.unpack_from('<IB', body)
                 if spell == p.FIREBALL and status != 0:
                     reason = body[5]
-                    self.event('cast_refused', spell=spell, target=target.guid, reason=reason)
-                    if reason == 0x23:  # Ordinary interruption; let live combat state settle.
+                    self.event('cast_refused', spell=spell, target=target.guid, reason=reason,
+                               mana_before=mana_before, mana_observed=f.get(MANA, 0))
+                    if reason == 0x4d:  # Server power fields can arrive after the cast result.
+                        self.wait_until(lambda: f.get(MANA, 0) < mana_before or len(self.credits) > credit_before,
+                                        'new mana projection after no-power response', 8)
+                        return
+                    if reason == 0x23:  # Ordinary interruption.
+                        self.pump(max(0, start + FIREBALL_GCD - time.monotonic()))
                         return
                     raise RouteStopped(f'Fireball refused by the server: {reason:#x}')
             elif op == p.SPELL_START:
@@ -301,8 +308,10 @@ class Northshire:
                 if not started:
                     raise RouteStopped('Fireball released without a live cast start')
                 self.event('cast_released', spell=p.FIREBALL, target=target.guid)
-                # The next cast starts only after release and the pinned spell's GCD.
-                self.pump(max(0.1, start + FIREBALL_GCD - time.monotonic()))
+                # SpellGo is queued before the self update that exposes the mana debit.
+                self.wait_until(lambda: f.get(MANA, 0) < mana_before or len(self.credits) > credit_before,
+                                'Fireball mana debit or in-flight kill credit', 8)
+                self.pump(max(0, start + FIREBALL_GCD - time.monotonic()))
                 return
         if len(self.credits) == credit_before:
             raise RouteStopped('No release or kill credit for the submitted Fireball')
@@ -323,7 +332,8 @@ class Northshire:
             raise RouteStopped(f'Unexpected quest credit: {self.credits[before:]}')
         self.event('kill_credit', quest=CLEANUP, entry=VERMIN, count=count, required=REQUIRED,
                    guid=target.guid, generation=target.generation)
-        self.pump(0.35)
+        self.wait_until(lambda: target.guid not in self.objects.visible or target.fields.get(HEALTH) == 0,
+                        'same-GUID corpse update', 8)
 
     def loot(self, target):
         if target.guid not in self.objects.visible or not target.fields.get(DYNAMIC_FLAGS, 0) & 1:

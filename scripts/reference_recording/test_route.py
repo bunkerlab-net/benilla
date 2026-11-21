@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Offline Classic wire fixtures for the route and object state."""
 import struct
+from types import SimpleNamespace
 import unittest
 import zlib
 
-from objects import COMPRESSED_UPDATE_OBJECT, ENTRY, HEALTH, MONSTER_MOVE, UPDATE_OBJECT, Cursor, Objects, packed_guid
+from northshire import Northshire
+from objects import COMPRESSED_UPDATE_OBJECT, ENTRY, HEALTH, MANA, MONSTER_MOVE, UPDATE_OBJECT, Cursor, Objects, VisibleObject, packed_guid
 import route_packets as p
 
 
@@ -66,6 +68,48 @@ class RoutePacketsTest(unittest.TestCase):
         body = bytes.fromhex('34120006000030f1 01 05000000 01 03 f3020000 02000000 0a000000 00000000 00000000 00')
         self.assertEqual(p.loot_window(body), (GUID, None, 5, [(3, 755, 2, 0)]))
         self.assertEqual(p.loot_window(bytes.fromhex('34120006000030f1 00 04')), (GUID, 4, 0, []))
+
+
+class CastPacingTest(unittest.TestCase):
+    def test_next_cast_waits_for_the_previous_mana_debit(self):
+        route = Northshire()
+        route.guid = 1
+        route.event = lambda *_args, **_fields: None
+        route.face = lambda _pos: None
+        route.pump = lambda _duration: None
+        route.objects.visible[1] = VisibleObject(1, 1, 4, {MANA: 33})
+        target = SimpleNamespace(guid=GUID, position=(1, 0, 0))
+        caster_headers = bytes.fromhex('01010101')
+        incoming = iter([
+            (p.SPELL_START, caster_headers + struct.pack('<IHI', 133, 2, 1500)),
+            (p.SPELL_GO, caster_headers + struct.pack('<I', 133)),
+            (UPDATE_OBJECT, bytes.fromhex('01000000 00 00 0101 01 00008000 03000000')),
+            (UPDATE_OBJECT, bytes.fromhex('01000000 00 00 0101 01 00008000 21000000')),
+            (p.SPELL_START, caster_headers + struct.pack('<IHI', 133, 2, 1500)),
+            (p.SPELL_GO, caster_headers + struct.pack('<I', 133)),
+            (UPDATE_OBJECT, bytes.fromhex('01000000 00 00 0101 01 00008000 03000000')),
+        ])
+        observed = []
+        submitted = []
+
+        def receive(_deadline):
+            opcode, body = next(incoming)
+            route.observe(opcode, body)
+            observed.append(opcode)
+            return opcode, body
+
+        def send(opcode, body):
+            submitted.append((opcode, body, list(observed), route.player.fields[MANA]))
+
+        route.world = SimpleNamespace(receive=receive, send=send)
+        route.fireball(target, 0)
+        route.fireball(target, 0)
+        expected_cast = p.cast_body(133, GUID)
+        self.assertEqual(submitted, [
+            (p.CAST, expected_cast, [], 33),
+            (p.CAST, expected_cast, [p.SPELL_START, p.SPELL_GO, UPDATE_OBJECT, UPDATE_OBJECT], 33),
+        ])
+        self.assertEqual(route.player.fields[MANA], 3)
 
 
 if __name__ == '__main__':
