@@ -68,7 +68,7 @@ const MAP0_NEXT_RAW: usize = 35785; // Last preload word consumed, :61721552.
 
 const MAP0_FIRST_STORMWIND_LINE: u64 = 61339352;
 const MAP0_NEXT_OWNER_LINE: u64 = 61721576; // First transport birth.
-const MAP0_NEXT_SOURCE: &str = "Map.cpp:216";
+const MAP0_INITIALIZE_RETURN: u64 = 61721693;
 const MAP0_LAST_STORMWIND_COMPLETION: u64 = 61390644;
 
 #[derive(Default)]
@@ -1148,7 +1148,7 @@ fn tm(p: &[&str]) -> Tm {
 // The active preload prefix ends before the first transport birth.
 const MAP1_TRANSPORT_START: u64 = 61049124;
 const MAP1_INITIALIZE_RETURN: u64 = 61049852;
-const MAP1_NEXT_SOURCE: &str = "MapManager.cpp:110";
+const INITIALIZE_NEXT_SOURCE: &str = "MapManager.cpp:110";
 const MAP1_NEXT_RAW: u64 = 15783; // Final preload word at :61049072.
 
 #[derive(Default)]
@@ -1259,12 +1259,15 @@ impl Inputs {
         if thread == 1 && (46233402..=46233818).contains(&line) {
             self.transport_sql.observe(line, kind, p);
         }
-        if thread == 7 && (MAP1_TRANSPORT_START..=MAP1_INITIALIZE_RETURN).contains(&line) {
+        // The transport trace whitelist excludes clocks, RNG words and SQL.
+        if thread == 6 && (MAP0_NEXT_OWNER_LINE..=MAP0_INITIALIZE_RETURN).contains(&line)
+            || thread == 7 && (MAP1_TRANSPORT_START..=MAP1_INITIALIZE_RETURN).contains(&line)
+        {
             self.map_threads
                 .entry(thread)
                 .or_default()
                 .transports
-                .observe(line, kind, p);
+                .observe(thread, line, kind, p);
         }
         self.equipment.observe_map(thread, line, kind, p);
         if thread == 6 {
@@ -3571,10 +3574,6 @@ pub(super) fn continue_startup(
         let mut transport_count = 0;
         let refusal = active_result
             .and_then(|()| {
-                // Map.cpp:216. Keep the map-0 replay boundary before transports in this commit.
-                if slot == 0 {
-                    return Err(refuse("execution.continents.load_transports_owner"));
-                }
                 let map = &mut continents.maps[slot];
                 let before_guid = map.guids.as_ref().unwrap().next_gameobject_counter();
                 let before = active_objects.construction_count(thread);
@@ -3590,25 +3589,25 @@ pub(super) fn continue_startup(
                     &world_clock,
                     thread,
                 )?;
-                if slot == 1 {
-                    assert_eq!(
-                        map.guids.as_ref().unwrap().next_gameobject_counter(),
-                        before_guid
-                    );
-                    transport_count = evidence.transports.assert_live(
-                        map,
-                        &active_objects,
-                        &dynamic_models,
-                        before,
-                        before_model,
-                    );
-                    let after_references =
-                        relations_evidence::TransportTrace::model_references(&geometry.vmap);
-                    assert_eq!(
-                        after_references,
-                        [before_references[0] + 3, before_references[1] + 1]
-                    );
-                }
+                assert_eq!(
+                    map.guids.as_ref().unwrap().next_gameobject_counter(),
+                    before_guid
+                );
+                transport_count = evidence.transports.assert_live(
+                    map,
+                    &active_objects,
+                    &dynamic_models,
+                    before,
+                    before_model,
+                    thread,
+                );
+                let after_references =
+                    relations_evidence::TransportTrace::model_references(&geometry.vmap);
+                let added = if slot == 0 { [2, 2, 1] } else { [3, 1, 0] };
+                assert_eq!(
+                    after_references,
+                    std::array::from_fn(|i| before_references[i] + added[i])
+                );
                 continents.await_initialization()
             })
             .unwrap_err();
@@ -6872,15 +6871,16 @@ pub(super) fn continue_startup(
             serde_json::to_value(states.state(state).unwrap().pools()).unwrap(),
             expected
         );
-        let transport_receipt = if slot == 1 {
-            let allocations = candidates + transport_count;
-            let clocks = evidence.active_clocks.0.len() - active_clocks.0.len();
-            let paths = evidence.path_calculations.len();
-            let sql = evidence.sql_lines.len();
-            format!(" completed={completed} allocations={allocations} clocks={clocks} paths={paths} sql={sql} idle={idle_count} transports={transport_count} initialize_return_line={MAP1_INITIALIZE_RETURN}")
+        let allocations = candidates + transport_count;
+        let clocks = evidence.active_clocks.0.len() - active_clocks.0.len();
+        let paths = evidence.path_calculations.len();
+        let sql = evidence.sql_lines.len();
+        let initialize_return_line = if slot == 0 {
+            MAP0_INITIALIZE_RETURN
         } else {
-            String::new()
+            MAP1_INITIALIZE_RETURN
         };
+        let transport_receipt = format!(" completed={completed} allocations={allocations} clocks={clocks} paths={paths} sql={sql} idle={idle_count} transports={transport_count} initialize_return_line={initialize_return_line}");
         println!(
             "F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}{transport_receipt}",
             matched_map_words[slot],
@@ -6894,7 +6894,7 @@ pub(super) fn continue_startup(
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
             refusal.id,
-            if slot == 0 { MAP0_NEXT_SOURCE } else { MAP1_NEXT_SOURCE },
+            INITIALIZE_NEXT_SOURCE,
         );
         owner.states = states;
         let raw = trace

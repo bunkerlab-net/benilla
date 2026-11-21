@@ -992,7 +992,7 @@ pub(super) struct TransportTrace {
     returned: Option<u64>,
 }
 impl TransportTrace {
-    pub(super) fn observe(&mut self, line: u64, kind: &str, p: &[&str]) {
+    pub(super) fn observe(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
         match kind {
             "logical_birth" => {
                 let class = match p[1] {
@@ -1009,7 +1009,7 @@ impl TransportTrace {
             "vmap_model_acquire" => self.models.push((line, p[1].to_owned())),
             "dynamic_insert" => self.inserts.push((line, p[1].parse().unwrap())),
             "thread_return" => {
-                assert_eq!(p, ["7"]);
+                assert_eq!(p, [if thread == 6 { "6" } else { "7" }]);
                 assert!(self.returned.replace(line).is_none());
             }
             "object_construct"
@@ -1020,14 +1020,18 @@ impl TransportTrace {
             | "dynamic_transform"
             | "dynamic_rotation"
             | "dynamic_bounds" => (),
-            _ => panic!("unexpected map 1 transport record {kind} at {line}"),
+            _ => panic!("unexpected thread {thread} transport record {kind} at {line}"),
         }
     }
 
     // These names also identify the live shared VMap acquisition reference counts.
-    const MODELS: [&str; 2] = ["Transportship.wmo", "Transport_Zeppelin.wmo"];
+    const MODELS: [&str; 3] = [
+        "Transportship.wmo",
+        "Transport_Zeppelin.wmo",
+        "Blackcitadel.wmo",
+    ];
 
-    pub(super) fn model_references(vmap: &SourceVMapManager) -> [u32; 2] {
+    pub(super) fn model_references(vmap: &SourceVMapManager) -> [u32; 3] {
         let shared = vmap.collision.model_inventory();
         Self::MODELS.map(|name| {
             shared
@@ -1044,9 +1048,43 @@ impl TransportTrace {
         models: &SourceDynamicModels,
         first_object: u64,
         first_model: u64,
+        thread: u64,
     ) -> usize {
-        assert_eq!(self.returned, Some(61049852)); // Map.cpp:228.
-        let expected = [
+        // Map.cpp:228. Map 0 names come from initial-classicmangos.sql:
+        // 549356, 549965, 550022, 550125 and 551919.
+        let map0 = [
+            (
+                175080,
+                [61721576, 61721578, 61721579, 61721580, 61721581, 61721597],
+                1,
+                b"Zeppelin - Grom'Gol-Orgrimar".as_slice(),
+            ),
+            (
+                176231,
+                [61721598, 61721600, 61721601, 61721602, 61721603, 61721619],
+                0,
+                b"Proudmore's Treasure".as_slice(),
+            ),
+            (
+                176310,
+                [61721620, 61721622, 61721623, 61721624, 61721625, 61721641],
+                0,
+                b"Serenity's Shore".as_slice(),
+            ),
+            (
+                176495,
+                [61721642, 61721644, 61721645, 61721646, 61721647, 61721663],
+                1,
+                b"Zeppelin - Grom'Gol to Undercity".as_slice(),
+            ),
+            (
+                181056,
+                [61721664, 61721666, 61721667, 61721668, 61721669, 61721692],
+                2,
+                b"Naxxramas".as_slice(),
+            ),
+        ];
+        let map1 = [
             (
                 20808,
                 [61049124, 61049128, 61049130, 61049137, 61049140, 61049435],
@@ -1072,6 +1110,13 @@ impl TransportTrace {
                 b"Feathermoon Ferry".as_slice(),
             ),
         ];
+        let (expected, first_id, return_line) = if thread == 6 {
+            (map0.as_slice(), 25769809995, 61721693)
+        } else {
+            (map1.as_slice(), 30064773281, 61049852)
+        };
+        assert_eq!(self.returned, Some(return_line));
+        let count = expected.len();
         assert_eq!(
             (
                 self.births.len(),
@@ -1079,16 +1124,19 @@ impl TransportTrace {
                 self.models.len(),
                 self.inserts.len()
             ),
-            (12, 4, 4, 4)
+            (3 * count, count, count, count)
         );
-        assert_eq!(objects.construction_count(7) - first_object, 4);
-        assert_eq!(models.models.next_generation() - first_model, 4);
+        assert_eq!(
+            objects.construction_count(thread) - first_object,
+            count as u64
+        );
+        assert_eq!(models.models.next_generation() - first_model, count as u64);
         let inventory = models.models.inventory();
-        assert_eq!(map.transports.members(map.identity).count(), 4);
-        for (i, (entry, [birth, events, guid, model, acquire, insert], name, object_name)) in
-            expected.into_iter().enumerate()
+        assert_eq!(map.transports.members(map.identity).count(), count);
+        for (i, &(entry, [birth, events, guid, model, acquire, insert], name, object_name)) in
+            expected.iter().enumerate()
         {
-            let object_id = 30064773281 + 3 * i as u64;
+            let object_id = first_id + 3 * i as u64;
             assert_eq!(
                 self.births[3 * i..3 * i + 3],
                 [
@@ -1105,7 +1153,7 @@ impl TransportTrace {
             assert_eq!(self.inserts[i], (insert, object_id + 2));
 
             let handle = ObjectHandle {
-                thread: 7,
+                thread,
                 construction: first_object + i as u64 + 1,
             };
             assert!(map.transports.contains(map.identity, handle));
@@ -1154,7 +1202,7 @@ impl TransportTrace {
                 .unwrap();
             assert_eq!(actual.shared.name.as_ref(), Self::MODELS[name].as_bytes());
         }
-        expected.len()
+        count
     }
 }
 

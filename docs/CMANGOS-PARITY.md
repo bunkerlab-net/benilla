@@ -257,8 +257,9 @@ is meaningful without a bounded content/mechanics inventory.
   cooldowns and use the same inherited timers and ranged check as
   Stormwind guards. The Elwynn guard GUID80263 draws four words in each
   phase (trace :61581186-:61581278) and completes at :61581298.
-  Map 0 finishes active preload at :61721572 and stops at `LoadTransports`
-  (`Map.cpp:216`, first birth :61721576).
+  Map 0 finishes active preload at :61721572. It loads five transports
+  at :61721576-:61721692 and returns from `Map::Initialize` at :61721693.
+  The replay stops at the continent worker join (`MapManager.cpp:110`).
 - **Creature damage fields.** `Creature.cpp:1459-1485,599-600` binds the
   base weapon damage, attack power, and damage multiplier on the live unit.
   `StatSystem.cpp:614-642,675-806` recalculates attack power and mainhand,

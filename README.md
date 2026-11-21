@@ -49,6 +49,8 @@ matchmaking service or elected game host runs in P2P mode.
   protocol projection and durable checkpoints. The app now contains a tested
   command/tick/checkpoint controller, but native-content entry remains gated; these
   mechanics are not yet available through the player UI
+- The recorded Classic startup replay completes map 0 initialization after
+  loading five transports. It stops at the continent worker join.
 - Native component [format `NATIVE_FORMAT_VERSION`](crates/benilla-world-runtime/src/native/README.md#initial-cast-genesis)
   binds seed-independent initial-cast plans and per-life creature initialization
   to shared-RNG receipts. Creature selection owns current/historical stats through
