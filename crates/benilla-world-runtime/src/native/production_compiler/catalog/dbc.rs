@@ -341,6 +341,14 @@ impl VerifiedCatalog {
         let inventory = bounded_json(&self.object(&descriptor(&self.manifest["dbc_root"])?, 0)?)?;
         open(self, &inventory, filename, Some(spec))
     }
+
+    /// Return the checked lookup index without decoding each record again.
+    pub(crate) fn execution_dbc_lookup_index(
+        &mut self,
+        filename: &str,
+    ) -> Result<BTreeMap<u32, u32>> {
+        Ok(self.dbc_view(filename)?.by_id)
+    }
 }
 
 impl VerifiedCatalog {

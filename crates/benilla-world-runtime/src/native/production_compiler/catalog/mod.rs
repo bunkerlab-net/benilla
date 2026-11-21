@@ -36,6 +36,7 @@ mod pools;
 pub use pools::diagnose_catalog_pools;
 pub(crate) use pools::PoolCatalogRows;
 mod events;
+mod quests;
 pub use events::diagnose_catalog_events;
 pub(crate) use events::EventCatalogRows;
 mod corpse_inputs;

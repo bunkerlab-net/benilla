@@ -2300,6 +2300,14 @@ DB scripts at `:1217-1226`. The spell-map census publishes all 31 rows given
 this maximum owner; integrated startup still needs its earlier spawn owners.
 The group lookup binds directly to F4.05's loaded
 `SourceSpawnGroups::definitions`, never raw `spawn_group` membership.
+
+`SourceQuestMap` loads quest templates and giver relations for
+`World.cpp:1101,1104`. It keeps effective flags, activity, and signed links
+with the template. It skips relations to absent quests and reports bad
+givers without dropping their relations, `ObjectMgr.cpp:7940-8034`.
+The catalog binding refuses spell validity checks at
+`ObjectMgr.cpp:4494,4731,4755` until `SpellMgr::IsSpellValid` has an owner.
+
 `SourceQuestFlags` reproduces the flag-affecting quest loader reads only,
 not complete quest gameplay validation. It sets delivery, spell-event,
 kill/speak, and timed flags in `ObjectMgr.cpp:4513,4584,4618,4833` order.

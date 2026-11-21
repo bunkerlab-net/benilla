@@ -471,5 +471,7 @@ mod db_scripts;
 pub use db_scripts::*;
 mod db_scripts_catalog;
 pub use db_scripts_catalog::*;
+mod quest_map;
+pub use quest_map::*;
 mod db_script_execution;
 pub use db_script_execution::*;
