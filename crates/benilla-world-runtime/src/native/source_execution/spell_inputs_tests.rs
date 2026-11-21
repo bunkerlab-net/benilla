@@ -2,6 +2,11 @@ use super::*;
 use serde_json::{json, Value};
 
 impl SourceSpellStores {
+    pub(in crate::native::source_execution) fn bind_test_learning(&mut self) {
+        self.load_learn_skills().unwrap();
+        self.add_template_learning().unwrap();
+    }
+
     pub(in crate::native::source_execution) fn bind_empty_duration_fixture(&mut self) {
         self.bind_test_dbc("SpellDuration.dbc", []);
     }

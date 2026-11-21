@@ -27,6 +27,13 @@ pub struct PlayerCreateAction {
     pub kind: u8,
 }
 
+impl PlayerCreateAction {
+    // Player.cpp:5920-5936; Player.h:159,183.
+    pub(super) fn in_bounds(self) -> bool {
+        self.button < 120 && self.action < 0x0100_0000
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct PlayerCreateRace {
     pub faction: u32,
@@ -217,6 +224,7 @@ impl PlayerCreateRows {
             !loaded.actions.is_empty(),
             "execution.player.ObjectMgr_3406.playercreateinfo_action_empty",
         )?;
+        loaded.order_grants();
 
         scan(catalog, "player_classlevelstats", |cells| {
             let class = number(cells)?;
@@ -312,6 +320,17 @@ impl PlayerCreateRows {
         Ok(loaded)
     }
 
+    // ObjectMgr.cpp:3343-3442. Northshire-01 A proxy-requests.jsonl:536-539
+    // binds the MyISAM primary-key scans by spell ID and button number.
+    fn order_grants(&mut self) {
+        for spells in self.spells.values_mut() {
+            spells.sort_unstable();
+        }
+        for actions in self.actions.values_mut() {
+            actions.sort_unstable_by_key(|row| row.button);
+        }
+    }
+
     fn pair(&self, cells: &mut Cells<'_>, race_line: u32, class_line: u32) -> Result<Pair> {
         let race = number(cells)?;
         let class = number(cells)?;
@@ -331,7 +350,7 @@ impl PlayerCreateRows {
 
 // Player.cpp:5918-5980. The loader passes nullptr, so it cannot test known spells.
 fn valid_action(catalog: &mut VerifiedCatalog, row: PlayerCreateAction) -> Result<bool> {
-    if row.button >= 120 || row.action >= 0x0100_0000 {
+    if !row.in_bounds() {
         return Ok(false);
     }
     match row.kind {
@@ -395,4 +414,13 @@ fn scan(
         visit(&mut row.cells()).map_err(|error| ProductionDiagnostic { id: error.id })
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+impl PlayerCreateRows {
+    pub(super) fn test_grants(&mut self, spells: Vec<u32>, actions: Vec<PlayerCreateAction>) {
+        self.spells.insert((1, 8), spells);
+        self.actions.insert((1, 8), actions);
+        self.order_grants();
+    }
 }

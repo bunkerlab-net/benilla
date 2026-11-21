@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 use super::{objects::*, *};
+use std::collections::BTreeMap;
 
 #[path = "player_create_rows.rs"]
 mod player_rows;
@@ -10,6 +11,13 @@ pub use player_rows::{PlayerCreateAction, PlayerCreateItem, PlayerCreateRows, Pl
 #[path = "player_skills.rs"]
 mod player_skills;
 pub use player_skills::{PlayerCreateSkill, SourcePlayerSkill};
+
+#[path = "player_spellbook.rs"]
+mod player_spellbook;
+use player_spellbook::PlayerLearning;
+pub use player_spellbook::{
+    SourcePlayerAction, SourcePlayerActionState, SourcePlayerSpell, SourcePlayerSpellState,
+};
 
 // UpdateFields.h:27,77-88,114-120,133,140-151,180-186,215,218,228,243,263.
 const OBJECT_FIELD_TYPE: usize = 0x02;
@@ -108,6 +116,9 @@ pub struct SourcePlayer {
     pub taxi_mask: [u32; 8],
     pub free_primary_professions: u32,
     skills: Vec<SourcePlayerSkill>,
+    // Player.h:2377,2379; Player.cpp:471. Both maps default to empty.
+    spells: BTreeMap<u32, SourcePlayerSpell>,
+    action_buttons: BTreeMap<u8, SourcePlayerAction>,
 }
 
 impl SourcePlayer {
@@ -180,6 +191,8 @@ impl SourcePlayer {
                 taxi_mask: [0; 8],
                 free_primary_professions: 0,
                 skills: Vec::new(),
+                spells: BTreeMap::new(),
+                action_buttons: BTreeMap::new(),
             })
         })();
         if result.is_err() {
@@ -197,6 +210,8 @@ impl SourcePlayer {
         units: &mut SourceUnits,
         request: SourcePlayerCreation,
         rows: &PlayerCreateRows,
+        spells: &SourceSpellStores,
+        items: &SourceStartupItems,
         models: &LoadedCreatureModels,
         cells: &SourceCells,
         config: SourcePlayerCreateConfig,
@@ -336,10 +351,23 @@ impl SourcePlayer {
         self.init_primary_professions(objects, config.max_primary_professions)?;
         self.fill_health_and_mana(objects, unit)?;
 
-        self.learn_default_skills(objects, unit, rows, class)?;
-        self.learn_default_spells()?;
+        // Player.cpp:850-855 grants skills, spells, then buttons.
+        let skills = rows
+            .skill_inputs
+            .as_ref()
+            .ok_or_else(|| refuse("execution.player.Player_850.learn_default_skills_owner"))?;
+        let live = PlayerLearning {
+            objects,
+            unit,
+            skills,
+            spells,
+            items,
+            class,
+        };
+        self.learn_default_skills(&live, rows.skills(race, class))?;
+        self.learn_default_spells(&live, rows.spells(race, class))?;
         for action in rows.actions(race, class) {
-            self.add_action_button(*action)?;
+            self.add_action_button(&live, *action)?;
         }
         Err(refuse("execution.player.Player_861.outfit_owner"))
     }
@@ -605,18 +633,12 @@ impl SourcePlayer {
         objects.set_update_value(self.object, UNIT_FIELD_POWER1, &mut vitals.mana, mana)?;
         Ok(())
     }
-
-    fn learn_default_spells(&mut self) -> Result<()> {
-        Err(refuse(
-            "execution.player.Player_851.learn_default_spells_owner",
-        ))
-    }
-
-    fn add_action_button(&mut self, _action: PlayerCreateAction) -> Result<()> {
-        Err(refuse("execution.player.Player_855.action_button_owner"))
-    }
 }
 
 #[cfg(test)]
 #[path = "player_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "player_spellbook_tests.rs"]
+mod spellbook_tests;
