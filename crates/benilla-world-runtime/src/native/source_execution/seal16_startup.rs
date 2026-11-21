@@ -1283,6 +1283,7 @@ pub(super) struct Inputs {
     loot: loot_evidence::Evidence,
     battlegrounds: battleground_evidence::Evidence,
     bans: world_tail::BansEvidence,
+    old_characters: world_tail::OldCharactersEvidence,
     weekly: weekly_tail::WeeklyEvidence,
     event_initialize_line: Option<u64>,
     event_status_writes: Vec<(u64, String)>,
@@ -1345,6 +1346,9 @@ impl Inputs {
         }
         if thread == 1 && (line == 9801 || (61722964..=61727830).contains(&line)) {
             self.event_startup.observe(line, kind, p);
+        }
+        if thread == 1 && (line == 12334 || (61727834..=61727859).contains(&line)) {
+            self.old_characters.observe(line, kind, p);
         }
         self.event_startup.observe_subscriber(thread, line, kind, p);
         if thread == 1 && (46233402..=46233818).contains(&line) {
@@ -7321,6 +7325,7 @@ pub(super) fn continue_startup(
         551
     );
     observed.bans.assert_matches(recording);
+    observed.old_characters.assert_matches(recording);
     observed.event_startup.bind_subscribers(&mut ready);
     owner.continents = Some(ready);
     let map0 = owner.event_next_map(None, None).unwrap().unwrap();

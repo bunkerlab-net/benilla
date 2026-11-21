@@ -157,7 +157,8 @@ pub fn initialize_world_tail(
         .ready_world()?
         .event_timer
         .set_interval(i64::from(delay));
-    Err(refuse("execution.world.World_1421.old_characters_owner"))
+    // Deviation: Omit World.cpp:1421 because solo worlds have no realm character deletion queue.
+    Err(refuse("execution.world.World_1424.anticheat_owner"))
 }
 
 #[derive(Default)]

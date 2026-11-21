@@ -72,3 +72,62 @@ impl BansEvidence {
         assert_eq!(row[3], "0");
     }
 }
+
+const OLD_CHARACTERS_SQL: &[u8] =
+    b"SELECT guid, deleteInfos_Account FROM characters WHERE deleteDate IS NOT NULL AND deleteDate < '1791722193'";
+
+#[derive(Default)]
+pub(super) struct OldCharactersEvidence {
+    lines: Vec<u64>,
+}
+
+impl OldCharactersEvidence {
+    pub(super) fn observe(&mut self, line: u64, kind: &str, p: &[&str]) {
+        let (expected_kind, fields, expected): (&str, &[&str], &[&str]) = match line {
+            12334 => ("config", p, &["CharDelete.KeepDays", "file", "30"]),
+            61727838 => ("clock_time", &p[..1], &["1794314193"]),
+            61727851 => ("sql_query_request", p, &["4294967301", "203353"]),
+            61727852 | 61727857 => {
+                assert_eq!(unhex(p[5]), OLD_CHARACTERS_SQL);
+                let query_kind = if line == 61727852 {
+                    "sql_request_bytes"
+                } else {
+                    "sql_query"
+                };
+                (query_kind, &p[1..5], &["0", "0", "107", "0"])
+            }
+            61727854 => ("clock_sample", &p[..3], &["1", "443366", "375721835"]),
+            61727855 => ("clock_ms", p, &["136925"]),
+            61727856 => ("sql_clock_request", p, &["4294967301", "45", "1880", "1"]),
+            61727859 => (
+                "sql_query_result",
+                p,
+                &["4294967301", "203353", "0x55cbd2105430", "0", "2", "0"],
+            ),
+            _ => return,
+        };
+        assert_eq!(kind, expected_kind, "trace line {line}");
+        assert_eq!(fields, expected, "trace line {line}");
+        self.lines.push(line);
+    }
+
+    pub(super) fn assert_matches(&self, recording: &Path) {
+        assert_eq!(
+            self.lines,
+            [
+                12334, 61727838, 61727851, 61727852, 61727854, 61727855, 61727856, 61727857,
+                61727859,
+            ]
+        );
+        let reader = BufReader::new(
+            std::fs::File::open(recording.join("private-db-statement-clocks.tsv")).unwrap(),
+        );
+        let row = reader.lines().nth(374).unwrap().unwrap();
+        let row: Vec<_> = row.split('\t').collect();
+        assert_eq!(row.len(), 4);
+        assert_eq!(row[0], "1880");
+        assert_eq!(row[1], "1794314193.796495");
+        assert_eq!(unhex(row[2]), OLD_CHARACTERS_SQL);
+        assert_eq!(row[3], "0");
+    }
+}
