@@ -152,15 +152,14 @@ impl GameEventRows for EventCatalogRows {
 }
 impl VerifiedCatalog {
     #[cfg(test)]
-    /// Assigned existence only: ObjectMgr.cpp:1563-1600,4293-4297 retains these keys.
-    pub(crate) fn execution_event_reference_ids(&mut self) -> Result<[BTreeSet<u32>; 5]> {
+    /// Assigned existence for event references other than loaded quests.
+    pub(crate) fn execution_event_reference_ids(&mut self) -> Result<[BTreeSet<u32>; 4]> {
         let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
         let mut ids = std::array::from_fn(|_| BTreeSet::new());
         for (slot, table, name) in [
             (0, "creature_equip_template", "entry"),
             (1, "creature_template", "entry"),
             (2, "spell_template", "id"),
-            (3, "quest_template", "entry"),
         ] {
             let index = position(columns(&schema, table)?, name)?;
             self.scan(table, 0, 256, |row| {
@@ -177,7 +176,7 @@ impl VerifiedCatalog {
                 .and_then(|value| value[2].as_u64())
                 .and_then(|value| u32::try_from(value).ok())
                 .ok_or_else(|| fail("events.mail_dbc_layout"))?;
-            ids[4].insert(id);
+            ids[3].insert(id);
         }
         Ok(ids)
     }

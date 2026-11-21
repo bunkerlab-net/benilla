@@ -1,6 +1,7 @@
 use super::*;
+use quest_map_test_inputs::Trace;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::io::{BufRead, BufReader};
 
 const QUEST_IDS: [u32; 2] = [7, 783];
 type RawQuest = [Option<Vec<u8>>; 131];
@@ -124,70 +125,6 @@ fn stock(path: &Path) -> ([RawQuest; 2], Relations, BTreeSet<u32>) {
     (quests.map(Option::unwrap), relations, creatures)
 }
 
-struct Trace {
-    reader: BufReader<File>,
-    line: String,
-}
-impl Trace {
-    fn seek(&mut self, offset: u64) {
-        self.reader.seek(SeekFrom::Start(offset)).unwrap();
-    }
-    fn event(&mut self, kind: &str) -> &str {
-        loop {
-            self.line.clear();
-            assert_ne!(self.reader.read_line(&mut self.line).unwrap(), 0);
-            if self.line.starts_with("1\t") && self.line.split('\t').nth(2) == Some(kind) {
-                break;
-            }
-        }
-        self.line
-            .splitn(4, '\t')
-            .nth(3)
-            .unwrap()
-            .trim_end_matches('\n')
-    }
-    fn query(&mut self, offset: u64, sql: &str, rows: usize, cols: usize) -> String {
-        self.seek(offset);
-        let event = self.event("sql_request_bytes");
-        assert_eq!(
-            unhex(event.split_whitespace().last().unwrap()),
-            sql.as_bytes()
-        );
-        let result: Vec<_> = self.event("sql_query_result").split_whitespace().collect();
-        assert_eq!((result[3].parse(), result[4].parse()), (Ok(rows), Ok(cols)));
-        result[2].to_owned()
-    }
-    fn row<const N: usize>(&mut self, cursor: &str) -> [Option<Vec<u8>>; N] {
-        assert_eq!(self.event("sql_row"), cursor);
-        std::array::from_fn(|i| {
-            let mut fields = self.event("sql_field").split_ascii_whitespace();
-            assert_eq!(fields.next(), Some(cursor));
-            assert_eq!(fields.next().unwrap().parse(), Ok(i));
-            let _mysql_type = fields.next().unwrap();
-            let len = fields.next().unwrap();
-            if len == "NULL" {
-                return None;
-            }
-            let len: usize = len.parse().unwrap();
-            assert_eq!(fields.next(), Some("0"));
-            let bytes = if len == 0 {
-                Vec::new()
-            } else {
-                unhex(fields.next().unwrap())
-            };
-            assert_eq!(bytes.len(), len);
-            Some(bytes)
-        })
-    }
-}
-fn unhex(bytes: &str) -> Vec<u8> {
-    assert!(bytes.len().is_multiple_of(2));
-    (0..bytes.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&bytes[i..i + 2], 16).unwrap())
-        .collect()
-}
-
 #[test]
 fn northshire_recording_and_stock_dump_load_the_same_route_quests() {
     let (Some(stock_path), Some(trace_path)) = (
@@ -198,10 +135,7 @@ fn northshire_recording_and_stock_dump_load_the_same_route_quests() {
         return;
     };
     let (stock_quests, stock_relations, creatures) = stock(Path::new(&stock_path));
-    let mut trace = Trace {
-        reader: BufReader::new(File::open(trace_path).unwrap()),
-        line: String::new(),
-    };
+    let mut trace = Trace::open(Path::new(&trace_path));
     // Northshire A trace.tsv:43533675,43533934,43536209,43938311.
     let cursor = trace.query(2731954066, QUEST_TEMPLATE_QUERY, 4245, 131);
     let recorded_quests: [RawQuest; 2] = [2732132314, 2758708408].map(|offset| {
@@ -299,7 +233,7 @@ fn northshire_recording_and_stock_dump_load_the_same_route_quests() {
 #[test]
 fn full_stock_catalog_loads_with_the_recorded_item_owner() {
     use crate::native::production_compiler::VerifiedCatalog;
-    use benilla_sim::source_rng::{DrawCursor, Mt19937, MtState, SourceRandom};
+    use quest_map_test_inputs::load_recorded_quest_catalog;
     let (Some(root), Some(config), Some(trace)) = (
         std::env::var_os("BENILLA_F5_AI_CATALOG"),
         std::env::var_os("BENILLA_F5_EVENT_AI_CONFIG"),
@@ -310,55 +244,21 @@ fn full_stock_catalog_loads_with_the_recorded_item_owner() {
         );
         return;
     };
-    let config = std::fs::read_to_string(config).unwrap();
-    let value = |name| {
-        config
-            .lines()
-            .filter_map(|line| line.split_once('='))
-            .find_map(|(key, value)| (key.trim() == name).then(|| value.trim()))
-            .unwrap()
-    };
-    let rules = benilla_sim::player_progression::Rules::from_classic_config(
-        value("MaxPlayerLevel").parse().unwrap(),
-        value("AlwaysMaxSkillForLevel").parse::<u32>().unwrap() != 0,
-        value("Rate.Talent").parse::<f32>().unwrap().to_bits(),
-    )
-    .unwrap();
     let mut catalog = VerifiedCatalog::open(Path::new(&root), false).unwrap();
-    let mut trace = Trace {
-        reader: BufReader::new(File::open(trace).unwrap()),
-        line: String::new(),
-    };
-    trace.seek(1724140589); // Northshire A trace.tsv:27942574, first world MT state.
-    let mut state = trace.event("mt_state").split_ascii_whitespace().skip(1);
-    let words = std::array::from_fn(|_| state.next().unwrap().parse().unwrap());
-    let index = state.next().unwrap().parse().unwrap();
-    assert!(state.next().is_none());
-    let mut mt = Mt19937::from_state(MtState { words, index }).unwrap();
-    let mut cursor = DrawCursor::default();
-    let mut sink = |_| {};
-    let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
-    let items = SourceStartupItems::catalog_prefix(&mut catalog, &mut random).unwrap();
-    assert_eq!(items.items_validated, 17_718);
-    let creatures = LoadedCreatureTemplates::catalog_diagnostic(&mut catalog).unwrap();
-    let gameobjects = LoadedGameObjectTemplates::catalog_diagnostic(&mut catalog).unwrap();
     struct NoLaterOwners;
     impl SpellLoaderOwner for NoLaterOwners {}
     let spells = SourceSpellStores::load(&mut catalog, &mut NoLaterOwners).unwrap();
     // Stock SQL:782869 has RewSpell=28272 for quest 9364; the spell is at :859114.
     // The learned spell at stock :859120 points back to spell 28272.
     assert!(spells.template(28272).is_some());
-    let map = SourceQuestMap::load_catalog(
+    // Northshire A trace.tsv:27942574, first world MT state.
+    let map = load_recorded_quest_catalog(
         &mut catalog,
-        QuestCatalogInputs {
-            creatures: Some(&creatures),
-            gameobjects: Some(&gameobjects),
-            items: Some(&items),
-            spells: Some(&spells),
-            progression: Some(&rules),
-        },
-    )
-    .unwrap();
+        &spells,
+        Path::new(&config),
+        Path::new(&trace),
+        1724140589,
+    );
     assert_eq!(map.quest_count(), 4245);
     let quest = map.template(9364).unwrap();
     assert_eq!(

@@ -459,8 +459,12 @@ fn entry_census_unbound_entry_stays_empty_without_an_authored_template() {
 /// They bind only the selected table rows, not a live complete WaypointManager.
 #[test]
 fn catalog04_waypoint_loader_and_raw_prefix_census_or_explicit_absence() {
-    let Some(root) = std::env::var_os("BENILLA_F5_AI_CATALOG") else {
-        println!("SKIP waypoint catalog census: BENILLA_F5_AI_CATALOG absent");
+    use quest_map_test_inputs::{load_script_quest_catalog, script_quest_recording};
+    let (Some(root), Some((config, trace))) = (
+        std::env::var_os("BENILLA_F5_AI_CATALOG"),
+        script_quest_recording(),
+    ) else {
+        println!("SKIP waypoint catalog census: set BENILLA_F5_AI_CATALOG, BENILLA_F5_EVENT_AI_CONFIG and BENILLA_F5_EVENT_AI_TRACE");
         return;
     };
     let mut catalog =
@@ -499,12 +503,15 @@ fn catalog04_waypoint_loader_and_raw_prefix_census_or_explicit_absence() {
         .ok_or_else(|| refuse("execution.db_scripts.sql_occurrences_owner"))
         .and_then(|path| {
             let spells = SourceSpellStores::load(&mut catalog, &mut MissingSpellOwners)?;
+            let mut quests = load_script_quest_catalog(&mut catalog, &spells, &config, &trace);
+            quests.load_catalog_area_triggers(&mut catalog)?;
             let mut groups = catalog_group_census_owner(&mut catalog);
             let scripts = SourceDbScriptMaps::load_catalog(
                 &mut catalog,
                 Path::new(path),
                 &[DbScriptType::Relay, DbScriptType::CreatureMovement],
                 Some(&spells),
+                &mut quests,
                 &mut groups,
                 None,
             )?;

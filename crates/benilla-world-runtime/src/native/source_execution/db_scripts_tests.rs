@@ -557,8 +557,12 @@ fn random_template_type_guard_covers_both_signed_index_boundaries() {
 #[test]
 fn retained_catalog_db_scripts_counts_or_explicit_absence() {
     use super::super::super::production_compiler::VerifiedCatalog;
-    let Some(root) = std::env::var_os("BENILLA_F5_AI_CATALOG") else {
-        println!("SKIP DB-script catalog-04 census: set BENILLA_F5_AI_CATALOG and BENILLA_F5_DB_SCRIPT_OCCURRENCES");
+    use quest_map_test_inputs::{load_script_quest_catalog, script_quest_recording};
+    let (Some(root), Some((config, trace))) = (
+        std::env::var_os("BENILLA_F5_AI_CATALOG"),
+        script_quest_recording(),
+    ) else {
+        println!("SKIP DB-script catalog-04 census: set BENILLA_F5_AI_CATALOG, BENILLA_F5_EVENT_AI_CONFIG and BENILLA_F5_EVENT_AI_TRACE");
         return;
     };
     let occurrences = std::env::var_os("BENILLA_F5_DB_SCRIPT_OCCURRENCES")
@@ -584,27 +588,35 @@ fn retained_catalog_db_scripts_counts_or_explicit_absence() {
     struct SpellMissing;
     impl SpellLoaderOwner for SpellMissing {}
     let spells = SourceSpellStores::load(&mut catalog, &mut SpellMissing).unwrap();
+    let mut quests = load_script_quest_catalog(&mut catalog, &spells, &config, &trace);
+    quests.load_catalog_area_triggers(&mut catalog).unwrap();
     let mut external = catalog_group_census_owner(&mut catalog);
     let pool_occurrences = std::env::var_os("BENILLA_F2_POOL_OCCURRENCES")
         .expect("pool-max component census requires pool occurrences");
     let maximum =
         SourcePoolMaximum::load_catalog(&mut catalog, Path::new(&pool_occurrences)).unwrap();
     assert_eq!(maximum.maximum().unwrap(), 50003);
-    let mut owner = DbScriptCatalog::new(&mut catalog, Some(&spells), &mut external, None)
-        .with_pool_maximum(&maximum);
+    let mut owner = DbScriptCatalog::new(
+        &mut catalog,
+        Some(&spells),
+        &mut quests,
+        &mut external,
+        None,
+    )
+    .with_pool_maximum(&maximum);
     let mut relay = None;
     let mut census = BTreeMap::new();
     for kind in [
         DbScriptType::Relay,
-        DbScriptType::CreatureMovement,
-        DbScriptType::QuestEnd,
+        DbScriptType::Gossip,
         DbScriptType::QuestStart,
+        DbScriptType::QuestEnd,
         DbScriptType::Spell,
         DbScriptType::GameObject,
         DbScriptType::GameObjectTemplate,
         DbScriptType::Event,
-        DbScriptType::Gossip,
         DbScriptType::CreatureDeath,
+        DbScriptType::CreatureMovement,
     ] {
         let raw = inputs.remove(&kind).unwrap();
         let count = raw.len();

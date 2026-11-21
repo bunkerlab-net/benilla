@@ -1,6 +1,8 @@
 use super::*;
 #[path = "quest_map_evidence_tests.rs"]
 mod evidence;
+#[path = "quest_map_flags_tests.rs"]
+mod flags;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -9,6 +11,7 @@ struct Inputs {
     present: BTreeSet<(QuestLookup, u32)>,
     gameobjects: BTreeMap<u32, u32>,
     spells: BTreeMap<u32, [(u32, i32); 3]>,
+    spell_reads: Vec<u32>,
     invalid: BTreeSet<u32>,
     reads: Vec<(QuestLookup, u32)>,
 }
@@ -22,6 +25,7 @@ impl QuestLoaderOwner for Inputs {
         Ok(self.gameobjects.get(&id).copied())
     }
     fn spell_effects(&mut self, id: u32) -> Result<Option<[(u32, i32); 3]>> {
+        self.spell_reads.push(id);
         Ok(self.spells.get(&id).copied())
     }
     fn spell_valid(&mut self, id: u32, _: &mut Vec<SpellValidityNotice>) -> Result<bool> {

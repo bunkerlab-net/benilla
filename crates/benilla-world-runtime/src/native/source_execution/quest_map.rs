@@ -8,6 +8,8 @@ mod catalog;
 pub use catalog::{QuestCatalogInputs, QUEST_TEMPLATE_QUERY};
 mod validation;
 
+const EXPLORATION: u32 = 0x02;
+
 #[derive(Debug, Default)]
 pub struct SourceQuestTemplate {
     pub id: u32,
@@ -334,6 +336,7 @@ pub struct SourceQuestMap {
     templates: IdentityTable<SourceQuestTemplate>,
     exclusive_groups: BTreeMap<i32, Vec<u32>>,
     relations: [BTreeMap<u32, Vec<u32>>; 4],
+    area_triggers: Option<BTreeMap<u32, u32>>,
     notices: Vec<QuestLoadNotice>,
     spell_validity_notices: Vec<SpellValidityNotice>,
 }
@@ -530,6 +533,74 @@ impl SourceQuestMap {
             load_relations_helper(kind, rows, &self.templates, relations, &mut self.notices);
             validate_relation_givers(kind, relations, owner, &mut self.notices)?;
         }
+        Ok(())
+    }
+
+    /// ObjectMgr.cpp:6244-6295. Rows arrive in SQL cursor order.
+    pub fn load_area_triggers(
+        &mut self,
+        rows: impl IntoIterator<Item = [u32; 2]>,
+        mut contains_trigger: impl FnMut(u32) -> Result<bool>,
+    ) -> Result<()> {
+        self.area_triggers = None;
+        self.notices
+            .retain(|notice| !matches!(notice.line, 6274 | 6281 | 6287));
+        let mut triggers = BTreeMap::new();
+        for [trigger, quest] in rows {
+            if !at(contains_trigger(trigger), 6271, "area_trigger_dbc")? {
+                notice(&mut self.notices, 6274, quest, trigger);
+                continue;
+            }
+            let Some(template) = self.templates.get_mut(u64::from(quest)) else {
+                notice(&mut self.notices, 6281, quest, trigger);
+                continue;
+            };
+            if template.special_flags & EXPLORATION == 0 {
+                notice(&mut self.notices, 6287, quest, trigger);
+                template.special_flags |= EXPLORATION; // ObjectMgr.cpp:6290.
+            }
+            triggers.insert(trigger, quest); // ObjectMgr.cpp:6295.
+        }
+        self.area_triggers = Some(triggers);
+        Ok(())
+    }
+
+    pub fn area_trigger_quest(&self, trigger: u32) -> Result<Option<u32>> {
+        Ok(self.area_triggers()?.get(&trigger).copied())
+    }
+
+    fn area_triggers(&self) -> Result<&BTreeMap<u32, u32>> {
+        self.area_triggers
+            .as_ref()
+            .ok_or_else(|| refuse("execution.quests.World_1146.quest_area_triggers_owner"))
+    }
+}
+
+impl DbScriptLoaderOwner for SourceQuestMap {
+    fn contains(&mut self, kind: DbScriptLookup, id: u32) -> Result<bool> {
+        if kind == DbScriptLookup::Quest {
+            return Ok(self.template(id).is_some());
+        }
+        Err(refuse(&format!(
+            "execution.db_scripts.{}_owner",
+            kind.owner()
+        )))
+    }
+
+    fn quest_exploration(&mut self, id: u32) -> Result<Option<bool>> {
+        self.area_triggers()?;
+        Ok(self
+            .template(id)
+            .map(|quest| quest.special_flags & EXPLORATION != 0))
+    }
+
+    fn set_quest_exploration(&mut self, id: u32) -> Result<()> {
+        self.area_triggers()?;
+        let quest = self
+            .templates
+            .get_mut(u64::from(id))
+            .ok_or_else(|| refuse("execution.quests.ScriptMgr_330.quest_template_missing"))?;
+        quest.special_flags |= EXPLORATION;
         Ok(())
     }
 }

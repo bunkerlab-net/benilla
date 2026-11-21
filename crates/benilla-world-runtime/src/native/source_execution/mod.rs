@@ -476,4 +476,6 @@ pub use db_scripts_catalog::*;
 mod quest_map;
 pub use quest_map::*;
 mod db_script_execution;
+#[cfg(test)]
+mod quest_map_test_inputs;
 pub use db_script_execution::*;

@@ -9,8 +9,12 @@ fn retained_loaded_command_census_or_explicit_absence() {
 
 fn command_census(bind_pool_maximum: bool) {
     use crate::native::production_compiler::VerifiedCatalog;
-    let Some(root) = std::env::var_os("BENILLA_F5_AI_CATALOG") else {
-        println!("SKIP DB-script executor census: set BENILLA_F5_AI_CATALOG");
+    use quest_map_test_inputs::{load_script_quest_catalog, script_quest_recording};
+    let (Some(root), Some((config, trace))) = (
+        std::env::var_os("BENILLA_F5_AI_CATALOG"),
+        script_quest_recording(),
+    ) else {
+        println!("SKIP DB-script executor census: set BENILLA_F5_AI_CATALOG, BENILLA_F5_EVENT_AI_CONFIG and BENILLA_F5_EVENT_AI_TRACE");
         return;
     };
     let occurrences = std::env::var_os("BENILLA_F5_DB_SCRIPT_OCCURRENCES")
@@ -19,6 +23,8 @@ fn command_census(bind_pool_maximum: bool) {
     struct SpellMissing;
     impl SpellLoaderOwner for SpellMissing {}
     let spells = SourceSpellStores::load(&mut catalog, &mut SpellMissing).unwrap();
+    let mut quests = load_script_quest_catalog(&mut catalog, &spells, &config, &trace);
+    quests.load_catalog_area_triggers(&mut catalog).unwrap();
     let templates = catalog_db_script_templates(&mut catalog, Path::new(&occurrences)).unwrap();
     let mut tables = BTreeMap::new();
     for kind in DbScriptType::ALL {
@@ -35,7 +41,13 @@ fn command_census(bind_pool_maximum: bool) {
     } else {
         None
     };
-    let mut owner = DbScriptCatalog::new(&mut catalog, Some(&spells), &mut external, None);
+    let mut owner = DbScriptCatalog::new(
+        &mut catalog,
+        Some(&spells),
+        &mut quests,
+        &mut external,
+        None,
+    );
     if let Some(maximum) = &maximum {
         assert_eq!(maximum.maximum().unwrap(), 50003);
         owner = owner.with_pool_maximum(maximum);

@@ -2038,7 +2038,7 @@ impl PersistentEffects for InitialEffects<'_> {
 struct Owner<'a> {
     spawns: &'a SourceEffectiveSpawns,
     maps: &'a BTreeMap<u32, u32>,
-    ids: [BTreeSet<u32>; 5],
+    ids: [BTreeSet<u32>; 4],
     lunar: ReferenceLunarEventOwner<'a>,
     clocks: VecDeque<(EventClockSite, ClockSample)>,
     update: VecDeque<i64>,
@@ -2048,9 +2048,7 @@ struct Owner<'a> {
     states: SourceManagers,
     loaded_maps: BTreeMap<(u32, u32), MapIdentity>,
     effects: SourceEventEffects,
-    quests: BTreeMap<u32, bool>,
-    quest_activity: SourceQuestActivity,
-    missing_quest_activity_writes: usize,
+    quests: SourceQuestMap,
     status: BTreeSet<u16>,
     sql: Vec<String>,
     pool_operations: Vec<PoolOperation>,
@@ -2092,14 +2090,18 @@ impl GameEventOwner for Owner<'_> {
         Ok(self.lunar.bindings())
     }
     fn reference(&mut self, kind: EventReference, id: u32) -> Result<bool> {
-        Ok(self.ids[kind as usize].contains(&id))
+        use EventReference::*;
+        let slot = match kind {
+            Equipment => 0,
+            CreatureTemplate => 1,
+            Spell => 2,
+            Quest => return Ok(self.quests.template(id).is_some()),
+            MailTemplate => 3,
+        };
+        Ok(self.ids[slot].contains(&id))
     }
     fn set_quest_active(&mut self, quest: u32, active: bool) -> Result<()> {
-        let result = self.quest_activity.set_active(quest, active);
-        self.missing_quest_activity_writes += usize::from(result.is_err());
-        result?;
-        self.quests.insert(quest, active);
-        Ok(())
+        self.quests.set_active(quest, active)
     }
     fn check_pool_event(
         &mut self,
@@ -2850,70 +2852,6 @@ pub(super) fn continue_startup(
         &groups,
     );
     formation_path::census(spawns, &groups);
-    let script_tables = [DbScriptType::Relay, DbScriptType::CreatureMovement]
-        .into_iter()
-        .map(|kind| {
-            (
-                kind,
-                catalog_db_script_rows(catalog, script_occurrences, kind).unwrap(),
-            )
-        })
-        .collect();
-    let db_scripts = SourceDbScriptMaps::load(
-        script_tables,
-        script_templates,
-        &mut DbScriptCatalog::new(
-            catalog,
-            Some(&addon_spells),
-            &mut groups,
-            Some(
-                filtered == "1"
-                    || filtered.eq_ignore_ascii_case("true")
-                    || filtered.eq_ignore_ascii_case("yes"),
-            ),
-        ),
-    )
-    .unwrap();
-    let mut waypoint_trace = |_| {};
-    let mut waypoint_random =
-        SourceRandom::new(1, &mut *engine, &mut *cursor, &mut waypoint_trace).unwrap();
-    let waypoint_paths = waypoints::load(
-        catalog,
-        spawns,
-        &creature_templates,
-        &db_scripts,
-        geometry,
-        &mut waypoint_random,
-    )
-    .unwrap();
-    assert_eq!(waypoint_paths.report.statements, WAYPOINT_MANAGER_QUERIES);
-    // Snapshot tables begin at :335034,388530,861610; primary-key census.
-    assert_eq!(waypoint_paths.report.rows, [53469, 17123, 7752]);
-    assert_eq!(waypoint_paths.report.nodes, [53469, 17123, 7752]);
-    assert_eq!(waypoint_paths.report.paths, [2956, 619, 244]);
-    assert_eq!(waypoint_paths.report.missing_owner, [0; 3]);
-    assert_eq!(waypoint_paths.report.blacklisted_nodes, [0; 3]);
-    assert_eq!(
-        observed
-            .waypoint_queries
-            .iter()
-            .map(|(_, q)| q.as_str())
-            .collect::<Vec<_>>(),
-        WAYPOINT_MANAGER_QUERIES,
-    );
-    assert_eq!(
-        observed
-            .waypoint_queries
-            .iter()
-            .map(|(line, _)| *line)
-            .collect::<Vec<_>>(),
-        [54691906, 54713296, 56487193, 56491349, 57128194, 57130068, 57131519],
-    );
-    println!(
-        "F6_WAYPOINT_MANAGER_SQL matched_sql=7 lines={:?}",
-        observed.waypoint_queries
-    );
-    waypoints::census(&waypoint_paths, spawns, &groups, catalog);
     let mut dynamic = BTreeMap::<u32, [Vec<u32>; 2]>::new();
     for ((map, kind), guids) in std::mem::take(&mut spawns.dynamic_guids) {
         dynamic.entry(map).or_default()[usize::from(kind == GridSpawnKind::GameObject)] = guids;
@@ -2986,24 +2924,10 @@ pub(super) fn continue_startup(
         },
     )
     .unwrap();
-    let quest_activity = SourceQuestActivity::from_quest_ids(ids[3].iter().copied());
-    let quest_activity_at_load: BTreeMap<_, _> = quest_activity.activity().collect();
-    assert!(quest_activity_at_load.keys().eq(ids[3].iter()));
-    assert!(quest_activity_at_load.values().all(|active| *active));
-    let assert_quest_activity = |owner: &Owner<'_>| {
-        for (quest, active) in owner.quest_activity.activity() {
-            assert_eq!(
-                active,
-                owner
-                    .quests
-                    .get(&quest)
-                    .copied()
-                    .unwrap_or(quest_activity_at_load[&quest]),
-                "live activity for quest {quest}"
-            );
-        }
-        assert_eq!(owner.missing_quest_activity_writes, 0);
-    };
+    assert_eq!(quest_catalog.quest_count(), 4245);
+    assert!(quest_catalog
+        .templates()
+        .all(SourceQuestTemplate::is_active));
     let mut owner = Owner {
         spawns,
         maps: &inputs.maps,
@@ -3017,9 +2941,7 @@ pub(super) fn continue_startup(
         states: SourceManagers::default(),
         loaded_maps: BTreeMap::new(),
         effects: SourceEventEffects::new(dynamic),
-        quests: BTreeMap::new(),
-        quest_activity,
-        missing_quest_activity_writes: 0,
+        quests: quest_catalog,
         status: BTreeSet::new(),
         sql: Vec::new(),
         pool_operations: Vec::new(),
@@ -3035,8 +2957,20 @@ pub(super) fn continue_startup(
         .load_catalog_definitions(catalog, event_occurrences, &mut pools, &mut owner)
         .unwrap();
     owner.pools = pools;
-    assert_eq!(&owner.quests, &events.inventory().quest_active);
-    assert_quest_activity(&owner);
+    let changed = &events.inventory().quest_active;
+    // Seal16 trace.tsv:45930056 has 61 rows and 60 distinct quest IDs.
+    assert_eq!(changed.len(), 60);
+    assert!(changed
+        .keys()
+        .all(|&id| owner.quests.template(id).is_some()));
+    for quest in owner.quests.templates() {
+        assert_eq!(
+            quest.is_active(),
+            changed.get(&quest.id).copied().unwrap_or(true),
+            "live activity for quest {}",
+            quest.id,
+        );
+    }
     assert!(owner.clocks.is_empty());
     assert!(events.inventory().loaded);
     // World.cpp:1389 precedes :1416. Loading event 7's calendar is not StartEvent.
@@ -3209,13 +3143,25 @@ pub(super) fn continue_startup(
         loot_evidence::ConditionOwners {
             items,
             spells: &addon_spells,
-            quests: &quest_catalog,
+            quests: &owner.quests,
             creatures: &creature_templates,
             events: &events,
             dungeon: &dungeon_store,
             rules: &progression,
         },
     );
+    // World.cpp:1146 follows event definitions and precedes DB-script validation.
+    let area_trigger_rows =
+        quest_map_test_inputs::recorded_area_triggers(&recording.join("run/trace.tsv"));
+    let area_trigger_dbc = catalog
+        .execution_dbc_lookup_index("AreaTrigger.dbc")
+        .unwrap();
+    owner
+        .quests
+        .load_area_triggers(area_trigger_rows, |id| {
+            Ok(area_trigger_dbc.contains_key(&id))
+        })
+        .unwrap();
     let loot = observed.loot.load(catalog, &conditions, items);
     assert_eq!(
         observed.encounter_sql[ENCOUNTER_QUERIES[3]],
@@ -3285,6 +3231,77 @@ pub(super) fn continue_startup(
     );
     assert!(observed.encounter_queries[2].0 < observed.graveyard_query_line.unwrap());
     assert!(observed.graveyard_last_field_line.unwrap() < observed.encounter_queries[3].0);
+    // World.cpp:1217-1226 supplies the retained script maps before :1248.
+    let script_tables = [DbScriptType::Relay, DbScriptType::CreatureMovement]
+        .into_iter()
+        .map(|kind| {
+            (
+                kind,
+                catalog_db_script_rows(catalog, script_occurrences, kind).unwrap(),
+            )
+        })
+        .collect();
+    let db_scripts = SourceDbScriptMaps::load(
+        script_tables,
+        script_templates,
+        &mut DbScriptCatalog::new(
+            catalog,
+            Some(&addon_spells),
+            &mut owner.quests,
+            &mut groups,
+            Some(
+                filtered == "1"
+                    || filtered.eq_ignore_ascii_case("true")
+                    || filtered.eq_ignore_ascii_case("yes"),
+            ),
+        ),
+    )
+    .unwrap();
+    let mut waypoint_trace = |_| {};
+    let mut waypoint_random = SourceRandom::new(
+        1,
+        &mut *owner.engine,
+        &mut *owner.cursor,
+        &mut waypoint_trace,
+    )
+    .unwrap();
+    let waypoint_paths = waypoints::load(
+        catalog,
+        owner.spawns,
+        &creature_templates,
+        &db_scripts,
+        geometry,
+        &mut waypoint_random,
+    )
+    .unwrap();
+    assert_eq!(waypoint_paths.report.statements, WAYPOINT_MANAGER_QUERIES);
+    // Snapshot tables begin at :335034,388530,861610; primary-key census.
+    assert_eq!(waypoint_paths.report.rows, [53469, 17123, 7752]);
+    assert_eq!(waypoint_paths.report.nodes, [53469, 17123, 7752]);
+    assert_eq!(waypoint_paths.report.paths, [2956, 619, 244]);
+    assert_eq!(waypoint_paths.report.missing_owner, [0; 3]);
+    assert_eq!(waypoint_paths.report.blacklisted_nodes, [0; 3]);
+    assert_eq!(
+        observed
+            .waypoint_queries
+            .iter()
+            .map(|(_, q)| q.as_str())
+            .collect::<Vec<_>>(),
+        WAYPOINT_MANAGER_QUERIES,
+    );
+    assert_eq!(
+        observed
+            .waypoint_queries
+            .iter()
+            .map(|(line, _)| *line)
+            .collect::<Vec<_>>(),
+        [54691906, 54713296, 56487193, 56491349, 57128194, 57130068, 57131519],
+    );
+    println!(
+        "F6_WAYPOINT_MANAGER_SQL matched_sql=7 lines={:?}",
+        observed.waypoint_queries
+    );
+    waypoints::census(&waypoint_paths, owner.spawns, &groups, catalog);
     let mut outdoor_pvp = SourceOutdoorPvp::default();
     let mut outdoor_messages = SourceMessager::new(MessageOwner::World);
     // The current registry is empty before MapManager::Initialize, not a recorded result.

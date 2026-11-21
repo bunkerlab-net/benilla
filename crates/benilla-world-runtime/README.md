@@ -1317,9 +1317,9 @@ The Rust translation is GPL-3.0-or-later. Its source contract is:
   `PoolManager.cpp:113-132,164-171,1117-1122` checks gameobjects, creatures,
   then child pools. Each group visits equal-chance entries before explicit ones.
   A mismatch returns a typed notice for the member's pool.
-- `SourceQuestActivity` starts each loaded quest active, `QuestDef.cpp:142`.
-  `GameEventMgr.cpp:542,1069` writes the live flag. A missing quest refuses
-  before the unchecked source dereference at `:1069`.
+- Each quest in `SourceQuestMap` starts active, `QuestDef.cpp:142`.
+  `GameEventMgr.cpp:542,1069` writes the live template's activity. An
+  absent quest at `:1069` refuses before the unchecked source dereference.
 
 Reached inverted unsigned respawn bounds refuse
 `execution.pool.respawn_bounds_undefined`, `Util/Util.cpp:74-77`.
@@ -2309,22 +2309,21 @@ Quest and spell checks use the item prototypes retained by
 `SourceStartupItems`. `SpellMgr.cpp:2004-2075` checks products, triggered
 learn spells, and reagents, and records diagnostics without player chat.
 
-`SourceQuestFlags` reproduces the flag-affecting quest loader reads only,
-not complete quest gameplay validation. It sets delivery, spell-event,
-kill/speak, and timed flags in `ObjectMgr.cpp:4513,4584,4618,4833` order.
+The quest loader sets delivery, spell-event, kill/speak, and timed flags in
+`ObjectMgr.cpp:4513,4584,4618,4833` order.
 Delivery flags precede item validation. Kill/speak flags use the cached
 target ID even when validation clears the quest field, `:4504-4519,4599-4618`.
 Required-spell checks use loaded server SpellEntry effects, not client DBC
 spells, `:4554-4584`. Missing dependency owners refuse.
-Area-trigger relations set exploration flags only after checking
-`AreaTrigger.dbc` and quest existence, `:6271-6290`. Startup loads quests
-before quest area triggers and both before relay scripts,
-`World.cpp:1101,1146,1217`. DB-script reads and mutations require the
-post-trigger owner. Exploration uses `SpecialFlags` bit `0x002`, not
-`QuestFlags`, `QuestDef.h:151,188-189`. Script mutations remain immediate
-before distance validation, `ScriptMgr.cpp:325-351`. Signed target
-negation at `ObjectMgr.cpp:4600` refuses
-`execution.quest_flags.target_negation_undefined` for `INT32_MIN`.
+Startup loads game events before quest area triggers and DB scripts,
+`World.cpp:1109,1146,1217-1226`. For each trigger row, `SourceQuestMap`
+checks `AreaTrigger.dbc` before the quest template, `ObjectMgr.cpp:6271-6290`.
+It keeps the last valid quest per trigger, `:6295`. DB scripts use the same
+map and require the trigger phase before reading effective flags. Exploration
+uses `SpecialFlags` bit `0x002`, `QuestDef.h:151,188-189`. Quest exploration
+commands set that bit before checking distance, `ScriptMgr.cpp:325-351`.
+Signed target negation at `ObjectMgr.cpp:4600` refuses
+`execution.quests.ObjectMgr_4600.target_negation_undefined` for `INT32_MIN`.
 The negative random-template type index at `ScriptMgr.cpp:1239-1244`
 refuses `execution.db_scripts.random_template_index_undefined`.
 Buddy-pool lookups copy the defined uint16 wrap before checking the loaded
@@ -2334,7 +2333,10 @@ An out-of-range wrapped index refuses
 still queries that wrapped slot.
 
 The retained-data census uses `BENILLA_F5_AI_CATALOG` and
-`BENILLA_F5_DB_SCRIPT_OCCURRENCES`, with an explicit SKIP when absent.
+`BENILLA_F5_DB_SCRIPT_OCCURRENCES`. It loads the full quest map with
+`BENILLA_F5_EVENT_AI_CONFIG` and `BENILLA_F5_EVENT_AI_TRACE` for the
+recorded item startup. The census reports an explicit SKIP if the quest
+inputs are absent.
 It reports raw, validated, dropped, refused and unmeasured rows by type.
 An unbound spawn-group container is an unmeasured census input, not a
 source row rejection. Binding it requires the catalog-bound `GroupLoadOwner`

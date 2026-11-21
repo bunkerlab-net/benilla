@@ -96,6 +96,29 @@ impl SourceQuestMap {
         )?;
         Ok(map)
     }
+
+    /// World.cpp:1146 loads trigger relations on the already loaded templates.
+    pub fn load_catalog_area_triggers(&mut self, catalog: &mut VerifiedCatalog) -> Result<()> {
+        let rows = catalog.execution_quest_area_trigger_rows()?;
+        let dbcs = if rows.is_empty() {
+            BTreeMap::new()
+        } else {
+            at(
+                catalog
+                    .execution_dbc_lookup_index("AreaTrigger.dbc")
+                    .map_err(|error| {
+                        if error.id == "dbc.mandatory_file_missing" {
+                            unbound()
+                        } else {
+                            error.into()
+                        }
+                    }),
+                6271,
+                "area_trigger_dbc",
+            )?
+        };
+        self.load_area_triggers(rows, |id| Ok(dbcs.contains_key(&id)))
+    }
 }
 
 struct CatalogValidation<'a, 'b> {

@@ -69,6 +69,20 @@ impl VerifiedCatalog {
             self.relations.contains_key(table),
             &format!("execution.quests.ObjectMgr_7946.{table}_owner"),
         )?;
+        self.execution_quest_relation_rows(table)
+    }
+
+    /// ObjectMgr.cpp:6246. Decode the retained two-column cursor.
+    pub(crate) fn execution_quest_area_trigger_rows(&mut self) -> Result<Vec<[u32; 2]>> {
+        const TABLE: &str = "areatrigger_involvedrelation";
+        check(
+            self.relations.contains_key(TABLE),
+            "execution.quests.ObjectMgr_6246.area_trigger_rows_owner",
+        )?;
+        self.execution_quest_relation_rows(TABLE)
+    }
+
+    fn execution_quest_relation_rows(&mut self, table: &str) -> Result<Vec<[u32; 2]>> {
         let schema = bounded_json(&self.object(&descriptor(&self.manifest["schema_root"])?, 0)?)?;
         let cols = columns(&schema, table)?;
         let giver = position(&cols, "id")?;

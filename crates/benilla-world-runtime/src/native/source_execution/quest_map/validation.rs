@@ -3,7 +3,6 @@
 use super::*;
 use QuestLookup::*;
 
-const EXPLORATION: u32 = 0x02;
 const DELIVER: u32 = 0x08;
 const KILL_SPEAK: u32 = 0x30;
 

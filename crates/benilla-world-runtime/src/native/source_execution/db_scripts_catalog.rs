@@ -3,100 +3,6 @@
 use super::super::production_compiler::VerifiedCatalog;
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
-#[path = "quest_flags.rs"]
-mod quest_flags;
-pub use quest_flags::*;
-
-struct QuestFlagCatalog<'a> {
-    spells: Option<&'a SourceSpellStores>,
-    triggers: BTreeSet<u32>,
-}
-impl QuestFlagLoaderOwner for QuestFlagCatalog<'_> {
-    fn spell_effects(&mut self, id: u32) -> Result<Option<[(u32, i32); 3]>> {
-        let spells = self
-            .spells
-            .ok_or_else(|| refuse("execution.quest_flags.spell_template_owner"))?;
-        Ok(spells.template(id).map(|spell| {
-            [
-                (spell.effect1, spell.effectmiscvalue1),
-                (spell.effect2, spell.effectmiscvalue2),
-                (spell.effect3, spell.effectmiscvalue3),
-            ]
-        }))
-    }
-    fn area_trigger(&mut self, id: u32) -> Result<bool> {
-        Ok(self.triggers.contains(&id))
-    }
-}
-impl SourceQuestFlags {
-    /// Projection of only flag-affecting reads, not full quest validation.
-    pub fn load_catalog(
-        catalog: &mut VerifiedCatalog,
-        spells: Option<&SourceSpellStores>,
-    ) -> Result<Self> {
-        let rows = catalog.execution_quest_flag_operands(
-            "quest_template",
-            [
-                "entry",
-                "SpecialFlags",
-                "ReqItemId1",
-                "ReqItemId2",
-                "ReqItemId3",
-                "ReqItemId4",
-                "ReqSpellCast1",
-                "ReqSpellCast2",
-                "ReqSpellCast3",
-                "ReqSpellCast4",
-                "ReqCreatureOrGOId1",
-                "ReqCreatureOrGOId2",
-                "ReqCreatureOrGOId3",
-                "ReqCreatureOrGOId4",
-                "LimitTime",
-            ],
-        )?;
-        let mut owner = QuestFlagCatalog {
-            spells,
-            triggers: BTreeSet::new(),
-        };
-        let mut result = Self::load_quests(
-            rows.into_iter().map(|v| QuestFlagRow {
-                id: v[0],
-                special_flags: v[1] as u16,
-                required_items: v[2..6].try_into().unwrap(),
-                required_spells: v[6..10].try_into().unwrap(),
-                required_targets: v[10..14]
-                    .try_into()
-                    .map(|v: [u32; 4]| v.map(|v| v as i32))
-                    .unwrap(),
-                limit_time: v[14],
-            }),
-            &mut owner,
-        )?;
-        let triggers = catalog
-            .execution_quest_flag_operands("areatrigger_involvedrelation", ["id", "quest"])?;
-        if !triggers.is_empty() {
-            let mut view = catalog.dbc_view("AreaTrigger.dbc").map_err(|error| {
-                if error.id == "dbc.mandatory_file_missing" {
-                    refuse("execution.quest_flags.area_trigger_dbc_owner")
-                } else {
-                    error.into()
-                }
-            })?;
-            for ordinal in 0..view.record_count() {
-                let row = view.record(ordinal)?;
-                let id = row["values"]
-                    .as_array()
-                    .and_then(|r| r.iter().find(|v| v[0] == 0))
-                    .and_then(|v| v[2].as_u64())
-                    .and_then(|v| u32::try_from(v).ok())
-                    .ok_or_else(|| refuse("execution.quest_flags.area_trigger_dbc_layout"))?;
-                owner.triggers.insert(id);
-            }
-        }
-        result.load_area_triggers(triggers, &mut owner)?;
-        Ok(result)
-    }
-}
 
 impl DbScriptLoaderOwner for SourceSpawnGroups {
     fn contains(&mut self, kind: DbScriptLookup, id: u32) -> Result<bool> {
@@ -132,6 +38,7 @@ impl SourceDbScriptMaps {
         occurrences: &Path,
         kinds: &[DbScriptType],
         spells: Option<&SourceSpellStores>,
+        quests: &mut SourceQuestMap,
         external: &mut impl DbScriptLoaderOwner,
         strict_check_filtered: Option<bool>,
     ) -> Result<Self> {
@@ -145,7 +52,7 @@ impl SourceDbScriptMaps {
         Self::load(
             tables,
             templates,
-            &mut DbScriptCatalog::new(catalog, spells, external, strict_check_filtered),
+            &mut DbScriptCatalog::new(catalog, spells, quests, external, strict_check_filtered),
         )
     }
 }
@@ -186,23 +93,23 @@ pub fn catalog_db_script_templates(
         chance: v[3],
     }))
 }
-/// F2 existence views, loaded F5.07 SpellEntry and effective quest flags.
-/// Loaded pool/group products and configuration remain external owners.
+/// F2 existence views and borrows of live spell, quest, pool and group owners.
 pub struct DbScriptCatalog<'a, O> {
     catalog: &'a mut VerifiedCatalog,
     external: &'a mut O,
     spells: Option<&'a SourceSpellStores>,
+    quests: &'a mut SourceQuestMap,
     ids: BTreeMap<DbScriptLookup, BTreeSet<u32>>,
     go_entries: Option<BTreeMap<u32, u32>>,
     go_types: Option<BTreeMap<u32, u32>>,
     strict_check_filtered: Option<bool>,
-    quest_flags: Option<SourceQuestFlags>,
     pool_maximum: Option<&'a SourcePoolMaximum>,
 }
 impl<'a, O: DbScriptLoaderOwner> DbScriptCatalog<'a, O> {
     pub fn new(
         catalog: &'a mut VerifiedCatalog,
         spells: Option<&'a SourceSpellStores>,
+        quests: &'a mut SourceQuestMap,
         external: &'a mut O,
         strict_check_filtered: Option<bool>,
     ) -> Self {
@@ -210,11 +117,11 @@ impl<'a, O: DbScriptLoaderOwner> DbScriptCatalog<'a, O> {
             catalog,
             external,
             spells,
+            quests,
             ids: BTreeMap::new(),
             go_entries: None,
             go_types: None,
             strict_check_filtered,
-            quest_flags: None,
             pool_maximum: None,
         }
     }
@@ -222,12 +129,6 @@ impl<'a, O: DbScriptLoaderOwner> DbScriptCatalog<'a, O> {
     pub fn with_pool_maximum(mut self, maximum: &'a SourcePoolMaximum) -> Self {
         self.pool_maximum = Some(maximum);
         self
-    }
-    fn quest_flags(&mut self) -> Result<&mut SourceQuestFlags> {
-        if self.quest_flags.is_none() {
-            self.quest_flags = Some(SourceQuestFlags::load_catalog(self.catalog, self.spells)?);
-        }
-        Ok(self.quest_flags.as_mut().unwrap())
     }
     fn ids(&mut self, kind: DbScriptLookup) -> Result<&BTreeSet<u32>> {
         use DbScriptLookup::*;
@@ -266,7 +167,6 @@ impl<'a, O: DbScriptLoaderOwner> DbScriptCatalog<'a, O> {
                     Item => ("item_template", "entry"),
                     StringId => ("string_id", "id"),
                     WorldStateName => ("worldstate_name", "id"),
-                    Quest => ("quest_template", "entry"),
                     _ => return Err(refuse("execution.db_scripts.external_lookup_domain")),
                 };
                 for row in self.catalog.execution_db_script_operands(table, [column])? {
@@ -286,6 +186,7 @@ impl<O: DbScriptLoaderOwner> DbScriptLoaderOwner for DbScriptCatalog<'_, O> {
                 .ok_or_else(|| refuse("execution.db_scripts.spell_template_owner"))?
                 .template(id)
                 .is_some()),
+            DbScriptLookup::Quest => self.quests.contains(kind, id),
             DbScriptLookup::CreaturePool
             | DbScriptLookup::GameObjectPool
             | DbScriptLookup::SpawnGroup => self.external.contains(kind, id),
@@ -293,10 +194,10 @@ impl<O: DbScriptLoaderOwner> DbScriptLoaderOwner for DbScriptCatalog<'_, O> {
         }
     }
     fn quest_exploration(&mut self, id: u32) -> Result<Option<bool>> {
-        self.quest_flags()?.quest_exploration(id)
+        self.quests.quest_exploration(id)
     }
     fn set_quest_exploration(&mut self, id: u32) -> Result<()> {
-        self.quest_flags()?.set_quest_exploration(id)
+        self.quests.set_quest_exploration(id)
     }
     fn gameobject_entry(&mut self, guid: u32) -> Result<Option<u32>> {
         if self.go_entries.is_none() {
