@@ -21,6 +21,8 @@ pub use player_spellbook::{
 #[path = "player_cast.rs"]
 mod player_cast;
 pub use player_cast::SourcePlayerCastInputs;
+#[path = "player_defense.rs"]
+mod player_defense;
 
 // UpdateFields.h:27,77-88,114-120,133,140-151,180-186,215,218,228,243,263.
 const OBJECT_FIELD_TYPE: usize = 0x02;
@@ -116,6 +118,10 @@ pub struct SourcePlayer {
     pub next_level_xp: u32,
     pub attack_times: [f32; 3],
     pub damage_done_percent: [f32; 7],
+    // Object.cpp:105-108 and Player.cpp:2883-2887 start the display words at zero.
+    block_percentage: f32,
+    parry_percentage: f32,
+    dodge_percentage: f32,
     pub taxi_mask: [u32; 8],
     pub free_primary_professions: u32,
     skills: Vec<SourcePlayerSkill>,
@@ -196,6 +202,9 @@ impl SourcePlayer {
                 next_level_xp: 0,
                 attack_times: [0.0; 3],
                 damage_done_percent: [0.0; 7],
+                block_percentage: 0.0,
+                parry_percentage: 0.0,
+                dodge_percentage: 0.0,
                 taxi_mask: [0; 8],
                 free_primary_professions: 0,
                 skills: Vec::new(),

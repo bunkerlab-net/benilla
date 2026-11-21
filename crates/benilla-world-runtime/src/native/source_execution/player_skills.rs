@@ -9,11 +9,14 @@ const PLAYER_MAX_SKILLS: usize = 127;
 const PLAYER_SKILL_INFO: usize = 0x2ce;
 // Unit.h:1454 and Player.cpp:825. Creation currently binds level one.
 const MAX_SKILL_FOR_LEVEL: u16 = 5;
+pub(super) const SKILL_DEFENSE: u16 = 95; // SharedDefines.h:1335.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SourcePlayerSkill {
     pub id_step: [u16; 2],
     pub value_max: [u16; 2],
+    /// Player.cpp:89-91. Temporary in the low half and permanent in the high half.
+    pub bonus: [i16; 2],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -265,16 +268,24 @@ impl SourcePlayer {
         &self.skills
     }
 
-    // Player.cpp:5885-5897. Live bonuses are not yet bound.
+    // Player.h:1695; Player.cpp:5466-5494.
+    pub(super) fn skill_value(&self, id: u16) -> u16 {
+        self.skills
+            .iter()
+            .find(|skill| skill.id_step[0] == id)
+            .map_or(0, |skill| {
+                let [temp, perm] = skill.bonus;
+                let value = i32::from(skill.value_max[0]) + i32::from(perm) + i32::from(temp);
+                value.max(0) as u16
+            })
+    }
+
+    // Player.cpp:5885-5897.
     pub(super) fn spell_rank(&self, inputs: &PlayerSkillInputs, t: &SpellTemplate) -> Result<u32> {
         let Some(id) = inputs.rank_skill(t.id) else {
             return Ok(0);
         };
-        let rank = self
-            .skills
-            .iter()
-            .find(|skill| skill.id_step[0] == id)
-            .map_or(0, |skill| u32::from(skill.value_max[0]));
+        let rank = u32::from(self.skill_value(id));
         Ok(if t.maxlevel > 0 {
             rank.min(t.maxlevel.wrapping_mul(5))
         } else {
@@ -325,6 +336,7 @@ impl SourcePlayer {
                 SourcePlayerSkill {
                     id_step: [row.id, step],
                     value_max: [value, max],
+                    bonus: [0; 2],
                 },
             )?;
         }
@@ -367,12 +379,18 @@ impl SourcePlayer {
             .set_update_value(object, field + 1, &mut entry.value_max, skill.value_max)?;
         let current_step = entry.id_step[1];
         self.update_skill_trained_spells(live, id, value, current_step)?;
-        require(
-            id != 95,
-            "execution.player.Player_5404.defense_bonuses_owner",
-        )?;
+        if id == SKILL_DEFENSE {
+            let unit = live.units.get_mut(live.objects, object)?;
+            self.update_defense_bonuses(live.objects, unit)?;
+        }
         if inserted {
-            // Player.cpp:5452-5458. A fresh bonus word is already zero.
+            // Player.cpp:5452 resets the live bonus word before applying auras.
+            live.objects.set_update_value(
+                object,
+                field + 2,
+                &mut self.skills[index].bonus,
+                [0; 2],
+            )?;
             require(
                 !live
                     .units
@@ -473,6 +491,7 @@ impl SourcePlayer {
                 SourcePlayerSkill {
                     id_step: [id, 0],
                     value_max: [value, max],
+                    bonus: [0; 2],
                 },
             )?;
         }
@@ -522,6 +541,7 @@ impl SourcePlayer {
             SourcePlayerSkill {
                 id_step: [id, step],
                 value_max: [value, max],
+                bonus: [0; 2],
             },
         )
     }
@@ -643,6 +663,7 @@ mod learning_tests {
         let skill = |step, value| SourcePlayerSkill {
             id_step: [10, step],
             value_max: [value, 75],
+            bonus: [0; 2],
         };
         assert_eq!(player.skills(), &[skill(1, 1)]);
         assert_eq!(

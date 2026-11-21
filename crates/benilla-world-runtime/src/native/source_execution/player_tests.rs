@@ -98,6 +98,160 @@ fn avoidance_capabilities_keep_unit_and_player_constructor_defaults() {
     assert!(!unit.can_dodge && unit.can_parry && unit.can_block);
 }
 
+#[test]
+fn defense_refresh_keeps_real_dodge_and_marks_only_changed_ui() {
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let mut player = construct(&mut objects, &mut units);
+    let handle = player.object();
+    let unit = units.get_mut(&objects, handle).unwrap();
+    unit.unit_class = Some(8);
+    unit.power_fields = Some(SourceUnitPowerFields {
+        level: 1,
+        create_health: 0,
+        create_mana: 0,
+        auxiliary_current: None,
+        auxiliary_maximum: None,
+    });
+    unit.resistances.set_agility(&objects, handle, 20).unwrap();
+    player.skills.push(SourcePlayerSkill {
+        id_step: [95, 0],
+        value_max: [1, 5],
+        bonus: [0; 2],
+    });
+    player.update_defense_bonuses(&objects, unit).unwrap();
+    assert_eq!(unit.mod_dodge_chance.to_bits(), 0x4099_9cc6);
+    assert_eq!(player.dodge_percentage.to_bits(), 0x4094_7e0e);
+    let object = objects.get(handle).unwrap();
+    assert!(!object.field_changed(0x452).unwrap());
+    assert!(object.field_changed(0x453).unwrap());
+    assert!(!object.field_changed(0x454).unwrap());
+
+    objects.remove_from_world(handle).unwrap();
+    player.update_defense_bonuses(&objects, unit).unwrap();
+    assert!(!objects.get(handle).unwrap().field_changed(0x453).unwrap());
+
+    // Both signed bonus halves participate. Effective Defense is now 5.
+    player.skills[0].bonus = [-3, 7];
+    player.update_defense_bonuses(&objects, unit).unwrap();
+    assert_eq!(player.dodge_percentage.to_bits(), 0x4099_9cc6);
+    assert!(objects.get(handle).unwrap().field_changed(0x453).unwrap());
+
+    // The upper clamp does not cap the live Unit modifier.
+    unit.resistances
+        .set_agility(&objects, handle, 1_290)
+        .unwrap();
+    player.update_defense_bonuses(&objects, unit).unwrap();
+    assert_eq!(unit.mod_dodge_chance, 103.25);
+    assert_eq!(player.dodge_percentage, 100.0);
+
+    player.skills[0].bonus = [-10, 0];
+    assert_eq!(player.skill_value(95), 0);
+    unit.power_fields.as_mut().unwrap().level = 60;
+    unit.resistances.set_agility(&objects, handle, 0).unwrap();
+    player.update_defense_bonuses(&objects, unit).unwrap();
+    assert_eq!(unit.mod_dodge_chance, 3.25);
+    assert_eq!(player.dodge_percentage, 0.0);
+}
+
+#[test]
+fn defense_refresh_refuses_enabled_block_and_parry_in_source_order() {
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let mut player = construct(&mut objects, &mut units);
+    let unit = units.get_mut(&objects, player.object()).unwrap();
+    unit.can_parry = true;
+    unit.can_block = true;
+    assert_eq!(
+        player
+            .update_defense_bonuses(&objects, unit)
+            .unwrap_err()
+            .id,
+        "execution.player.StatSystem_401.block_enabled_owner"
+    );
+    unit.can_block = false;
+    unit.mod_block_chance = 7.0;
+    assert_eq!(
+        player
+            .update_defense_bonuses(&objects, unit)
+            .unwrap_err()
+            .id,
+        "execution.player.StatSystem_458.parry_enabled_owner"
+    );
+    assert_eq!(unit.mod_block_chance, 0.0);
+}
+
+#[test]
+fn defense_refresh_names_each_unported_dodge_class() {
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let mut player = construct(&mut objects, &mut units);
+    let unit = units.get_mut(&objects, player.object()).unwrap();
+    for (class, line) in [
+        (2, 4947),
+        (7, 4947),
+        (11, 4947),
+        (4, 4955),
+        (3, 4959),
+        (5, 4963),
+        (9, 4967),
+        (1, 4971),
+        (0, 4975),
+        (12, 4975),
+    ] {
+        unit.unit_class = Some(class);
+        assert_eq!(
+            player
+                .update_defense_bonuses(&objects, unit)
+                .unwrap_err()
+                .id,
+            format!("execution.player.Player_{line}.dodge_agility_class_owner")
+        );
+    }
+    unit.unit_class = Some(8);
+    assert_eq!(
+        player
+            .update_defense_bonuses(&objects, unit)
+            .unwrap_err()
+            .id,
+        "execution.player.Player_4977.dodge_level_owner"
+    );
+}
+
+#[test]
+fn defense_refresh_refuses_a_live_dodge_aura_before_writing_dodge() {
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let mut player = construct(&mut objects, &mut units);
+    let handle = player.object();
+    let unit = units.get_mut(&objects, handle).unwrap();
+    unit.unit_class = Some(8);
+    unit.power_fields = Some(SourceUnitPowerFields {
+        level: 1,
+        create_health: 0,
+        create_mana: 0,
+        auxiliary_current: None,
+        auxiliary_maximum: None,
+    });
+    let template = SpellTemplate {
+        id: 1,
+        ..Default::default()
+    };
+    let mut holder = SourceAuraHolder::new(&template, handle, 0, 0, -1).unwrap();
+    holder.effects[0] = Some(SourceAura::self_spell_effect(&template, 0, 49, 0, 0, 1, 0).unwrap());
+    unit.auras.store_aura_holder(1, &mut Some(holder)).unwrap();
+    unit.mod_dodge_chance = 7.0;
+    assert_eq!(
+        player
+            .update_defense_bonuses(&objects, unit)
+            .unwrap_err()
+            .id,
+        "execution.player.StatSystem_497.dodge_aura_modifier_owner"
+    );
+    assert_eq!(unit.mod_dodge_chance, 7.0);
+    assert!(!objects.get(handle).unwrap().field_changed(0x453).unwrap());
+}
+
 pub(super) fn test_items(ids: impl IntoIterator<Item = u32>) -> SourceStartupItems {
     let mut items = SourceStartupItems::default();
     let mut mt = Mt19937::from_seed(1);
@@ -402,23 +556,23 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         .unwrap_err();
     assert_eq!(
         error.id,
-        "execution.player.Player_5404.defense_bonuses_owner"
+        "execution.spells.SpellEffects_2319.proficiency_owner"
     );
     // Northshire-01 A trace:68133282,68133496. No third draw in the Defense loop.
     assert_eq!(raw, [(0, 132_753_960), (1, 40_231_698)]);
     assert_eq!(draws.raw, 2);
     let unit = units.get(&objects, player.object()).unwrap();
     let queue = unit.unit_events.inventory();
-    let [defense, dodge, spell_defense] = queue.queued.as_slice() else {
-        panic!("Defense training must schedule three spells");
+    let [defense, dodge, spell_defense, unarmed, staves] = queue.queued.as_slice() else {
+        panic!("creation must schedule five spells through the Staves proficiency");
     };
-    // Player.cpp:5650-5694; SkillLineAbility keys 490, 689 and 1424.
-    // Northshire-01 A trace:68133333-68133335,68133415-68133417,68133504-68133506.
+    // SkillLineAbility keys 490, 689, 1424, 1236 and 700.
+    // Northshire-01 A trace:68133333-68133335,68133415-68133417,68133504-68133506,
+    // :68133580-68133583,68133665-68133667.
     assert_eq!(queue.clock_ms, 0);
-    for (event, (id, insertion)) in
-        [defense, dodge, spell_defense]
-            .into_iter()
-            .zip([(204, 1), (81, 2), (522, 3)])
+    for (event, (id, insertion)) in [defense, dodge, spell_defense, unarmed, staves]
+        .into_iter()
+        .zip([(204, 1), (81, 2), (522, 3), (203, 4), (227, 5)])
     {
         let SourceUnitEvent::Spell { spell } = event.kind else {
             panic!("Defense training must schedule a spell event");
@@ -431,14 +585,31 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         );
         let cast = &unit.spell_starts.spells[&spell];
         assert_eq!((cast.spell, cast.event), (id, Some(event.event_id)));
-        assert_eq!(cast.state, SourceSpellState::Finished);
-        assert!(!cast.executing);
-        assert_eq!(cast.creation_time, 100);
-        // Stock SQL :837915,837867,838040; Dodge draws 0 at trace:68133497.
+        if id == 227 {
+            // Stock SQL :837917. The proficiency effect runs before the cast finishes.
+            assert_eq!(cast.state, SourceSpellState::Landing);
+            assert!(cast.executing);
+            assert_eq!(player.active_mod_spell, Some(spell));
+        } else {
+            assert_eq!(cast.state, SourceSpellState::Finished);
+            assert!(!cast.executing);
+        }
+        if insertion <= 3 {
+            assert_eq!(cast.creation_time, 100);
+        }
+        // Stock SQL :837915,837867,838040,837914,837917. Trace :68133497 draws 0.
         assert_eq!(cast.damage_per_effect, [0, 0, 0]);
     }
-    assert_eq!(unit.auras.cast_counter, 0);
-    assert_eq!(player.active_mod_spell, None);
+    // Spell.cpp:3170 and trace :68133665-68133667. The fifth cast has not returned.
+    assert_eq!(unit.auras.cast_counter, 1);
+    // Stock SQL :671412; SkillLine.dbc key 95; StatSystem.cpp:484,493-502.
+    assert_eq!(unit.mod_dodge_chance.to_bits(), 0x4099_9cc6);
+    assert_eq!(player.dodge_percentage.to_bits(), 0x4094_7e0e);
+    assert_eq!((unit.mod_block_chance, unit.mod_parry_chance), (0.0, 0.0));
+    assert_eq!(
+        (player.block_percentage, player.parry_percentage),
+        (0.0, 0.0)
+    );
     assert!(terrain.terrain(0).unwrap().grid(48, 32).is_some());
     let learned = SourcePlayerSpell {
         state: SourcePlayerSpellState::New,
@@ -448,7 +619,15 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     };
     assert_eq!(
         player.spellbook(),
-        &BTreeMap::from([(81, learned), (204, learned), (522, learned)])
+        &BTreeMap::from([
+            (81, learned),
+            (133, learned),
+            (168, learned),
+            (203, learned),
+            (204, learned),
+            (227, learned),
+            (522, learned),
+        ])
     );
     assert!(player.action_buttons().is_empty());
     // Northshire-01 A proxy-requests.jsonl:534-535,1647-1648.
@@ -459,17 +638,30 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             .collect::<Vec<_>>(),
         [95, 162, 183, 415, 6, 8, 136, 228, 237, 754, 98]
     );
+    // Stock SkillLine.dbc keys 95,162,6,8,136. SkillRaceClassInfo.dbc
+    // keys 57 and 301 maximize Frost and Fire at Player.cpp:5865.
     assert_eq!(
         player.skills(),
-        &[SourcePlayerSkill {
-            id_step: [95, 0],
-            value_max: [1, 5]
-        }]
+        [
+            ([95, 0], [1, 5]),
+            ([162, 0], [1, 5]),
+            ([6, 1], [5, 5]),
+            ([8, 1], [5, 5]),
+            ([136, 0], [1, 5]),
+        ]
+        .map(|(id_step, value_max)| SourcePlayerSkill {
+            id_step,
+            value_max,
+            bonus: [0; 2],
+        })
     );
     let object = objects.get(player.object()).unwrap();
     assert!(object.field_changed(0x2ce).unwrap());
     assert!(object.field_changed(0x2cf).unwrap());
     assert!(!object.field_changed(0x2d0).unwrap());
+    assert!(!object.field_changed(0x452).unwrap());
+    assert!(object.field_changed(0x453).unwrap());
+    assert!(!object.field_changed(0x454).unwrap());
     // Seal16 client-packets.jsonl:5,9,16-17. The pose words are from opcode 566.
     let object = objects.get(player.object()).unwrap();
     let unit = units.get(&objects, player.object()).unwrap();
@@ -487,8 +679,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     assert_eq!(player.create_stats, [20, 20, 20, 23, 22]);
     assert_eq!(unit.creature_damage.attack_power_words(), [10, 10]);
     // Northshire-01 A client-packets.jsonl:26 and trace:68539472.
-    // Compare the SQL grant order to the packet's sorted spell IDs. The live
-    // prefix above stops at the first passive and has not applied the grants.
+    // Compare the SQL grant order to the packet's sorted spell IDs.
     assert_eq!(
         rows.spells(1, 8),
         [
@@ -562,6 +753,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     rank_player.skills.push(SourcePlayerSkill {
         id_step: [8, 0],
         value_max: [5, 5],
+        bonus: [0; 2],
     });
     for id in [133, 143] {
         rank_player.spells.insert(id, disabled);

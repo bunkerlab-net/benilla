@@ -175,6 +175,13 @@ pub struct SourceUnitFields {
     pub resistances: SourceUnitResistances,
     #[serde(skip)]
     pub creature_damage: SourceCreatureDamage,
+    /// Unit.cpp:398-400 initializes the unadjusted modifiers to zero.
+    #[serde(skip)]
+    pub mod_dodge_chance: f32,
+    #[serde(skip)]
+    pub mod_parry_chance: f32,
+    #[serde(skip)]
+    pub mod_block_chance: f32,
     /// Unit.cpp:402-404 initializes all three capabilities to true.
     #[serde(skip)]
     pub can_dodge: bool,
@@ -518,6 +525,9 @@ impl SourceUnitFields {
             visibility: SourceUnitVisibility::default(),
             resistances: SourceUnitResistances::default(),
             creature_damage: SourceCreatureDamage::default(),
+            mod_dodge_chance: 0.0,
+            mod_parry_chance: 0.0,
+            mod_block_chance: 0.0,
             can_dodge: true,
             can_parry: true,
             can_block: true,
