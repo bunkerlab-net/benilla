@@ -168,6 +168,7 @@ mod messages;
 mod objects;
 mod path_distance;
 mod persistent_state;
+pub mod player;
 mod scheduler;
 mod spawn_manager;
 #[cfg(test)]

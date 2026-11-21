@@ -59,6 +59,17 @@ impl<'a> DamageAuraTarget<'a> {
 }
 
 #[derive(Clone, Copy)]
+pub(in crate::native::source_execution) struct PlayerAttackPowerInputs {
+    pub class: u32,
+    pub level: u32,
+    pub agility: u32,
+    pub form: u32,
+    pub form_agility_bonus: Option<bool>,
+    pub attack_times: [f32; 3],
+    pub unarmed: bool,
+}
+
+#[derive(Clone, Copy)]
 pub(in crate::native::source_execution) struct CreatureWeaponState<'a> {
     pub equipment: &'a SourceCreatureEquipment,
     pub can_dual_wield: bool,
@@ -218,6 +229,133 @@ impl SourceCreatureDamage {
             self.update_damage_physical(objects, unit, weapon, DamageAttack::Mainhand)?;
             self.update_damage_physical(objects, unit, weapon, DamageAttack::Offhand)
         }
+    }
+
+    // StatSystem.cpp:203-286. Player and creature AP use the same live field storage.
+    pub(in crate::native::source_execution) fn update_player_attack_power_and_damage(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        input: PlayerAttackPowerInputs,
+        ranged: bool,
+    ) -> Result<()> {
+        let level = input.level as f32;
+        let agility = input.agility as f32;
+        let strength = self.strength as f32;
+        let base = if ranged {
+            match input.class {
+                3 => level * 2.0 + agility * 2.0 - 10.0,
+                1 | 4 => level + agility - 10.0,
+                11 if matches!(input.form, 1 | 5 | 8) => 0.0,
+                _ => agility - 10.0,
+            }
+        } else {
+            match input.class {
+                1 | 2 => level * 3.0 + strength * 2.0 - 20.0,
+                3 | 4 => level * 2.0 + strength + agility - 20.0,
+                7 => level * 2.0 + strength * 2.0 - 20.0,
+                11 => {
+                    let mut base = level * 3.0 + strength * 2.0 - 20.0;
+                    if input.form != 0
+                        && input.form_agility_bonus.ok_or_else(|| {
+                            refuse("execution.stats.StatSystem_255.shapeshift_form_owner")
+                        })?
+                    {
+                        base += agility;
+                    }
+                    base
+                }
+                5 | 8 | 9 => strength - 10.0,
+                _ => 0.0,
+            }
+        };
+        let kind = usize::from(ranged);
+        let group = &mut self.ap_groups[kind];
+        group.base_value = base;
+        let base = group.base_value * group.base_percent;
+        let multiplier = group.total_percent() - 1.0;
+        let [field, field_mod, field_multiplier] = ATTACK_POWER_FIELDS[kind];
+        require(
+            (-1.0..4_294_967_296.0).contains(&base) && base != -1.0,
+            "execution.stats.StatSystem_273.attack_power_float_to_uint32_undefined",
+        )?;
+        objects.set_update_value(unit, field, &mut self.ap[kind], base as u32 as i32)?;
+        for (half, amount) in self.ap_modifiers[kind].into_iter().enumerate() {
+            let (amount, id) = if half == 0 {
+                (
+                    amount + 0.0,
+                    "execution.stats.StatSystem_274.attack_power_mod_conversion_undefined",
+                )
+            } else {
+                (
+                    amount,
+                    "execution.stats.StatSystem_275.attack_power_mod_conversion_undefined",
+                )
+            };
+            let word = if half == 0 {
+                // The positive half converts through int32 before narrowing.
+                require(amount >= i32::MIN as f32 && amount < 2_147_483_648.0, id)?;
+                amount as i32 as u16
+            } else {
+                require(amount > -32_769.0 && amount < 32_768.0, id)?;
+                amount as i16 as u16
+            };
+            let shift = half * 16;
+            let packed =
+                (self.ap_mod_words[kind] & !(0xffff << shift)) | (u32::from(word) << shift);
+            objects.set_update_value(unit, field_mod, &mut self.ap_mod_words[kind], packed)?;
+        }
+        objects.set_update_value(
+            unit,
+            field_multiplier,
+            &mut self.ap_multipliers[kind],
+            multiplier,
+        )?;
+
+        require(
+            input.unarmed && input.form == 0,
+            if ranged {
+                "execution.stats.StatSystem_280.player_weapon_damage_owner"
+            } else {
+                "execution.stats.StatSystem_283.player_weapon_damage_owner"
+            },
+        )?;
+        self.update_unarmed_player_damage(
+            objects,
+            unit,
+            if ranged { 2 } else { 0 },
+            input.attack_times,
+        )
+    }
+
+    // StatSystem.cpp:302-387. Form zero, no equipped weapons, enchantments or ammo.
+    fn update_unarmed_player_damage(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        attack: usize,
+        attack_times: [f32; 3],
+    ) -> Result<()> {
+        let speed = attack_times[attack] / 1000.0;
+        let group = &self.groups[attack];
+        let base = group.base_value + self.total_attack_power(attack)? / 14.0 * speed;
+        let damage = self.weapon[attack].map(|value| {
+            let weapon = value * self.dps_percent[attack];
+            ((base + weapon) * group.base_percent + group.total_value) * group.total_percent()
+        });
+        for ((field, current), value) in DAMAGE_FIELDS[attack]
+            .into_iter()
+            .zip(&mut self.damage[attack])
+            .zip(damage)
+        {
+            objects.set_update_value(
+                unit,
+                field,
+                current,
+                if value < 0.0 { 0.0 } else { value },
+            )?;
+        }
+        Ok(())
     }
 
     // Unit.cpp:9175-9187 reads ranged mods as one signed word.
