@@ -3,12 +3,13 @@ use super::*;
 
 #[test]
 fn client_update_refuses_each_type_end_before_writing() {
-    // UpdateFields.h:31,176,266,287. Padding below these ends still has a changed bit.
+    // UpdateFields.h:31,54,176,266,287. Padding below these ends still has a changed bit.
     let mut objects = SourceObjects::default();
     for (kind, count) in [
         (SourceObjectKind::Creature, 188),
         (SourceObjectKind::Pet, 188),
         (SourceObjectKind::Player, 1282),
+        (SourceObjectKind::Item, 48),
         (SourceObjectKind::GameObject, 26),
         (SourceObjectKind::Transport, 26),
     ] {
@@ -37,8 +38,7 @@ fn client_update_refuses_each_type_end_before_writing() {
 fn client_update_refuses_without_a_bound_field_layout() {
     let mut objects = SourceObjects::default();
     for kind in [
-        // Item.cpp:189, Bag.cpp:29, Corpse.cpp:36, DynamicObject.cpp:35.
-        SourceObjectKind::Item,
+        // Bag.cpp:29, Corpse.cpp:36, DynamicObject.cpp:35.
         SourceObjectKind::Container,
         SourceObjectKind::Corpse,
         SourceObjectKind::Bones,

@@ -7,7 +7,7 @@ fn with_spells(
     templates: impl IntoIterator<Item = SpellTemplate>,
     in_world: bool,
     form: u32,
-    run: impl FnOnce(&mut SourcePlayer, &mut PlayerLearning<'_>),
+    run: impl FnOnce(&mut SourcePlayer, &mut PlayerLearning<'_, '_>),
 ) {
     let mut stores = SourceSpellStores::default();
     for template in templates {

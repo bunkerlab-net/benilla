@@ -51,10 +51,10 @@ impl Default for SourcePlayerAction {
     }
 }
 
-pub(super) struct PlayerLearning<'a> {
+pub(super) struct PlayerLearning<'a, 'cast> {
     pub objects: &'a SourceObjects,
     pub units: &'a mut SourceUnits,
-    pub cast: Option<SourcePlayerCastInputs<'a>>,
+    pub cast: Option<SourcePlayerCastInputs<'cast>>,
     pub skills: &'a PlayerSkillInputs,
     pub spells: &'a SourceSpellStores,
     pub items: &'a SourceStartupItems,
@@ -82,7 +82,7 @@ impl SourcePlayer {
     // Player.cpp:18281-18294.
     pub(super) fn learn_default_spells(
         &mut self,
-        live: &mut PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_, '_>,
         ids: &[u32],
     ) -> Result<()> {
         for &id in ids {
@@ -94,7 +94,7 @@ impl SourcePlayer {
     // Player.cpp:5693-5696,18289-18292. Detached grants do not send a learn packet.
     pub(super) fn learn_granted_spell(
         &mut self,
-        live: &mut PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_, '_>,
         id: u32,
     ) -> Result<()> {
         if live.objects.get(self.object())?.in_world {
@@ -108,7 +108,7 @@ impl SourcePlayer {
     // Player.cpp:3117-3428. The learned row is visible before casting and training.
     pub(super) fn add_spell(
         &mut self,
-        live: &mut PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_, '_>,
         id: u32,
         mut active: bool,
         learning: bool,
@@ -311,7 +311,7 @@ impl SourcePlayer {
     // Player.cpp:3451-3479. The in-world notification belongs to WorldSession.
     pub(super) fn learn_spell(
         &mut self,
-        live: &mut PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_, '_>,
         id: u32,
         dependent: bool,
         talent: bool,
@@ -337,7 +337,7 @@ impl SourcePlayer {
     // Player.cpp:5918-5999. At Create the rows already passed ObjectMgr's bounds check.
     pub(super) fn add_action_button(
         &mut self,
-        live: &PlayerLearning<'_>,
+        live: &PlayerLearning<'_, '_>,
         row: PlayerCreateAction,
     ) -> Result<()> {
         if !row.in_bounds() {

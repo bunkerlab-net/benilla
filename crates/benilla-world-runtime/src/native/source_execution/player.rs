@@ -24,6 +24,9 @@ pub(super) use player_cast::{spell_mod_player, MOD_JUMP_TARGETS, MOD_RADIUS};
 pub use player_cast::{SourcePlayerAuraClock, SourcePlayerCastInputs};
 #[path = "player_defense.rs"]
 mod player_defense;
+#[path = "player_items.rs"]
+mod player_items;
+pub use player_items::{SourceItem, SourceItems, SourcePlayerItemInputs};
 
 // UpdateFields.h:27,77-88,114-120,133,140-151,180-186,215,218,228,243,263.
 const OBJECT_FIELD_TYPE: usize = 0x02;
@@ -238,18 +241,19 @@ impl SourcePlayer {
 
     /// Player.cpp:747-945. The caller owns destruction if this partial port refuses.
     #[allow(clippy::too_many_arguments)]
-    pub fn create<'a>(
+    pub fn create(
         &mut self,
-        objects: &'a mut SourceObjects,
-        units: &'a mut SourceUnits,
+        objects: &mut SourceObjects,
+        units: &mut SourceUnits,
         request: SourcePlayerCreation,
-        rows: &'a PlayerCreateRows,
-        spells: &'a SourceSpellStores,
-        items: &'a SourceStartupItems,
+        rows: &PlayerCreateRows,
+        spells: &SourceSpellStores,
+        items: &SourceStartupItems,
         models: &LoadedCreatureModels,
         cells: &SourceCells,
         config: SourcePlayerCreateConfig,
-        cast: Option<SourcePlayerCastInputs<'a>>,
+        cast: Option<SourcePlayerCastInputs<'_>>,
+        inventory: Option<SourcePlayerItemInputs<'_>>,
         mut wall_seconds: impl FnMut() -> Result<i64>,
     ) -> Result<()> {
         let object = self.object;
@@ -405,7 +409,7 @@ impl SourcePlayer {
         for action in rows.actions(race, class) {
             self.add_action_button(&live, *action)?;
         }
-        Err(refuse("execution.player.Player_861.outfit_owner"))
+        self.create_outfit(objects, units, rows, spells, items, class, inventory)
     }
 
     /// CharacterHandler.cpp:498-500 deletes the detached Player when Create refuses.
@@ -713,3 +717,7 @@ mod tests;
 #[cfg(test)]
 #[path = "player_spellbook_tests.rs"]
 mod spellbook_tests;
+
+#[cfg(test)]
+#[path = "player_item_recording.rs"]
+mod item_recording;

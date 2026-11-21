@@ -18,6 +18,49 @@ pub struct StartupItemValidation {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StartupItemPrototype {
     pub random_property: u32,
+    pub class: u32,
+    pub subclass: u32,
+    pub flags: u32,
+    pub buy_count: u32,
+    pub inventory_type: u32,
+    pub allowable_class: u32,
+    pub allowable_race: u32,
+    pub required_level: u32,
+    pub required_skill: u32,
+    pub required_spell: u32,
+    pub required_honor_rank: u32,
+    pub required_reputation_faction: u32,
+    pub max_count: i32,
+    pub stackable: u32,
+    pub bonding: u32,
+    pub max_durability: u32,
+    pub duration: u32,
+    pub spell_charges: [i32; 5],
+}
+
+impl StartupItemPrototype {
+    // ObjectMgr.cpp:2580-2630,2681-2689 corrects the loaded creation operands.
+    fn validate_creation_fields(&mut self) {
+        // ItemPrototype.h:363-381 (MaxItemSubclassValues).
+        const SUBCLASSES: [u32; 16] = [9, 8, 21, 1, 10, 1, 5, 14, 1, 11, 1, 4, 1, 2, 1, 6];
+        if self.class >= 16 {
+            self.class = 15;
+        }
+        if self.subclass >= SUBCLASSES[self.class as usize] {
+            self.subclass = 0;
+        }
+        self.buy_count = self.buy_count.max(1);
+        if self.inventory_type >= 29 {
+            self.inventory_type = 0;
+        }
+        if self.inventory_type != 0 {
+            self.flags &= !4;
+        }
+        if self.required_skill >= 763 {
+            self.required_skill = 0;
+        }
+        self.stackable = self.stackable.clamp(1, 255);
+    }
 }
 
 #[derive(Default, Debug)]
@@ -98,6 +141,7 @@ impl SourceStartupItems {
                 continue;
             }
             self.items_validated += 1;
+            prototype.validate_creation_fields();
             let property = prototype.random_property;
             if property == 0 {
                 continue;

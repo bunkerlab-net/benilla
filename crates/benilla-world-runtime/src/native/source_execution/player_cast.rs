@@ -83,7 +83,7 @@ impl SourcePlayer {
     // Player.cpp:3400; Unit.cpp:1469-1512. The spellbook row is already live.
     pub(super) fn cast_granted_passive(
         &mut self,
-        live: &mut PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_, '_>,
         id: u32,
     ) -> Result<()> {
         let inputs = live

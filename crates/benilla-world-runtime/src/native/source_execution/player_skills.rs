@@ -331,7 +331,7 @@ impl SourcePlayer {
     // Player.cpp:5813-5883. Captured fresh player: the level is one and form is zero.
     pub(super) fn learn_default_skills(
         &mut self,
-        live: &mut PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_, '_>,
         rows: &[PlayerCreateSkill],
     ) -> Result<()> {
         let inputs = live.skills;
@@ -379,7 +379,11 @@ impl SourcePlayer {
     }
 
     // Player.cpp:5408-5464 and :5365-5405. Use the same slots for re-entry.
-    fn set_skill(&mut self, live: &mut PlayerLearning<'_>, skill: SourcePlayerSkill) -> Result<()> {
+    fn set_skill(
+        &mut self,
+        live: &mut PlayerLearning<'_, '_>,
+        skill: SourcePlayerSkill,
+    ) -> Result<()> {
         let [id, step] = skill.id_step;
         let [value, _] = skill.value_max;
         if id == 0 {
@@ -448,7 +452,7 @@ impl SourcePlayer {
     // Player.cpp:5642-5698. Equal-key abilities follow the DBC key order.
     fn update_skill_trained_spells(
         &mut self,
-        live: &mut PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_, '_>,
         id: u16,
         value: u16,
         step: u16,
@@ -489,7 +493,7 @@ impl SourcePlayer {
     // Player.cpp:5701-5777. The addSpell path applies training; removal has a separate owner.
     pub(super) fn update_spell_trained_skills(
         &mut self,
-        live: &mut PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_, '_>,
         spell: u32,
     ) -> Result<()> {
         if let Some((id, step, _)) = live.spells.learned_skill(spell) {
@@ -534,7 +538,12 @@ impl SourcePlayer {
     }
 
     // Player.cpp:5497-5535. A loaded learn-skill edge sets the same live skill slots.
-    fn set_skill_step(&mut self, live: &mut PlayerLearning<'_>, id: u16, step: u16) -> Result<()> {
+    fn set_skill_step(
+        &mut self,
+        live: &mut PlayerLearning<'_, '_>,
+        id: u16,
+        step: u16,
+    ) -> Result<()> {
         if id == 0 || step > 16 {
             return Ok(());
         }

@@ -373,6 +373,7 @@ fn human_mage_initializes_level_one_before_learning() {
             &cells,
             CONFIG,
             None,
+            None,
             || Ok(107),
         )
         .unwrap_err();
@@ -456,6 +457,7 @@ fn invalid_race_class_and_gender_stop_before_map_binding() {
                 &cells,
                 CONFIG,
                 None,
+                None,
                 || panic!("clock after validation"),
             )
             .unwrap_err();
@@ -488,6 +490,7 @@ fn legal_pair_without_playercreateinfo_refuses() {
             &models,
             &cells,
             CONFIG,
+            None,
             None,
             || panic!("clock after validation"),
         )
@@ -589,6 +592,17 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     };
     let mut catalog = VerifiedCatalog::open(Path::new(&root), false).unwrap();
     let rows = PlayerCreateRows::load(&mut catalog).unwrap();
+    let outfits = rows.outfits.as_ref().unwrap();
+    assert_eq!(outfits.len(), 82);
+    assert_eq!(outfits.last_key_value().unwrap().0, &318);
+    // Catalog-04 CharStartOutfit.dbc physical rows 8 and 9.
+    for (key, selector) in [(10, 2049), (39, 67585)] {
+        assert_eq!(outfits[&key].selector, selector);
+        assert_eq!(
+            outfits[&key].items,
+            [56, 1395, 55, 35, 6096, 2070, 159, 0, 6948, -1, 0, -1]
+        );
+    }
     let models = LoadedCreatureModels::catalog_diagnostic(&mut catalog).unwrap();
     let spells = SourceSpellStores::load(&mut catalog, &mut SourceSpellScriptRegistry).unwrap();
     let mut mt = Mt19937::from_seed(1);
@@ -663,6 +677,9 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         clock_reads += 1;
         Ok(seconds)
     };
+    let mut live_items = SourceItems::default();
+    let mut item_guids = item_recording::guid_allocators();
+    let first_item = objects.construction_count(12) + 1;
     let error = player
         .create(
             &mut objects,
@@ -687,10 +704,25 @@ fn private_catalog_human_mage_matches_seal16_packets() {
                 max_casts: 20,
                 indoor_policy: true,
             }),
+            Some(SourcePlayerItemInputs {
+                items: &mut live_items,
+                guids: &mut item_guids,
+                logging_out: false, // WorldSession.cpp:105; the recording never sent logout in char selection.
+            }),
             || Ok(107),
         )
         .unwrap_err();
-    assert_eq!(error.id, "execution.player.Player_861.outfit_owner");
+    assert_eq!(error.id, "execution.player.Player_964.equip_new_item_owner");
+    item_recording::assert_item_prefix(
+        Path::new(&trace),
+        &objects,
+        &player,
+        &live_items,
+        first_item,
+        0,
+        1,
+    );
+    assert_eq!(item_guids.allocate(HighGuid::Item).unwrap().counter, 2);
     // Northshire-01 A trace :68133905-68133908,68133982-68133993,
     // :68134067-68134073,68134169-68134198.
     assert_eq!(clock_reads, 10);
@@ -1083,6 +1115,7 @@ fn detached_create_orders_shuffled_grants_and_sets_buttons_before_outfit() {
             &models,
             &cells,
             CONFIG,
+            None,
             None,
             || Ok(107),
         )

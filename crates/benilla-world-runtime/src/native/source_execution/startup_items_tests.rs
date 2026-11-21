@@ -26,7 +26,15 @@ fn missing_and_filtered_enchantments_do_not_draw_and_invalid_sample_zeroes_prope
         .validate(
             [(0, 2), (1, 0), (2, 1), (3, 2), (4, 3)]
                 .into_iter()
-                .map(|(entry, random_property)| (entry, StartupItemPrototype { random_property }))
+                .map(|(entry, random_property)| {
+                    (
+                        entry,
+                        StartupItemPrototype {
+                            random_property,
+                            ..Default::default()
+                        },
+                    )
+                })
                 .collect(),
             &BTreeSet::from([10]),
             &mut random,
@@ -87,7 +95,13 @@ fn validation_tests_the_selected_enchantment_not_the_property_id() {
     let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
     items
         .validate(
-            BTreeMap::from([(1, StartupItemPrototype { random_property: 7 })]),
+            BTreeMap::from([(
+                1,
+                StartupItemPrototype {
+                    random_property: 7,
+                    ..Default::default()
+                },
+            )]),
             &BTreeSet::from([99]),
             &mut random,
         )
@@ -211,6 +225,7 @@ fn seal8_full08_catalog_prefix_matches_every_word_and_item_operand_or_explicit_a
                     entry,
                     StartupItemPrototype {
                         random_property: value.parse::<i64>().unwrap() as u32,
+                        ..Default::default()
                     },
                 );
             }
@@ -260,8 +275,15 @@ fn seal8_full08_catalog_prefix_matches_every_word_and_item_operand_or_explicit_a
         recorded_enchantments, expected_enchantments,
         "F1 SELECT enchantment order"
     );
+    let properties = |items: &BTreeMap<u32, StartupItemPrototype>| {
+        items
+            .iter()
+            .map(|(&entry, item)| (entry, item.random_property))
+            .collect::<Vec<_>>()
+    };
     assert_eq!(
-        recorded_items, expected_items,
+        properties(&recorded_items),
+        properties(&expected_items),
         "F1 item IDs and RandomProperty operands"
     );
     assert_eq!(words.len(), 3387);

@@ -42,6 +42,12 @@ pub(super) struct PlayerCreateRace {
     pub taxi_mask: u32,
 }
 
+#[derive(Debug)]
+pub(super) struct PlayerOutfitRow {
+    pub(super) selector: u32,
+    pub(super) items: [i32; 12],
+}
+
 /// The retained cursor order supplies grants and buttons. These rows do not run startup.
 #[derive(Debug, Default)]
 pub struct PlayerCreateRows {
@@ -51,6 +57,7 @@ pub struct PlayerCreateRows {
     pub(super) classes: BTreeMap<u8, u8>,
     pub(super) starts: BTreeMap<Pair, PlayerCreateStart>,
     items: BTreeMap<Pair, Vec<PlayerCreateItem>>,
+    pub(super) outfits: Option<BTreeMap<u32, PlayerOutfitRow>>,
     spells: BTreeMap<Pair, Vec<u32>>,
     actions: BTreeMap<Pair, Vec<PlayerCreateAction>>,
     pub(super) class_levels: BTreeMap<(u8, u8), [u16; 2]>,
@@ -119,6 +126,30 @@ impl PlayerCreateRows {
                     loaded.classes.insert(class, dbc_word(&row, 3)? as u8);
                 }
             }
+        }
+        {
+            // DBCStructure.h:106-117; DBCFileLoader.cpp:201-219 indexes the last row per ID.
+            let mut view = catalog.dbc_view("CharStartOutfit.dbc")?;
+            let mut outfits = BTreeMap::new();
+            for ordinal in 0..view.record_count() {
+                let row = view.record(ordinal)?;
+                let key = row["key"]
+                    .as_u64()
+                    .and_then(|word| u32::try_from(word).ok())
+                    .ok_or_else(|| refuse("execution.player.Player_863.outfit_dbc_key"))?;
+                let mut items = [0; 12];
+                for (index, value) in items.iter_mut().enumerate() {
+                    *value = dbc_word(&row, 2 + index as u32)? as i32;
+                }
+                outfits.insert(
+                    key,
+                    PlayerOutfitRow {
+                        selector: dbc_word(&row, 1)?,
+                        items,
+                    },
+                );
+            }
+            loaded.outfits = Some(outfits);
         }
         let maps: BTreeMap<_, _> = catalog.execution_map_entries()?.into_iter().collect();
         scan(catalog, "playercreateinfo", |cells| {
