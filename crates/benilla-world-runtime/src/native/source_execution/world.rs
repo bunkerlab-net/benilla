@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 #[path = "world_startup.rs"]
 mod startup;
 pub use startup::{
-    WeeklyQuestResetConfig, WorldStartupClockSite, WorldStartupObservation, WorldStartupSql,
-    WorldStartupWork,
+    SourceHonorStanding, WeeklyQuestResetConfig, WorldStartupClockSite, WorldStartupObservation,
+    WorldStartupSql, WorldStartupWork,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -265,6 +265,21 @@ impl SourceWorld {
             work,
         )
     }
+
+    pub fn honor_standings(&self) -> (&[SourceHonorStanding], &[SourceHonorStanding]) {
+        (&self.honor.alliance, &self.honor.horde)
+    }
+
+    pub(super) fn load_honor_standings(
+        &mut self,
+        calendar: Calendar,
+        weekday: i32,
+        work: &mut impl WorldStartupWork,
+    ) -> Result<()> {
+        self.honor
+            .load_standings(calendar.world_seconds()?, weekday, work)
+    }
+
     // A failed owner ends the accepted prefix before later phases; World.cpp:1542-1702.
     pub fn update<W: WorldWork>(&mut self, diff: u32, work: &mut W) -> Result<()> {
         require(!self.stopped, "execution.world_stopped")?;

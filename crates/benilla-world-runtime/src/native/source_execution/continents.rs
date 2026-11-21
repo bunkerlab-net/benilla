@@ -452,9 +452,9 @@ impl ReadySourceContinents {
         // World.cpp:1406 starts the server maintenance check.
         world.init_server_maintenance_check(calendar, maintenance_weekday, work)?;
         // World.cpp:1409 loads the honor standings after maintenance.
-        Err(refuse(
-            "execution.world.World_1409.honor_standing_list_owner",
-        ))
+        world.load_honor_standings(calendar, maintenance_weekday, work)?;
+        // World.cpp:1412 loads spam records after honor standings.
+        Err(refuse("execution.world.World_1412.spam_records_owner"))
     }
 }
 

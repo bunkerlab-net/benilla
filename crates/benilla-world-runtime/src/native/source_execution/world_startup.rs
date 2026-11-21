@@ -34,11 +34,25 @@ pub enum WorldStartupSql {
     SelectMaintenance(Option<u32>),
     InsertMaintenance(u32),
     UpdateMaintenance(u32),
-    HonorDates { date_top: u32, rows_present: bool },
-    HonorKills { through: u32, rows_present: bool },
+    HonorDates {
+        date_top: u32,
+        rows_present: bool,
+    },
+    HonorKills {
+        through: u32,
+        rows_present: bool,
+    },
     HonorBegin,
-    HonorDelete { through: u32, affected: usize },
+    HonorDelete {
+        through: u32,
+        affected: usize,
+    },
     HonorCommit,
+    HonorStandings {
+        from: u32,
+        through: u32,
+        rows_present: bool,
+    },
 }
 impl fmt::Display for WorldStartupSql {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -75,6 +89,10 @@ impl fmt::Display for WorldStartupSql {
                 "DELETE FROM character_honor_cp WHERE date <= {through}"
             ),
             Self::HonorCommit => out.write_str("COMMIT"),
+            Self::HonorStandings { from, through, .. } => write!(
+                out,
+                "SELECT guid,SUM(honor) as honor_sum FROM character_honor_cp WHERE TYPE = {HONORABLE} AND date BETWEEN {from} AND {through} GROUP BY guid ORDER BY honor_sum DESC"
+            ),
         }
     }
 }
@@ -179,11 +197,51 @@ struct HonorContribution {
     victim_type: u8,
 }
 
+// ObjectMgr.h:413-427 defines each team standing.
+#[derive(Clone, Copy, Default)]
+pub struct SourceHonorStanding {
+    pub guid: u32,
+    pub honor_points: f32,
+    pub honor_kills: u32,
+    pub rp_earning: f32,
+}
+
 #[derive(Default)]
 pub(super) struct SourceHonor {
     contributions: Vec<HonorContribution>,
+    pub(super) alliance: Vec<SourceHonorStanding>,
+    pub(super) horde: Vec<SourceHonorStanding>,
 }
 impl SourceHonor {
+    // ObjectMgr.cpp:3724-3745,3776-3784 loads last week's team standings.
+    pub(super) fn load_standings(
+        &mut self,
+        cached_game_seconds: i64,
+        weekday: i32,
+        work: &mut impl WorldStartupWork,
+    ) -> Result<()> {
+        let through = last_maintenance_day(cached_game_seconds, weekday, work)?;
+        let from = through.wrapping_sub(7);
+        self.alliance.clear();
+        self.horde.clear();
+        let rows_present = self
+            .contributions
+            .iter()
+            .any(|row| row.kind == HONORABLE && (from..=through).contains(&row.date));
+        work.observe(WorldStartupObservation::Sql(
+            WorldStartupSql::HonorStandings {
+                from,
+                through,
+                rows_present,
+            },
+        ))?;
+        // ObjectMgr.cpp:3864-3865 returns from both rank distributions on empty lists.
+        require(
+            !rows_present,
+            "execution.honor.ObjectMgr_3745.player_team_lookup_owner",
+        )
+    }
+
     // ObjectMgr.cpp:3791-3851 flushes rank points, then prunes the old kill records.
     pub(super) fn flush(&mut self, date_top: u32, work: &mut impl WorldStartupWork) -> Result<()> {
         let dates = self
@@ -234,9 +292,10 @@ fn date_today(seconds: i64, work: &mut impl WorldStartupWork) -> Result<u32> {
 // World.h:461-468 reads and rounds the same game time to the configured weekday.
 fn last_maintenance_day(
     seconds: i64,
-    weekday: u32,
+    weekday: i32,
     work: &mut impl WorldStartupWork,
 ) -> Result<u32> {
+    let weekday = if weekday < 0 { 4 } else { weekday.min(6) } as u32;
     let today = date_today(seconds, work)?;
     let civil = maintenance_local(seconds, work)?;
     Ok(today.wrapping_sub((civil.wday as u32 + 7 - weekday) % 7))
@@ -258,7 +317,6 @@ impl SourceSavedVariables {
         honor: &mut SourceHonor,
         work: &mut impl WorldStartupWork,
     ) -> Result<()> {
-        let weekday = if weekday < 0 { 4 } else { weekday.min(6) } as u32;
         work.observe(WorldStartupObservation::Sql(
             WorldStartupSql::SelectMaintenance(self.row_exists.then_some(self.next_maintenance)),
         ))?;
@@ -284,7 +342,7 @@ impl SourceSavedVariables {
     fn start_maintenance(
         &mut self,
         cached_game_seconds: i64,
-        weekday: u32,
+        weekday: i32,
         honor: &mut SourceHonor,
         work: &mut impl WorldStartupWork,
     ) -> Result<()> {
@@ -415,6 +473,7 @@ mod tests {
                     victim_type: 1,
                 },
             ],
+            ..SourceHonor::default()
         };
         let mut work = Work::default();
         honor.flush(8257843, &mut work).unwrap();
@@ -460,9 +519,66 @@ mod tests {
                     kind,
                     victim_type: 1,
                 }],
+                ..SourceHonor::default()
             };
             assert_eq!(honor.flush(8257843, &mut work).unwrap_err().id, expected);
             assert_eq!(honor.contributions.len(), 1);
+        }
+    }
+
+    #[test]
+    fn load_standings_clears_both_teams_on_an_empty_query() {
+        let mut honor = SourceHonor {
+            contributions: [(8257835, HONORABLE), (8257844, HONORABLE), (8257836, 2)]
+                .map(|(date, kind)| HonorContribution {
+                    date,
+                    kind,
+                    victim_type: 1,
+                })
+                .into(),
+            alliance: vec![SourceHonorStanding::default()],
+            horde: vec![SourceHonorStanding::default()],
+        };
+        let mut work = Work::default();
+        honor.load_standings(1794314189, 3, &mut work).unwrap();
+        assert!(honor.alliance.is_empty() && honor.horde.is_empty());
+        assert_eq!(
+            work.sql,
+            [WorldStartupSql::HonorStandings {
+                from: 8257836,
+                through: 8257843,
+                rows_present: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn load_standings_stops_at_team_lookup_for_either_inclusive_boundary() {
+        for date in [8257836, 8257843] {
+            let mut honor = SourceHonor {
+                contributions: vec![HonorContribution {
+                    date,
+                    kind: HONORABLE,
+                    victim_type: 1,
+                }],
+                alliance: vec![SourceHonorStanding::default()],
+                horde: vec![SourceHonorStanding::default()],
+            };
+            let mut work = Work::default();
+            let refusal = honor.load_standings(1794314189, 3, &mut work).unwrap_err();
+            assert_eq!(
+                refusal.id,
+                "execution.honor.ObjectMgr_3745.player_team_lookup_owner"
+            );
+            assert!(honor.alliance.is_empty() && honor.horde.is_empty());
+            assert_eq!(
+                work.sql,
+                [WorldStartupSql::HonorStandings {
+                    from: 8257836,
+                    through: 8257843,
+                    rows_present: true,
+                }]
+            );
         }
     }
 }

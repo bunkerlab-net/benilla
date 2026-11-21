@@ -1335,7 +1335,7 @@ impl Inputs {
         }
         if thread == 1
             && (matches!(line, 6100 | 7330 | 10035 | 10074 | 60100830)
-                || (61722127..=61722752).contains(&line))
+                || (61722127..=61722899).contains(&line))
         {
             self.weekly.observe_trace(line, kind, p);
         }
@@ -7279,6 +7279,8 @@ pub(super) fn continue_startup(
     observed.weekly.assert_consumed();
     assert_eq!(world.next_weekly_quest_reset(), 1794376800); // Trace :61722159.
     assert_eq!(world.next_maintenance_date(), 8257850); // Trace :61722719.
+    let (alliance, horde) = world.honor_standings();
+    assert!(alliance.is_empty() && horde.is_empty()); // Trace :61722899.
     assert_eq!(refusal.id, active_init::STARTUP_NEXT_OWNER);
     let next_owner = refusal.id;
     let next_source = active_init::STARTUP_NEXT_SOURCE;
