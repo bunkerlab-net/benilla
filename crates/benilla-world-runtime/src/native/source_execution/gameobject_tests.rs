@@ -2002,6 +2002,19 @@ fn gameobject_bells_refuses_event_dispatch() {
 }
 
 #[test]
+fn event_notification_bell_only_refuses_a_new_activation_of_1024() {
+    let (mut factory, spawn) = bell_fixture(175885, Some([1497; 2]));
+    let handle = loaded(World::new().load(&mut factory, spawn).unwrap());
+    let ai = factory.objects.get(handle).unwrap().ai.as_ref().unwrap();
+    for (event, activate, resume) in [(400, true, false), (1024, false, false), (1024, true, true)]
+    {
+        ai.on_event_happened(event, activate, resume).unwrap();
+        let bells = ai.bells().unwrap();
+        assert_eq!((bells.tolls, bells.timer), (0, 0));
+    }
+}
+
+#[test]
 fn gameobject_bells_refuses_update_dispatch() {
     let (mut factory, spawn) = bell_fixture(175885, Some([1497; 2]));
     let handle = loaded(World::new().load(&mut factory, spawn).unwrap());

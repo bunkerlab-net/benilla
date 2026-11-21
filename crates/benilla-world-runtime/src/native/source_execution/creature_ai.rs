@@ -306,6 +306,9 @@ pub struct SourceCreatureAi {
     main_spells: BTreeSet<u32>,
 }
 impl SourceCreatureAi {
+    // UnitAI.h:380 is inherited by the creature AI classes.
+    pub(super) fn on_event_happened(&self, _event: u16, _activate: bool, _resume: bool) {}
+
     #[allow(clippy::too_many_arguments)]
     pub fn construct(
         objects: &SourceObjects,

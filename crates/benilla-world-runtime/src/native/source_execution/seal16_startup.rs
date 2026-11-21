@@ -2073,7 +2073,7 @@ struct Owner<'a> {
     clock_count: usize,
     pools: SourcePoolManager,
     states: SourceManagers,
-    loaded_maps: BTreeMap<(u32, u32), MapIdentity>,
+    continents: Option<ReadySourceContinents>,
     effects: SourceEventEffects,
     quests: SourceQuestMap,
     status: BTreeSet<u16>,
@@ -2255,21 +2255,25 @@ impl EventEffectOwner for Owner<'_> {
         after: Option<MapIdentity>,
     ) -> Result<Option<MapIdentity>> {
         Ok(self
-            .loaded_maps
-            .values()
-            .find(|map| {
-                map_id.is_none_or(|id| id == map.map)
-                    && after.is_none_or(|previous| {
-                        (map.map, map.instance) > (previous.map, previous.instance)
-                    })
-            })
-            .copied())
+            .continents
+            .as_ref()
+            .and_then(|maps| maps.next_map(map_id, after)))
     }
     fn event_post_world(&mut self, cause: u64, payload: SourceMessage) -> Result<()> {
         self.world.messages.post(cause, payload)
     }
-    fn event_post_map(&mut self, _: MapIdentity, _: u64, _: SourceMessage) -> Result<()> {
-        Err(refuse("execution.event.map_traversal_owner"))
+    fn event_post_map(
+        &mut self,
+        map: MapIdentity,
+        cause: u64,
+        payload: SourceMessage,
+    ) -> Result<()> {
+        self.continents
+            .as_mut()
+            .ok_or_else(|| refuse("execution.event.map_traversal_owner"))?
+            .map_mut(map)?
+            .messages
+            .post(cause, payload)
     }
     fn event_sql(&mut self, _: u64, sql: &str) -> Result<()> {
         if sql == "TRUNCATE TABLE game_event_status" {
@@ -2299,8 +2303,27 @@ impl EventEffectOwner for Owner<'_> {
     fn event_quest(&mut self, quest: u32, active: bool) -> Result<()> {
         self.set_quest_active(quest, active)
     }
-    fn event_has_instance(&mut self, _: MapIdentity) -> Result<bool> {
-        Err(EventPending::Instance.refusal())
+    fn event_has_instance(&mut self, map: MapIdentity) -> Result<bool> {
+        Ok(self
+            .continents
+            .as_ref()
+            .ok_or_else(|| refuse("execution.event.map_traversal_owner"))?
+            .map(map)?
+            .instance_data
+            .is_some())
+    }
+    fn event_notify(
+        &mut self,
+        map: MapIdentity,
+        event: u16,
+        active: bool,
+        resume: bool,
+    ) -> Result<()> {
+        self.continents
+            .as_mut()
+            .ok_or_else(|| refuse("execution.event.map_traversal_owner"))?
+            .map_mut(map)?
+            .on_event_happened(event, active, resume)
     }
 }
 impl PersistentEffects for Owner<'_> {
@@ -2874,7 +2897,7 @@ pub(super) fn continue_startup(
         clock_count: 0,
         pools,
         states: SourceManagers::default(),
-        loaded_maps: BTreeMap::new(),
+        continents: None,
         effects: SourceEventEffects::new(dynamic),
         quests: quest_catalog,
         status: BTreeSet::new(),
@@ -3371,19 +3394,14 @@ pub(super) fn continue_startup(
         &gameobject_templates,
     );
     let mut outdoor_pvp = SourceOutdoorPvp::default();
-    // The current registry is empty before MapManager::Initialize, not a recorded result.
-    assert!(owner.loaded_maps.is_empty());
-    let mut current_maps = owner
-        .loaded_maps
-        .values()
-        .map(|&map| (map, SourceMessager::new(MessageOwner::Map(map))))
-        .collect();
+    // No maps exist at World.cpp:1385. They join at World.cpp:1389.
+    assert!(owner.event_next_map(None, None).unwrap().is_none());
     let outdoor_census = outdoor_pvp
         .initialize(
             SourceOutdoorPvp::config(&config).unwrap(),
             1,
             &mut owner.world.messages,
-            &mut current_maps,
+            &mut BTreeMap::new(),
         )
         .unwrap();
     assert_eq!(outdoor_census.maps_visited, 0);
@@ -3431,12 +3449,8 @@ pub(super) fn continue_startup(
         map.creature_spells = Some(CreatureSpellMapData(std::sync::Arc::clone(
             &creature_spell_lists,
         )));
-        assert!(owner
-            .loaded_maps
-            .insert((map.identity.map, 0), map.identity)
-            .is_none());
     }
-    assert_eq!(owner.loaded_maps.len(), observed.map_births);
+    assert_eq!(continents.maps.len(), observed.map_births);
     assert_eq!(observed.map_births, 2);
     assert_eq!(observed.map_bindings[&0], (6, 4294967667, 60101188));
     assert_eq!(observed.map_bindings[&1], (7, 4294967669, 60117267));
@@ -3702,6 +3716,8 @@ pub(super) fn continue_startup(
             motions,
             ais,
             event_ais,
+            threats,
+            combat,
         } = active_init::load_first(
             &mut continents.maps[slot],
             owner.spawns,
@@ -7178,6 +7194,18 @@ pub(super) fn continue_startup(
         // Initial-state projection remains independent of the now-executed script draws.
         let mut initial_engine = Mt19937::from_state(evidence.initial.clone().unwrap()).unwrap();
         assert_eq!(u64::from(initial_engine.next_u32()), first_word);
+        if job_result.is_ok() {
+            let map = &mut continents.maps[slot];
+            map.objects = active_objects;
+            map.gameobjects = gameobjects;
+            map.units = units;
+            map.motions = motions;
+            map.ais = ais;
+            map.event_ais = event_ais;
+            map.threats = threats;
+            map.combat = combat;
+            map.spawns = Some(spawn_manager);
+        }
         (job_result, pool_receipt, transport_receipt)
     };
     let [(map0, pool0, transport0), (map1, pool1, transport1)] =
@@ -7298,6 +7326,13 @@ pub(super) fn continue_startup(
             &mut observed.weekly,
         )
         .unwrap_err();
+    owner.continents = Some(ready);
+    let map0 = owner.event_next_map(None, None).unwrap().unwrap();
+    let map1 = owner.event_next_map(None, Some(map0)).unwrap().unwrap();
+    assert_eq!([map0.map, map1.map], [0, 1]);
+    assert!(owner.event_next_map(None, Some(map1)).unwrap().is_none());
+    assert!(owner.event_next_map(Some(0), Some(map0)).unwrap().is_none());
+    assert_eq!(owner.event_next_map(Some(1), None).unwrap(), Some(map1));
     observed.weekly.assert_consumed();
     assert_eq!(owner.world.next_weekly_quest_reset(), 1794376800); // Trace :61722159.
     assert_eq!(owner.world.next_maintenance_date(), 8257850); // Trace :61722719.

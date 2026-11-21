@@ -126,14 +126,18 @@ impl SourceGameObjectAi {
         Ok(())
     }
 
-    pub fn on_event_happened(&self, _event: u16, _activate: bool, _resume: bool) -> Result<()> {
-        // GameObjectAI.h:48.
-        if matches!(self.payload, GameObjectAiPayload::OutdoorPvpNotify) {
-            return Ok(());
+    pub fn on_event_happened(&self, event: u16, activate: bool, resume: bool) -> Result<()> {
+        // GameObjectAI.h:48 is empty. Only go_scripts.cpp:191-204 overrides it.
+        if matches!(self.payload, GameObjectAiPayload::Bells(_))
+            && event == 1024
+            && activate
+            && !resume
+        {
+            return Err(refuse(
+                "execution.gameobject.go_scripts_191.OnEventHappened_owner",
+            ));
         }
-        Err(refuse(
-            "execution.gameobject.go_scripts_191.OnEventHappened_owner",
-        ))
+        Ok(())
     }
 
     pub fn update_ai(&self, _diff: u32) -> Result<()> {

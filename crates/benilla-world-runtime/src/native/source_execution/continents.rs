@@ -166,12 +166,56 @@ pub struct SourceContinent {
     pub spawn_updated: bool,
     pub dynamic_tree: SourceDynamicMap,
     pub transports: SourceMoTransports,
+    pub objects: SourceObjects,
+    pub gameobjects: SourceGameObjects,
+    pub units: SourceUnits,
+    pub motions: BTreeMap<ObjectHandle, SourceMotionMaster>,
+    pub ais: SourceCreatureAis,
+    pub event_ais: BTreeMap<ObjectHandle, SourceEventAi>,
+    pub threats: SourceThreats,
+    pub combat: SourceCombat,
+    // Map.h:448,501 owns the map's messager and spawn manager.
+    pub messages: SourceMessager,
+    pub spawns: Option<SourceSpawnManager>,
     grids_initialized: bool,
     loaded_grids: [u64; 64],
     terrain_referenced: bool,
     instance_data_complete: bool,
 }
 impl SourceContinent {
+    // Map.cpp:2978-2986 calls instance data before walking live subscribers.
+    pub fn on_event_happened(&mut self, event: u16, activate: bool, resume: bool) -> Result<()> {
+        if let Some(instance) = &mut self.instance_data {
+            instance.on_event_happened(&self.objects, event, activate)?;
+        }
+        let Some(handle) = self.objects.event_notification_member(self.identity)? else {
+            return Ok(());
+        };
+        let object = self.objects.get(handle)?;
+        if !object.in_world {
+            return Ok(());
+        }
+        match object.kind {
+            // GameObject.h:868 dispatches through the object's AI.
+            SourceObjectKind::GameObject | SourceObjectKind::Transport => self
+                .gameobjects
+                .get(handle)?
+                .ai
+                .as_ref()
+                .ok_or_else(|| refuse("execution.gameobject.GameObject_868.ai_owner"))?
+                .on_event_happened(event, activate, resume),
+            // Creature.h:863 dispatches to the installed UnitAI, including on pets.
+            SourceObjectKind::Creature | SourceObjectKind::Pet => {
+                self.ais
+                    .get(&self.objects, handle)?
+                    .on_event_happened(event, activate, resume);
+                Ok(())
+            }
+            // Object.h:1088 provides the empty callback for other WorldObjects.
+            _ => Ok(()),
+        }
+    }
+
     /// Map.cpp:172-189. Call independently for each async job; no RNG is requested here.
     pub fn initialize_prelude(
         &mut self,
@@ -357,6 +401,34 @@ impl ReadySourceContinents {
         &self.continents
     }
 
+    // MapManager.cpp:396-407 visits the loaded map registry in (map, instance) order.
+    pub fn next_map(&self, map_id: Option<u32>, after: Option<MapIdentity>) -> Option<MapIdentity> {
+        self.continents
+            .maps
+            .iter()
+            .map(|map| map.identity)
+            .find(|&map| {
+                map_id.is_none_or(|id| id == map.map)
+                    && after.is_none_or(|prev| (map.map, map.instance) > (prev.map, prev.instance))
+            })
+    }
+
+    pub fn map(&self, identity: MapIdentity) -> Result<&SourceContinent> {
+        self.continents
+            .maps
+            .iter()
+            .find(|map| map.identity == identity)
+            .ok_or_else(|| refuse("execution.continents.map_identity"))
+    }
+
+    pub fn map_mut(&mut self, identity: MapIdentity) -> Result<&mut SourceContinent> {
+        self.continents
+            .maps
+            .iter_mut()
+            .find(|map| map.identity == identity)
+            .ok_or_else(|| refuse("execution.continents.map_identity"))
+    }
+
     pub fn bind_conditions(&mut self, conditions: SourceConditions) {
         self.conditions = Some(conditions);
     }
@@ -524,6 +596,16 @@ impl SourceContinents {
                 spawn_updated: false, // SpawnManager.h:54, before Initialize at Map.cpp:200.
                 dynamic_tree: SourceDynamicMap::new(identity),
                 transports: SourceMoTransports::default(), // Map.cpp:161; Map.h:495.
+                objects: SourceObjects::default(),
+                gameobjects: SourceGameObjects::default(),
+                units: SourceUnits::default(),
+                motions: BTreeMap::new(),
+                ais: SourceCreatureAis::default(),
+                event_ais: BTreeMap::new(),
+                threats: SourceThreats::default(),
+                combat: SourceCombat::default(),
+                messages: SourceMessager::new(MessageOwner::Map(identity)),
+                spawns: None,
                 grids_initialized: false,
                 loaded_grids: [0; 64],
                 terrain_referenced: false,

@@ -306,6 +306,8 @@ pub(super) struct ActivePrefixReport {
     pub motions: BTreeMap<ObjectHandle, SourceMotionMaster>,
     pub ais: SourceCreatureAis,
     pub event_ais: BTreeMap<ObjectHandle, SourceEventAi>,
+    pub threats: SourceThreats,
+    pub combat: SourceCombat,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -620,6 +622,8 @@ pub(super) fn load_first(
         motions: factory.motions,
         ais: factory.ais,
         event_ais: factory.event_ais,
+        threats: factory.threats,
+        combat: factory.combat,
     })
 }
 

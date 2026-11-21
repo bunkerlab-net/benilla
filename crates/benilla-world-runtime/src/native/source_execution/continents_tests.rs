@@ -53,6 +53,53 @@ fn both_completed_jobs_make_continents_ready() {
     );
 }
 
+#[test]
+fn event_notification_uses_instance_then_live_subscribers_after_join() {
+    let (mut continents, _) =
+        construct(&mut SourceTerrainManager::default(), GuidMaximum::NoResult);
+    let map = &mut continents.maps[0];
+    let mut instance = SourceWorldScript {
+        map: map.identity,
+        stores: WorldScriptStores::default(),
+        state: WorldScriptState::EasternKingdoms,
+    };
+    let mut subscribers = Vec::new();
+    for (entry, counter) in [(14508, 1), (2, 2)] {
+        let handle = map
+            .objects
+            .construct(6, SourceObjectKind::Creature)
+            .unwrap();
+        let guid = SourceGuid::with_entry(HighGuid::Creature, entry, counter);
+        map.objects.assign_guid(handle, counter, guid).unwrap();
+        map.objects
+            .bind_map(handle, map.identity, &map.cells)
+            .unwrap();
+        map.objects.set_notify_on_event_state(handle, true).unwrap();
+        map.objects.add_to_world(handle).unwrap();
+        instance.creature_create(entry, guid.raw());
+        subscribers.push(handle);
+    }
+    map.instance_data = Some(instance);
+    let id = map.identity;
+    let mut ready = continents.join_initialization([Ok(()), Ok(())]).unwrap();
+    let map = ready.map_mut(id).unwrap();
+    assert_eq!(
+        map.on_event_happened(16, true, true).unwrap_err().id,
+        "execution.world_script.world_eastern_kingdoms_115.MoveWaypoint_owner"
+    );
+    assert_eq!(
+        map.on_event_happened(16, false, false).unwrap_err().id,
+        "execution.map.Map_2983.event_notify_pointer_order_owner"
+    );
+    map.objects.remove_from_world(subscribers[0]).unwrap();
+    assert_eq!(
+        map.on_event_happened(16, true, false).unwrap_err().id,
+        "execution.unit_ai.generation_missing"
+    );
+    map.objects.remove_from_world(subscribers[1]).unwrap();
+    map.on_event_happened(16, true, false).unwrap();
+}
+
 fn updater_config(setting: &str) -> Result<MapUpdaterConfig> {
     MapUpdaterConfig::parse(setting.as_bytes())
 }

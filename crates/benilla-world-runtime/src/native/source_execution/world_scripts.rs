@@ -48,6 +48,31 @@ impl SourceWorldScript {
     pub fn encounter_in_progress(&self) -> bool {
         false
     }
+
+    // InstanceData.h:120 is empty. world_eastern_kingdoms.cpp:110-116 overrides it.
+    pub(super) fn on_event_happened(
+        &mut self,
+        objects: &SourceObjects,
+        event: u16,
+        activate: bool,
+    ) -> Result<()> {
+        // sc_instance.cpp:243-253 resolves the stored GUID through the map.
+        if matches!(self.state, WorldScriptState::EasternKingdoms)
+            && event == 16
+            && activate
+            && self.stores.creatures.get(&14508).is_some_and(|&guid| {
+                objects
+                    .lookup_world_object(self.map, SourceGuid::from_raw(guid))
+                    .is_some()
+            })
+        {
+            return Err(refuse(
+                "execution.world_script.world_eastern_kingdoms_115.MoveWaypoint_owner",
+            ));
+        }
+        Ok(())
+    }
+
     /// InstanceData.h:102; world_kalimdor.cpp:40 and world_eastern_kingdoms.cpp:28 inherit this empty callback.
     pub fn creature_respawn(&mut self) -> Result<()> {
         Self::respawn_for_class(match self.state {
