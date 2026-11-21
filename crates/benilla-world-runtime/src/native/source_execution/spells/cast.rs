@@ -37,8 +37,24 @@ pub trait SpellCastEffects {
 }
 
 pub struct SpellFinishOperands<'a> {
-    pub(crate) attack: CastAttackStop<'a>,
-    pub(crate) map_types: Option<&'a BTreeMap<u32, u32>>,
+    attack: CastAttackStop<'a>,
+    map_types: Option<&'a BTreeMap<u32, u32>>,
+}
+
+impl<'a> SpellFinishOperands<'a> {
+    /// Spell.cpp:3793-3809 reads the caster's live unit and map.
+    pub fn new(
+        caster: ObjectHandle,
+        objects: &'a SourceObjects,
+        units: &'a mut SourceUnits,
+        stores: &'a SourceSpellStores,
+        map_types: Option<&'a BTreeMap<u32, u32>>,
+    ) -> Self {
+        Self {
+            attack: CastAttackStop::new(caster, objects, units, stores),
+            map_types,
+        }
+    }
 }
 
 impl SourceSpell {
@@ -236,7 +252,6 @@ fn finish_tail(t: &SpellTemplate, live: SpellFinishOperands<'_>) -> Result<()> {
         mut attack,
         map_types,
     } = live;
-    let caster = attack.object;
     // Spell.cpp:3793-3802. Spell.h:584-587 tests the ranged slot attribute.
     if t.attributes & 0x0010_0000 != 0 {
         if t.attributes & 2 != 0 {
@@ -244,13 +259,12 @@ fn finish_tail(t: &SpellTemplate, live: SpellFinishOperands<'_>) -> Result<()> {
         }
         attack.attack_stop(false, false, false, false)?;
         require(
-            !attack
-                .control_guids
-                .is_client_controlled(*attack.flags, caster, None),
+            !attack.is_client_controlled()?,
             "execution.spells.Spell_3801.SendAttackSwingCancelAttack_owner",
         )?;
     }
     // Spell.cpp:3805-3809. Map.h:201 checks the map entry if present.
+    let caster = attack.object()?;
     if caster.in_world {
         let map = caster
             .map
@@ -464,21 +478,80 @@ mod tests {
         }
     }
 
-    fn attack<'a>(
-        object: &'a SourceObject,
-        live: &'a mut SourceUnitFields,
-        stores: &'a SourceSpellStores,
-    ) -> CastAttackStop<'a> {
-        CastAttackStop {
-            object,
-            flags: &live.flags,
-            control_guids: &live.control_guids,
-            state: &mut live.state,
-            victim: &live.victim,
-            slots: &live.spell_slots,
-            starts: Some(&live.spell_starts),
-            stores,
+    #[test]
+    fn finish_attack_stop_unlinks_the_live_victim() {
+        let mut objects = SourceObjects::default();
+        let caster = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        let victim = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        let other = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        let mut units = SourceUnits::default();
+        let mut live = SourceUnitFields::constructed_creature();
+        live.victim = Some(victim);
+        live.target = Some(victim);
+        units.register(&objects, caster, live).unwrap();
+        let mut live = SourceUnitFields::constructed_creature();
+        live.attackers.extend([caster, other]);
+        units.register(&objects, victim, live).unwrap();
+        let stores = SourceSpellStores::default();
+        let t = SpellTemplate {
+            attributes: 0x0010_0000,
+            ..Default::default()
+        };
+        for _ in 0..2 {
+            finish_tail(
+                &t,
+                SpellFinishOperands {
+                    attack: CastAttackStop::new(caster, &objects, &mut units, &stores),
+                    map_types: None,
+                },
+            )
+            .unwrap();
+            assert_eq!(units.get(&objects, victim).unwrap().attackers, [other]);
+            let live = units.get(&objects, caster).unwrap();
+            assert_eq!(
+                (live.victim, live.target, live.state),
+                (None, Some(victim), 0)
+            );
         }
+    }
+
+    #[test]
+    fn finish_attack_stop_refuses_a_destroyed_victim_before_clearing_the_link() {
+        let mut objects = SourceObjects::default();
+        let caster = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        let victim = objects.construct(1, SourceObjectKind::Creature).unwrap();
+        let mut units = SourceUnits::default();
+        let mut live = SourceUnitFields::constructed_creature();
+        live.target = Some(victim);
+        live.victim = Some(victim);
+        units.register(&objects, caster, live).unwrap();
+        units
+            .register(&objects, victim, SourceUnitFields::constructed_creature())
+            .unwrap();
+        units.discard_construction(victim);
+        objects.destroy_unbound(victim).unwrap();
+        let stores = SourceSpellStores::default();
+        let t = SpellTemplate {
+            attributes: 0x0010_0000,
+            ..Default::default()
+        };
+        assert_eq!(
+            finish_tail(
+                &t,
+                SpellFinishOperands {
+                    attack: CastAttackStop::new(caster, &objects, &mut units, &stores),
+                    map_types: None,
+                }
+            )
+            .unwrap_err()
+            .id,
+            "execution.unit_ai.Unit_6358.attacked_unit_owner",
+        );
+        let live = units.get(&objects, caster).unwrap();
+        assert_eq!(
+            (live.victim, live.target, live.state),
+            (Some(victim), Some(victim), 0)
+        );
     }
 
     #[test]
@@ -491,15 +564,7 @@ mod tests {
         for (state, victim, target_switch, including_combo, caster, result, new_state) in [
             (8, None, false, false, caster, Ok(false), 8),
             (9, None, false, false, caster, Ok(false), 8),
-            (
-                8,
-                Some(victim),
-                false,
-                false,
-                caster,
-                Err("execution.spells.Unit_6358._removeAttacker_owner"),
-                8,
-            ),
+            (8, Some(victim), false, false, caster, Ok(true), 8),
             (
                 9,
                 Some(victim),
@@ -515,8 +580,8 @@ mod tests {
                 true,
                 false,
                 caster,
-                Err("execution.spells.Unit_6350.SetTargetGuid_owner"),
-                9,
+                Err("execution.spells.Unit_6405.SendMeleeAttackStop_owner"),
+                8,
             ),
             (
                 9,
@@ -541,16 +606,40 @@ mod tests {
             live.state = state;
             live.victim = victim;
             live.target = victim;
+            let mut units = SourceUnits::default();
+            units.register(&objects, caster, live).unwrap();
+            if let Some(victim) = victim {
+                let mut live = SourceUnitFields::constructed_creature();
+                live.attackers.push(caster);
+                units.register(&objects, victim, live).unwrap();
+            }
             assert_eq!(
-                attack(objects.get(caster).unwrap(), &mut live, &stores)
+                CastAttackStop::new(caster, &objects, &mut units, &stores)
                     .attack_stop(target_switch, true, including_combo, false)
                     .map_err(|error| error.id),
                 result.map_err(str::to_owned)
             );
+            let live = units.get(&objects, caster).unwrap();
+            let stopped = result == Ok(true);
+            let target = if target_switch && !including_combo {
+                None
+            } else {
+                victim
+            };
             assert_eq!(
                 (live.state, live.victim, live.target),
-                (new_state, victim, victim)
+                (new_state, victim.filter(|_| !stopped), target),
             );
+            if let Some(victim) = victim {
+                assert_eq!(
+                    units
+                        .get(&objects, victim)
+                        .unwrap()
+                        .attackers
+                        .contains(&caster),
+                    !stopped
+                );
+            }
         }
     }
 
@@ -612,7 +701,8 @@ mod tests {
                     .unwrap();
                 live.spell_starts.spells.insert(s.id, s);
             }
-            let object = objects.get(kind).unwrap();
+            let mut units = SourceUnits::default();
+            units.register(&objects, kind, live).unwrap();
             let t = SpellTemplate {
                 attributes,
                 ..Default::default()
@@ -621,13 +711,14 @@ mod tests {
                 finish_tail(
                     &t,
                     SpellFinishOperands {
-                        attack: attack(object, &mut live, &stores),
+                        attack: CastAttackStop::new(kind, &objects, &mut units, &stores),
                         map_types: None,
                     }
                 )
                 .map_err(|error| error.id),
                 expected.map_err(str::to_owned)
             );
+            let live = units.get(&objects, kind).unwrap();
             assert_eq!(live.state, new_state);
             if let Some(slot) = slot {
                 assert_eq!(live.spell_slots.current(slot), Some(1));
@@ -635,7 +726,7 @@ mod tests {
             }
             if slot == Some(SpellSlot::AutoRepeat) {
                 assert_eq!(
-                    attack(object, &mut live, &stores)
+                    CastAttackStop::new(kind, &objects, &mut units, &stores)
                         .attack_stop(false, true, false, true)
                         .unwrap_err()
                         .id,
@@ -660,7 +751,6 @@ mod tests {
             .assign_guid(caster, 9, SourceGuid::with_entry(HighGuid::Creature, 7, 9))
             .unwrap();
         objects.add_to_world(caster).unwrap();
-        let object = objects.get(caster).unwrap();
         let stores = SourceSpellStores::default();
         let t = SpellTemplate {
             attributes: 0x0010_0000,
@@ -670,12 +760,14 @@ mod tests {
         live.state = UNIT_STATE_MELEE;
         live.flags = 0x0100_0008;
         live.control_guids.charmer = SourceGuid::without_entry(HighGuid::Player, 42);
+        let mut units = SourceUnits::default();
+        units.register(&objects, caster, live).unwrap();
         let types = BTreeMap::from([(33, 1)]);
         assert_eq!(
             finish_tail(
                 &t,
                 SpellFinishOperands {
-                    attack: attack(object, &mut live, &stores),
+                    attack: CastAttackStop::new(caster, &objects, &mut units, &stores),
                     map_types: Some(&types),
                 }
             )
@@ -683,13 +775,14 @@ mod tests {
             .id,
             "execution.spells.Spell_3801.SendAttackSwingCancelAttack_owner"
         );
+        let live = units.get_mut(&objects, caster).unwrap();
         assert_eq!(live.state, 0);
         live.flags = 0;
         assert_eq!(
             finish_tail(
                 &t,
                 SpellFinishOperands {
-                    attack: attack(object, &mut live, &stores),
+                    attack: CastAttackStop::new(caster, &objects, &mut units, &stores),
                     map_types: Some(&types),
                 }
             )
@@ -701,7 +794,7 @@ mod tests {
         finish_tail(
             &t,
             SpellFinishOperands {
-                attack: attack(object, &mut live, &stores),
+                attack: CastAttackStop::new(caster, &objects, &mut units, &stores),
                 map_types: Some(&types),
             },
         )

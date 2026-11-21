@@ -115,6 +115,9 @@ is meaningful without a bounded content/mechanics inventory.
   These fields do not change the saved format.
 - **Triggered addon self-casts.** `Spell.cpp:3160-3370,934-1043,1163-1502`
   owns the reached generic self-target cast, target masks and immediate effects.
+  Addon and EventAI casts use the same spell start path. A cast borrows the
+  live Unit for each operation. The current Spell stays local while its
+  event and the other Spells remain live (`Spell.cpp:3007-3020,3083-3094`).
   `spells/auras.rs` owns the reached duration, pending holder, interrupt scan,
   replacement gate, slot fields, and type lists, `Unit.cpp:4687-4874,5253-5276`.
   Holder and effect clocks bind separately at `SpellAuras.cpp:5174` and `:270`.
@@ -174,10 +177,11 @@ is meaningful without a bounded content/mechanics inventory.
   self-target check (`Spell.cpp:5086`,
   `Relations.cpp:204,504`) and completes at trace :60882413. Wildthorn
   Lurker GUID34917 applies Hide before entering the world. The finish tail
-  reads the caster's unit state, victim, current slots, and control flags
-  (`Spell.cpp:3793-3809`, `Unit.cpp:6339-6363,6398-6407,6496-6520`).
-  Hide reaches no packet or encounter callback. The respawn draw follows
-  the effect clock at trace :60901711.
+  calls the shared `Unit::AttackStop` (`Spell.cpp:3798`). The caster leaves
+  its victim's attacker list before the victim link clears (`Unit.cpp:6358-6359`).
+  A stale victim refuses at `Unit.cpp:6358`. Hide has no victim and reaches
+  no packet or encounter callback. The respawn draw follows the effect
+  clock at trace :60901711.
   Warsong Outrider GUID52348 writes mount display 2326 before the respawn
   draw at trace :60941391. `Unit.cpp:7755-7787` removes interrupting auras
   before the display write. The creature mount-info speed steps refuse at

@@ -54,20 +54,13 @@ impl SpellCastEffects for Owner<'_> {
     }
 
     fn finish_operands(&mut self) -> Result<SpellFinishOperands<'_>> {
-        let live = self.units.get_mut(self.objects, self.object)?;
-        Ok(SpellFinishOperands {
-            attack: CastAttackStop {
-                object: self.objects.get(self.object)?,
-                flags: &live.flags,
-                control_guids: &live.control_guids,
-                state: &mut live.state,
-                victim: &live.victim,
-                slots: &live.spell_slots,
-                starts: Some(&live.spell_starts),
-                stores: self.stores,
-            },
-            map_types: self.terrain.pathfinder_map_types.as_ref(),
-        })
+        Ok(SpellFinishOperands::new(
+            self.object,
+            self.objects,
+            self.units,
+            self.stores,
+            self.terrain.pathfinder_map_types.as_ref(),
+        ))
     }
 
     fn send_cooldown(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
