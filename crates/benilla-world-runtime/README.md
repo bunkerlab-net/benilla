@@ -1367,11 +1367,18 @@ continuation. This component does not select the production engine or grant
 NativeCapability. `NATIVE_FORMAT_VERSION` separately includes the corrected
 reference-facing policy and refuses format-90 saves without migration.
 
-`SourceMoTransports::initialize_map` executes MO construction in the template
-vector's SQL order. It uses the first node/orientation, entry-as-low MO GUID,
-the map snapshot and a separate source-allocation-ordered transport set.
-Transports do not enter the GO world/grid lookup. The map initializer calls
-this after active-grid loading, before player entry, `Map.cpp:214-216`.
+`SourceMoTransports::initialize_map` constructs MO transports in template
+SQL order. Each uses the first node and orientation, the entry as its GUID
+counter, and the cached world time. The map initializer loads transports
+after the active grids (Map.cpp:214-216). Each model enters the same dynamic
+tree as grid gameobjects. Transports do not join the world or grid lists.
+Membership requires only the object identity. Each of the five source walks
+requires every member's address and walks in address order. Replay treats
+recorded addresses as observations.
+
+The seal16 replay binds both world transport SQL requests and loads all four
+map-1 transports. Map 1 returns from initialization. The replay refuses at
+the MapManager future join. Map 0 still stops before transport loading.
 `update_map` is the `MapPreludePhase::Transports` handler, after messages and
 SpawnManager and before sessions/players, `Map.cpp:714-729`.
 It consumes the existing world snapshot, never a new clock read or RNG stream.

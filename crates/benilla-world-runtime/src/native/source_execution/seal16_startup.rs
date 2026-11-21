@@ -1064,9 +1064,10 @@ fn tm(p: &[&str]) -> Tm {
         isdst: n(8),
     }
 }
-// Map.cpp:216 first constructs a transport after the last active preload lock.
-const MAP1_NEXT_OWNER_LINE: u64 = 61049124;
-const MAP1_NEXT_SOURCE: &str = "Map.cpp:216";
+// The active preload prefix ends before the first transport birth.
+const MAP1_TRANSPORT_START: u64 = 61049124;
+const MAP1_INITIALIZE_RETURN: u64 = 61049852;
+const MAP1_NEXT_SOURCE: &str = "MapManager.cpp:110";
 const MAP1_NEXT_RAW: u64 = 15783; // Final preload word at :61049072.
 
 #[derive(Default)]
@@ -1109,6 +1110,7 @@ struct MapThreadEvidence {
     bell_trace: Vec<u64>,
     geyser_trace: Vec<u64>,
     stormwind_trace: StormwindTrace,
+    transports: relations_evidence::TransportTrace,
 }
 #[derive(Default)]
 pub(super) struct Inputs {
@@ -1160,6 +1162,7 @@ pub(super) struct Inputs {
     event_ai_rows: Vec<[u32; 24]>,
     script_library_query_line: Option<u64>,
     event_ai_summon_query: Option<(u64, u64)>,
+    transport_sql: relations_evidence::TransportSqlTrace,
 }
 impl Inputs {
     pub(super) fn bind_spawn_data(
@@ -1172,6 +1175,16 @@ impl Inputs {
         addons
     }
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
+        if thread == 1 && (46233402..=46233818).contains(&line) {
+            self.transport_sql.observe(line, kind, p);
+        }
+        if thread == 7 && (MAP1_TRANSPORT_START..=MAP1_INITIALIZE_RETURN).contains(&line) {
+            self.map_threads
+                .entry(thread)
+                .or_default()
+                .transports
+                .observe(line, kind, p);
+        }
         self.equipment.observe_map(thread, line, kind, p);
         if thread == 6 {
             if (MAP0_FIRST_STORMWIND_LINE..=MAP0_LAST_STORMWIND_COMPLETION).contains(&line) {
@@ -1438,13 +1451,13 @@ impl Inputs {
             "logical_birth"
                 if p[1] == "object"
                     && (thread == 6 && (60476953..MAP0_NEXT_OWNER_LINE).contains(&line)
-                        || thread == 7 && (60310149..MAP1_NEXT_OWNER_LINE).contains(&line)) =>
+                        || thread == 7 && (60310149..MAP1_TRANSPORT_START).contains(&line)) =>
             {
                 evidence.continuation_births.push(line);
             }
             "constructor_loader_success"
                 if thread == 6 && (60478609..MAP0_NEXT_OWNER_LINE).contains(&line)
-                    || thread == 7 && (60435155..MAP1_NEXT_OWNER_LINE).contains(&line) =>
+                    || thread == 7 && (60435155..MAP1_TRANSPORT_START).contains(&line) =>
             {
                 evidence
                     .continuation_completed
@@ -1452,14 +1465,14 @@ impl Inputs {
             }
             "path_calculate"
                 if thread == 6 && (60478609..MAP0_NEXT_OWNER_LINE).contains(&line)
-                    || thread == 7 && (60310149..MAP1_NEXT_OWNER_LINE).contains(&line) =>
+                    || thread == 7 && (60310149..MAP1_TRANSPORT_START).contains(&line) =>
             {
                 evidence.path_calculations.push(line);
             }
             "active_add"
                 if evidence.active_adds.len() < if thread == 6 { 4 } else { 16 }
                     || map0_proc_continuation
-                    || thread == 7 && (60941620..MAP1_NEXT_OWNER_LINE).contains(&line) =>
+                    || thread == 7 && (60941620..MAP1_TRANSPORT_START).contains(&line) =>
             {
                 evidence.active_adds.push((
                     line,
@@ -1471,7 +1484,7 @@ impl Inputs {
             "grid_lock_inc"
                 if evidence.active_locks.len() < if thread == 6 { 4 } else { 16 }
                     || map0_proc_continuation
-                    || thread == 7 && (60941620..MAP1_NEXT_OWNER_LINE).contains(&line) =>
+                    || thread == 7 && (60941620..MAP1_TRANSPORT_START).contains(&line) =>
             {
                 evidence.active_locks.push((line, p[1].parse().unwrap()));
             }
@@ -1602,7 +1615,7 @@ impl Inputs {
             }
             "sql_request_bytes" | "sql_write_bytes" => {
                 if thread == 6 && line < MAP0_NEXT_OWNER_LINE
-                    || thread == 7 && line < MAP1_NEXT_OWNER_LINE
+                    || thread == 7 && line <= MAP1_INITIALIZE_RETURN
                 {
                     evidence.sql_lines.push(line);
                 }
@@ -2416,6 +2429,14 @@ pub(super) fn continue_startup(
             std::mem::take(&mut observed.equipment),
             geometry,
         );
+    // World.cpp:970 loads animation DBC records after the gameobject model list.
+    let mut transport_templates = SourceTransportTemplates::default();
+    transport_templates
+        .load_animations_from_catalog(catalog, &mut |_| Ok(()))
+        .unwrap();
+    let animations = transport_templates.inventory();
+    assert!(animations.animations_loaded);
+    assert_eq!(animations.animations.len(), 33);
     let creature_immunities =
         std::mem::take(&mut observed.immunities).load(catalog, &creature_templates);
     let creature_spell_lists =
@@ -2662,6 +2683,21 @@ pub(super) fn continue_startup(
                 == "1",
         )
         .unwrap();
+    // World.cpp:1127 runs after groups and before persistent map construction.
+    let transport_occurrences = std::env::var_os("BENILLA_F2_DBC_OCCURRENCES").unwrap();
+    let mut transport_events = Vec::new();
+    transport_templates
+        .load_templates_from_catalog(
+            catalog,
+            Path::new(&transport_occurrences),
+            &mut &gameobject_templates,
+            &mut |event| {
+                transport_events.push(event);
+                Ok(())
+            },
+        )
+        .unwrap();
+    let matched_transport_sql = observed.transport_sql.assert_load(&transport_events);
     equipment::census(
         &creature_templates,
         spawns,
@@ -3373,7 +3409,7 @@ pub(super) fn continue_startup(
         let calculations_before = geometry.pathfinder_calculate_completions;
         let mut active_clocks = evidence.active_clocks.clone();
         let active_init::ActivePrefixReport {
-            refusal,
+            active_result,
             link_follow,
             completed_objects,
             first_go,
@@ -3451,6 +3487,46 @@ pub(super) fn continue_startup(
             &config,
         )
         .unwrap();
+        let mut transport_count = 0;
+        let refusal = active_result
+            .and_then(|()| {
+                let map = &mut continents.maps[slot];
+                let before_guid = map.guids.as_ref().unwrap().next_gameobject_counter();
+                let before = active_objects.construction_count(thread);
+                let before_model = dynamic_models.models.next_generation();
+                let before_references =
+                    relations_evidence::TransportTrace::model_references(&geometry.vmap);
+                map.initialize_tail(
+                    &transport_templates,
+                    &gameobject_templates,
+                    &mut active_objects,
+                    &mut dynamic_models,
+                    &mut geometry.vmap,
+                    &world_clock,
+                    thread,
+                )?;
+                if slot == 1 {
+                    assert_eq!(
+                        map.guids.as_ref().unwrap().next_gameobject_counter(),
+                        before_guid
+                    );
+                    transport_count = evidence.transports.assert_live(
+                        map,
+                        &active_objects,
+                        &dynamic_models,
+                        before,
+                        before_model,
+                    );
+                    let after_references =
+                        relations_evidence::TransportTrace::model_references(&geometry.vmap);
+                    assert_eq!(
+                        after_references,
+                        [before_references[0] + 3, before_references[1] + 1]
+                    );
+                }
+                continents.await_initialization()
+            })
+            .unwrap_err();
         if slot == 0 {
             assert_eq!(
                 refusal.id,
@@ -6594,8 +6670,17 @@ pub(super) fn continue_startup(
             serde_json::to_value(states.state(state).unwrap().pools()).unwrap(),
             expected
         );
+        let transport_receipt = if slot == 1 {
+            let allocations = candidates + transport_count;
+            let clocks = evidence.active_clocks.0.len() - active_clocks.0.len();
+            let paths = evidence.path_calculations.len();
+            let sql = evidence.sql_lines.len();
+            format!(" completed={completed} allocations={allocations} clocks={clocks} paths={paths} sql={sql} idle={idle_count} transports={transport_count} initialize_return_line={MAP1_INITIALIZE_RETURN}")
+        } else {
+            String::new()
+        };
         println!(
-            "F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}",
+            "F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}{transport_receipt}",
             matched_map_words[slot],
             evidence
                 .pool_members
@@ -6748,7 +6833,7 @@ pub(super) fn continue_startup(
             .count();
         assert!(results > 0);
         println!(
-            "F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_script_names_sql=1 matched_template_sql=6 matched_creature_model_sql=3 matched_equipment_sql=3 matched_creature_immunity_sql=1 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true",
+            "F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_script_names_sql=1 matched_template_sql=6 matched_creature_model_sql=3 matched_equipment_sql=3 matched_creature_immunity_sql=1 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true matched_transport_sql={matched_transport_sql}",
             owner.cursor.raw,
             refusal.id,
             active_init::CREATURE_NEXT_OWNER[1],

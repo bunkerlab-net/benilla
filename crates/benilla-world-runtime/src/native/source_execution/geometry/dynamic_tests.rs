@@ -126,6 +126,9 @@ fn dynamic_transport_default_constructs_inserts_and_relocates_the_real_model() {
         fn transport_template(&mut self, _: u32) -> Result<Option<GameObjectTemplate>> {
             Err(refuse("authored.unexpected_template"))
         }
+        fn transport_name(&mut self, _: u32) -> Result<&[u8]> {
+            Err(refuse("authored.unexpected_template"))
+        }
         fn transport_allocation(&mut self, _: ObjectHandle, _: &mut SourceObjects) -> Result<()> {
             Err(refuse("authored.unexpected_allocation"))
         }
@@ -162,11 +165,18 @@ fn dynamic_transport_default_constructs_inserts_and_relocates_the_real_model() {
         },
         motion: benilla_sim::source_transports::TransportMotion::new(0),
         position: SourcePose([0; 4]),
+        scale: 1.0,
+        faction: 0,
+        flags: 0,
+        entry: 100,
         display: 123,
         state: 0,
         kind: 0,
         animation: 0,
         has_model: false,
+        update_flags: 0x52,
+        name: Vec::new(),
+        events: Default::default(),
     };
     transport.has_model = owner
         .transport_model(&transport, GameObjectModelOperation::ConstructAndInsert)

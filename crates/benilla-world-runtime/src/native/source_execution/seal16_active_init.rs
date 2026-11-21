@@ -6,7 +6,7 @@ use benilla_sim::resident_map::CellPair;
 
 pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
     "execution.ai.ScriptDevAIMgr_370.GetAI_owner.npc_garments_of_quests",
-    "execution.continents.load_transports_owner",
+    "execution.continents.MapManager_110.future_join_owner",
 ];
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
@@ -273,7 +273,7 @@ pub(super) struct FirstGo {
 
 pub(super) struct ActivePrefixReport {
     pub first_creature: Option<FirstCreature>,
-    pub refusal: Refusal,
+    pub active_result: Result<()>,
     pub link_follow: Option<(FollowerReferenceId, ObjectHandle, [u32; 2])>,
     pub first_go: Option<FirstGo>,
     pub completed_objects: Vec<ObjectHandle>,
@@ -556,11 +556,7 @@ pub(super) fn load_first(
         objects,
         cells: &mut map.cells,
     };
-    let refusal = match active.load(false, &mut context, &mut factory) {
-        Err(refusal) => refusal,
-        // Map.cpp:214-216 calls LoadTransports after active preload returns.
-        Ok(()) => refuse("execution.continents.load_transports_owner"),
-    };
+    let active_result = active.load(false, &mut context, &mut factory);
     for &handle in &factory.completed_objects {
         if factory
             .gameobjects
@@ -571,7 +567,13 @@ pub(super) fn load_first(
             assert!(factory.dynamic_map.tree.contains(model));
         }
     }
-    let attempt = *factory.attempts.last().ok_or_else(|| refusal.clone())?;
+    let attempt = *factory.attempts.last().ok_or_else(|| {
+        active_result
+            .as_ref()
+            .err()
+            .cloned()
+            .unwrap_or_else(|| refuse("execution.active.attempt_missing"))
+    })?;
     let bound_guid = factory
         .candidates
         .last()
@@ -579,7 +581,7 @@ pub(super) fn load_first(
         .transpose()?
         .flatten();
     Ok(ActivePrefixReport {
-        refusal,
+        active_result,
         link_follow: factory.link_follow,
         first_go: factory.first_go,
         completed_objects: factory.completed_objects,

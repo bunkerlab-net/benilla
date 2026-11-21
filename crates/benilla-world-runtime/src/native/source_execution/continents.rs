@@ -135,6 +135,7 @@ pub struct SourceContinent {
     pub variables: SourceWorldStateVariables,
     pub spawn_updated: bool,
     pub dynamic_tree: SourceDynamicMap,
+    pub transports: SourceMoTransports,
     grids_initialized: bool,
     loaded_grids: [u64; 64],
     terrain_referenced: bool,
@@ -314,6 +315,13 @@ pub struct SourceContinents {
     pub maps: [SourceContinent; 2],
 }
 impl SourceContinents {
+    // MapManager.cpp:109-110 waits for both continent initialization futures.
+    pub fn await_initialization(&self) -> Result<()> {
+        Err(refuse(
+            "execution.continents.MapManager_110.future_join_owner",
+        ))
+    }
+
     /// MapManager.cpp:52-54,96-106; only constructors have a world-thread order.
     pub fn construct<E: RawGenerator, S: FnMut(TraceEvent)>(
         entries: [PersistentMapEntry; 2],
@@ -359,6 +367,7 @@ impl SourceContinents {
                 variables: SourceWorldStateVariables::default(),
                 spawn_updated: false, // SpawnManager.h:54, before Initialize at Map.cpp:200.
                 dynamic_tree: SourceDynamicMap::new(identity),
+                transports: SourceMoTransports::default(), // Map.cpp:161; Map.h:495.
                 grids_initialized: false,
                 loaded_grids: [0; 64],
                 terrain_referenced: false,

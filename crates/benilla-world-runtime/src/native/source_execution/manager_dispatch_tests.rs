@@ -167,6 +167,9 @@ impl MoTransportOwner for Work {
     fn transport_template(&mut self, _: u32) -> Result<Option<GameObjectTemplate>> {
         Err(refuse("authored.unexpected_transport"))
     }
+    fn transport_name(&mut self, _: u32) -> Result<&[u8]> {
+        Err(refuse("authored.unexpected_transport"))
+    }
     fn transport_allocation(&mut self, _: ObjectHandle, _: &mut SourceObjects) -> Result<()> {
         Err(refuse("authored.unexpected_transport"))
     }

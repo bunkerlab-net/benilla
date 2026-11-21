@@ -13,6 +13,9 @@ impl MoTransportOwner for Owner {
     fn transport_template(&mut self, e: u32) -> Result<Option<GameObjectTemplate>> {
         self.model.transport_template(e)
     }
+    fn transport_name(&mut self, entry: u32) -> Result<&[u8]> {
+        self.model.transport_name(entry)
+    }
     fn transport_allocation(&mut self, h: ObjectHandle, o: &mut SourceObjects) -> Result<()> {
         self.model.transport_allocation(h, o)
     }

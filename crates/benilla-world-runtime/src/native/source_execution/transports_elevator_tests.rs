@@ -314,6 +314,9 @@ impl MoTransportOwner for Boarding {
     fn transport_template(&mut self, _: u32) -> Result<Option<GameObjectTemplate>> {
         panic!("boarding does not create MO transports")
     }
+    fn transport_name(&mut self, _: u32) -> Result<&[u8]> {
+        panic!("boarding does not name MO transports")
+    }
     fn transport_allocation(&mut self, _: ObjectHandle, _: &mut SourceObjects) -> Result<()> {
         panic!("boarding does not allocate")
     }

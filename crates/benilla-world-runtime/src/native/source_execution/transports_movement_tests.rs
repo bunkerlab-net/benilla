@@ -42,6 +42,7 @@ fn templates(entries: &[(u32, u32)]) -> SourceTransportTemplates {
 }
 struct AuthoredOwner {
     next: u64,
+    addresses_known: bool,
     model: bool,
     contained: bool,
     fail: Option<GameObjectModelOperation>,
@@ -51,6 +52,7 @@ impl Default for AuthoredOwner {
     fn default() -> Self {
         Self {
             next: 0x100000,
+            addresses_known: true,
             model: true,
             contained: true,
             fail: None,
@@ -77,8 +79,14 @@ impl MoTransportOwner for AuthoredOwner {
     fn transport_template(&mut self, entry: u32) -> Result<Option<GameObjectTemplate>> {
         Ok(Some(definition(entry)))
     }
+    fn transport_name(&mut self, _: u32) -> Result<&[u8]> {
+        Ok(b"Authored transport")
+    }
     fn transport_allocation(&mut self, h: ObjectHandle, o: &mut SourceObjects) -> Result<()> {
         self.next -= 256;
+        if !self.addresses_known {
+            return Ok(());
+        }
         o.bind_source_allocation(h, self.next, 128, 0)
     }
     fn transport_model(
@@ -95,6 +103,13 @@ impl MoTransportOwner for AuthoredOwner {
         match operation {
             GameObjectModelOperation::ConstructAndInsert => {
                 assert_eq!((t.state, t.kind, t.animation), (0, 0, 0));
+                assert_eq!(
+                    (t.scale, t.faction, t.flags, t.entry),
+                    (1.0, 35, 8, t.template.entry)
+                );
+                assert_eq!((t.display, t.update_flags), (77, 0x52));
+                assert!(t.name.is_empty());
+                assert!(t.event_processor_is_initial());
                 Ok(self.model)
             }
             GameObjectModelOperation::Contains => Ok(self.contained),
@@ -148,14 +163,59 @@ fn startup_uses_first_node_entry_guid_and_no_world_or_grid_registration() {
     assert_eq!((go.state, go.kind, go.animation), (1, 15, 100));
     assert_eq!(go.template.faction, 35);
     assert_eq!(go.display, 77);
+    assert_eq!(go.name.as_slice(), b"Authored transport");
     let object = o.get(h).unwrap();
     assert_eq!(object.guid.unwrap().raw(), 0x1fc000000000002a);
     assert_eq!(object.database_guid, 42);
     assert!(!object.in_world);
     assert!(object.current_cell.is_none());
+    for field in [
+        OBJECT_FIELD_SCALE_X,
+        GAMEOBJECT_FACTION,
+        GAMEOBJECT_FLAGS,
+        OBJECT_FIELD_ENTRY,
+        GAMEOBJECT_DISPLAYID,
+        GAMEOBJECT_STATE,
+        GAMEOBJECT_TYPE_ID,
+        GAMEOBJECT_ANIMPROGRESS,
+    ] {
+        assert!(object.field_changed(field).unwrap());
+    }
+    assert!(!o.client_update_pending(map(0), h)); // Object.cpp:1107-1117.
     let player = o.construct(1, SourceObjectKind::Player).unwrap();
     assert!(player.construction > h.construction);
 }
+#[test]
+fn empty_first_keyframe_refuses_before_binding_the_map() {
+    let mut paths = templates(&[(42, 0)]);
+    paths.templates.get_mut(&42).unwrap().key_frames.clear();
+    let mut transports = SourceMoTransports::default();
+    let mut cells = SourceCells::new(map(0)).unwrap();
+    let mut objects = SourceObjects::default();
+    let mut owner = AuthoredOwner::default();
+    let error = transports
+        .initialize_map(
+            &paths,
+            &mut MoTransportContext {
+                cells: &mut cells,
+                objects: &mut objects,
+                owner: &mut owner,
+            },
+            1,
+            0,
+        )
+        .unwrap_err();
+    assert_eq!(error.id, "execution.transport.empty_key_frames_undefined");
+    assert_eq!(objects.construction_count(1), 1);
+    let handle = ObjectHandle {
+        thread: 1,
+        construction: 1,
+    };
+    assert_eq!(objects.get(handle).unwrap().map, None);
+    assert!(!transports.contains(map(0), handle));
+    assert!(owner.operations.is_empty());
+}
+
 #[test]
 fn transport_set_uses_allocation_order_not_sql_guid_or_construction_order() {
     // Map.cpp:119-121,725-729 traverses std::set<Transport*>.
@@ -165,13 +225,69 @@ fn transport_set_uses_allocation_order_not_sql_guid_or_construction_order() {
     let mut o = SourceObjects::default();
     let mut w = AuthoredOwner::default();
     initialize(&t, &mut m, &mut c, &mut o, &mut w, 0);
-    let members = m.members(map(0)).collect::<Vec<_>>();
+    let members = m
+        .walk(map(0), TransportWalk::Update)
+        .unwrap()
+        .collect::<Vec<_>>();
     assert_eq!(o.get(members[0]).unwrap().guid.unwrap().counter(), 42);
     assert_eq!(o.get(members[1]).unwrap().guid.unwrap().counter(), 9);
     w.operations.clear();
     m.update_map(&t, map(0), 2001, 0, &mut o, &mut w).unwrap();
     assert_eq!(w.operations[0].0, members[0]);
     assert_eq!(w.operations[4].0, members[1]);
+}
+#[test]
+fn transport_membership_needs_no_pointer_but_every_walk_does() {
+    let t = templates(&[(42, 0)]);
+    let mut m = SourceMoTransports::default();
+    let mut c = SourceCells::new(map(0)).unwrap();
+    let mut o = SourceObjects::default();
+    let mut w = AuthoredOwner {
+        addresses_known: false,
+        ..Default::default()
+    };
+    initialize(&t, &mut m, &mut c, &mut o, &mut w, 0);
+    let h = m.members(map(0)).next().unwrap();
+    assert!(m.contains(map(0), h));
+    m.validate_manager_owners(&o, &std::collections::BTreeSet::from([map(0)]), &[])
+        .unwrap();
+    assert_eq!(o.get(h).unwrap().source_allocation, None);
+    assert_eq!(
+        m.insert_member(map(0), h, None).unwrap_err().id,
+        "execution.transport.Map_121.duplicate_identity"
+    );
+    for (walk, id) in [
+        (
+            TransportWalk::Destroy,
+            "execution.transport.Map_74.pointer_order_owner",
+        ),
+        (
+            TransportWalk::GetTransport,
+            "execution.transport.Map_106.pointer_order_owner",
+        ),
+        (
+            TransportWalk::Update,
+            "execution.transport.Map_725.pointer_order_owner",
+        ),
+        (
+            TransportWalk::SendInit,
+            "execution.transport.Map_1407.pointer_order_owner",
+        ),
+        (
+            TransportWalk::SendRemove,
+            "execution.transport.Map_1434.pointer_order_owner",
+        ),
+    ] {
+        assert_eq!(m.walk(map(0), walk).err().unwrap().id, id);
+    }
+    w.operations.clear();
+    assert_eq!(
+        m.update_map(&t, map(0), 2001, 0, &mut o, &mut w)
+            .unwrap_err()
+            .id,
+        "execution.transport.Map_725.pointer_order_owner"
+    );
+    assert!(w.operations.is_empty());
 }
 #[test]
 fn model_transform_history_uses_new_pose_and_exact_operation_order() {
@@ -234,6 +350,9 @@ fn unbound_geometry_prerequisite_refuses_before_model_and_membership() {
     impl MoTransportOwner for Missing {
         fn transport_template(&mut self, e: u32) -> Result<Option<GameObjectTemplate>> {
             Ok(Some(definition(e)))
+        }
+        fn transport_name(&mut self, _: u32) -> Result<&[u8]> {
+            panic!("missing geometry precedes the name write")
         }
         fn transport_allocation(&mut self, h: ObjectHandle, o: &mut SourceObjects) -> Result<()> {
             o.bind_source_allocation(h, 0x1000, 128, 0)
@@ -418,6 +537,9 @@ fn retained_stock_creation_reaches_missing_f6_for_each_transport_or_skips() {
         fn transport_template(&mut self, _: u32) -> Result<Option<GameObjectTemplate>> {
             Ok(Some(self.0.clone()))
         }
+        fn transport_name(&mut self, _: u32) -> Result<&[u8]> {
+            panic!("missing geometry precedes the name write")
+        }
         fn transport_allocation(&mut self, h: ObjectHandle, o: &mut SourceObjects) -> Result<()> {
             o.bind_source_allocation(h, 0x1000, 128, 0)
         }
@@ -460,6 +582,105 @@ fn retained_stock_creation_reaches_missing_f6_for_each_transport_or_skips() {
         );
     }
     println!("Unsealed raw catalog component reach: nine F6 refusals, zero admitted creations or movement; no effective ObjectMgr or F1 acceptance");
+}
+
+#[test]
+fn continent_tail_loads_two_transports_on_map_zero() {
+    use benilla_sim::source_rng::{DrawCursor, Mt19937, SourceRandom};
+
+    struct DefinitionOwner;
+    impl TemplateValidationOwner for DefinitionOwner {
+        fn contains(&mut self, domain: TemplateLookup, id: u32) -> Result<bool> {
+            Ok(domain == TemplateLookup::TaxiPath && id == 1)
+        }
+        fn display_scale(&mut self, _: u32) -> Result<Option<u32>> {
+            panic!("transport definitions do not validate creature displays")
+        }
+        fn class_stats(&mut self, _: u32, _: u32) -> Result<bool> {
+            panic!("transport definitions do not validate creature class stats")
+        }
+    }
+
+    let definitions = LoadedGameObjectTemplates::load(
+        [42, 9]
+            .into_iter()
+            .enumerate()
+            .map(|(ordinal, entry)| {
+                let mut words = [0; 38];
+                words[..12].copy_from_slice(&[
+                    entry,
+                    15,
+                    77,
+                    0,
+                    0,
+                    35,
+                    8,
+                    0,
+                    1_f32.to_bits(),
+                    1,
+                    10,
+                    2,
+                ]);
+                LoadedGameObjectInfo {
+                    ordinal: ordinal as u64,
+                    words,
+                    strings: [b"Test ship".to_vec(), Vec::new()],
+                }
+            })
+            .collect(),
+        &mut DefinitionOwner,
+    )
+    .unwrap();
+    let paths = templates(&[(42, 0), (9, 0), (77, 1)]);
+    let mut terrain = SourceTerrainManager::default();
+    let mut random_engine = Mt19937::from_seed(7);
+    let mut draws = DrawCursor::default();
+    let mut observe = |_| {};
+    let mut random = SourceRandom::new(1, &mut random_engine, &mut draws, &mut observe).unwrap();
+    let config = ContinentConfig {
+        grid_expiry: 300000,
+        visibility: 100.0,
+        weather_enabled: false,
+        weather_interval: 600000,
+    };
+    let mut continents = SourceContinents::construct(
+        [0, 1].map(|id| PersistentMapEntry { id, map_type: 0 }),
+        GuidMaximum::NoResult,
+        &mut terrain,
+        &config,
+        &mut random,
+    )
+    .unwrap();
+    let map = &mut continents.maps[0];
+    let mut objects = SourceObjects::default();
+    let mut models = SourceDynamicModels::default();
+    models.bind_displays([]).unwrap();
+    map.initialize_tail(
+        &paths,
+        &definitions,
+        &mut objects,
+        &mut models,
+        &mut terrain.vmap,
+        &SourceWorldClock::default(),
+        6,
+    )
+    .unwrap();
+    assert_eq!(objects.construction_count(6), 2);
+    let identities = map
+        .transports
+        .members(map.identity)
+        .map(|handle| {
+            let object = objects.get(handle).unwrap();
+            assert_eq!(object.map, Some(map.identity));
+            assert_eq!(object.source_allocation, None);
+            assert_eq!(
+                map.transports.get(handle).unwrap().name.as_slice(),
+                b"Test ship"
+            );
+            (handle.construction, object.guid.unwrap().counter())
+        })
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(identities, BTreeMap::from([(1, 42), (2, 9)]));
 }
 
 #[path = "transports_passenger_tests.rs"]

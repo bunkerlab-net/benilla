@@ -40,6 +40,17 @@ impl SourcePointerSet {
         self.members.len() == self.ordered.len()
     }
 
+    pub(super) fn bindings(&self) -> impl Iterator<Item = (ObjectHandle, Option<u64>)> + '_ {
+        self.members
+            .iter()
+            .map(|(&handle, &pointer)| (handle, pointer))
+    }
+
+    pub(super) fn ordered(&self, refusal_id: &str) -> Result<&BTreeMap<u64, ObjectHandle>> {
+        require(self.all_addresses_known(), refusal_id)?;
+        Ok(&self.ordered)
+    }
+
     pub(super) fn insert(
         &mut self,
         object: ObjectHandle,

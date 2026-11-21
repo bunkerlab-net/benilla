@@ -6,7 +6,9 @@ pub use super::super::production_compiler::{
     TransportAnimationRecord, TransportGameObject, TransportIntegrityRow, TransportSqlRow,
 };
 use super::*;
-use benilla_sim::source_transports::{generate_template, Error as NumericError, TransportTemplate};
+use benilla_sim::source_transports::{
+    generate_template, Error as NumericError, MoTransport, TransportTemplate,
+};
 use std::{collections::BTreeMap, sync::Arc};
 #[path = "transports_movement.rs"]
 mod movement;
@@ -18,6 +20,9 @@ pub use passengers::*;
 mod elevators;
 pub use elevators::*;
 
+const TRANSPORT_ROWS_QUERY: &str = "SELECT entry, name, period FROM transports";
+const TRANSPORT_INTEGRITY_QUERY: &str = "SELECT gameobject.guid,gameobject.id,transports.name FROM gameobject,transports WHERE gameobject.id = transports.entry";
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SourceTransportAnimation {
     pub total_time: u32,
@@ -25,6 +30,10 @@ pub struct SourceTransportAnimation {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum TransportTemplateEvent {
+    SqlResult {
+        statement: &'static str,
+        rows: usize,
+    },
     Animation {
         entry: u32,
         time: u32,
@@ -65,6 +74,34 @@ pub enum TransportRowRejection {
 pub trait TransportDefinitionOwner {
     fn gameobject_definitions(&mut self) -> Result<Arc<BTreeMap<u32, TransportGameObject>>>;
 }
+impl TransportDefinitionOwner for &LoadedGameObjectTemplates {
+    // TransportMgr.cpp:44-55 reads the effective SQLStorage definition by entry.
+    fn gameobject_definitions(&mut self) -> Result<Arc<BTreeMap<u32, TransportGameObject>>> {
+        Ok(Arc::new(
+            self.rows()
+                .iter()
+                .map(|row| {
+                    let [entry, kind, display] = [row.words[0], row.words[1], row.words[2]];
+                    (
+                        entry,
+                        TransportGameObject {
+                            entry,
+                            kind,
+                            display,
+                            movement: MoTransport {
+                                entry,
+                                path: row.words[9],
+                                speed: row.words[10],
+                                acceleration: row.words[11],
+                            },
+                        },
+                    )
+                })
+                .collect(),
+        ))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum TransportPending {
     SealedDefinitionAndSqlOccurrences,
@@ -297,6 +334,11 @@ impl SourceTransportTemplates {
         integrity: &[TransportIntegrityRow],
         observe: &mut impl FnMut(TransportTemplateEvent) -> Result<()>,
     ) -> Result<()> {
+        // Transports.cpp:39 reads the period rows after template generation.
+        observe(TransportTemplateEvent::SqlResult {
+            statement: TRANSPORT_ROWS_QUERY,
+            rows: rows.len(),
+        })?;
         for row in rows {
             let rejection = if let Some(data) = definitions.get(&row.entry) {
                 if data.kind != 15 {
@@ -338,6 +380,11 @@ impl SourceTransportTemplates {
         }
         // Source returns before the integrity query when the first query has no rows.
         if !rows.is_empty() {
+            // Transports.cpp:99 checks for forbidden static transport spawns.
+            observe(TransportTemplateEvent::SqlResult {
+                statement: TRANSPORT_INTEGRITY_QUERY,
+                rows: integrity.len(),
+            })?;
             for row in integrity {
                 observe(TransportTemplateEvent::Integrity(row.clone()))?;
             }

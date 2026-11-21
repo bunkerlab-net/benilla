@@ -171,8 +171,16 @@ fn sql_period_overrides_preserve_vector_duplicates_and_unrelated_fields() {
     assert!(matches!(
         events.as_slice(),
         [
+            TransportTemplateEvent::SqlResult {
+                statement: TRANSPORT_ROWS_QUERY,
+                rows: 2
+            },
             TransportTemplateEvent::AssignedPeriod { period: 12345, .. },
-            TransportTemplateEvent::AssignedPeriod { period: 0, .. }
+            TransportTemplateEvent::AssignedPeriod { period: 0, .. },
+            TransportTemplateEvent::SqlResult {
+                statement: TRANSPORT_INTEGRITY_QUERY,
+                rows: 0
+            },
         ]
     ));
 }
@@ -258,7 +266,13 @@ fn source_row_rejections_and_empty_first_query_preserve_integrity_branch() {
             Ok(())
         })
         .unwrap();
-    assert!(events.is_empty());
+    assert_eq!(
+        events,
+        [TransportTemplateEvent::SqlResult {
+            statement: TRANSPORT_ROWS_QUERY,
+            rows: 0
+        }]
+    );
 }
 #[test]
 fn retained_catalog_loads_templates_as_labelled_raw_definition_fixture() {

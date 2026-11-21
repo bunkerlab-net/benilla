@@ -214,6 +214,11 @@ impl MapGuidAllocators {
     pub fn map(&self) -> MapIdentity {
         self.map
     }
+    // ObjectGuid.h:232 reads the GO/transport counter. Transports.cpp:161 never draws from it.
+    pub fn next_gameobject_counter(&self) -> u32 {
+        self.gameobjects.next_counter()
+    }
+
     // Transports share GO counters, but pets and dynamic objects do not; Map.cpp:2546-2563.
     pub fn allocate(&mut self, map: MapIdentity, high: HighGuid) -> Result<GuidAllocation> {
         require(map == self.map, "execution.guid_map_generation")?;
@@ -337,14 +342,18 @@ mod tests {
             .unwrap()
             .is_none());
         let mut local = globals.map_allocators(map()).unwrap();
+        assert_eq!(local.next_gameobject_counter(), 203);
+        assert_eq!(local.next_gameobject_counter(), 203);
         assert_eq!(
             local.allocate(map(), HighGuid::GameObject).unwrap().counter,
             203
         );
+        assert_eq!(local.next_gameobject_counter(), 204);
         assert_eq!(
             local.allocate(map(), HighGuid::Transport).unwrap().counter,
             204
         );
+        assert_eq!(local.next_gameobject_counter(), 205);
         assert_eq!(local.allocate(map(), HighGuid::Pet).unwrap().counter, 1);
         assert_eq!(
             local

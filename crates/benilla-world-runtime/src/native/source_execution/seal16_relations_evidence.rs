@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Independent seal16 trace lines, used only as assertions after execution.
 use super::{
-    CreatureAddonAuras, CreatureAddonTable, GridSpawnKind, LoadedCreatureAddons,
-    LoadedCreatureTemplates, SourceEffectiveSpawns, SourceSpellStores, SpellTargetImplicitType,
-    SPELL_EFFECT_INFO_TABLE,
+    unhex, CreatureAddonAuras, CreatureAddonTable, GridSpawnKind, LoadedCreatureAddons,
+    LoadedCreatureTemplates, ObjectHandle, SourceContinent, SourceDynamicModels,
+    SourceEffectiveSpawns, SourceObjectKind, SourceObjects, SourceSpellStores, SourceVMapManager,
+    SpellTargetImplicitType, TransportTemplateEvent, SPELL_EFFECT_INFO_TABLE,
 };
 use std::collections::BTreeSet;
 
@@ -874,6 +875,253 @@ pub(super) fn assert_after_area_cast(births: &[u64], completed: &[(u64, u32)]) {
         ),
         "0f080b6366ee991555f42ad70cd3dfee5bb0e2675a08ac3318772fae51524c42"
     );
+}
+
+#[derive(Default)]
+pub(super) struct TransportSqlTrace {
+    requests: Vec<(u64, Vec<u8>)>,
+    clocks: Vec<u64>,
+    result_births: Vec<u64>,
+    result_deaths: Vec<u64>,
+    result_rows: Vec<(u64, usize)>,
+    period_rows: Vec<[u32; 2]>,
+}
+impl TransportSqlTrace {
+    pub(super) fn observe(&mut self, line: u64, kind: &str, p: &[&str]) {
+        match kind {
+            "sql_request_bytes" => self.requests.push((line, unhex(p.last().unwrap()))),
+            "clock_sample" => self.clocks.push(line),
+            "logical_birth" => {
+                assert_eq!(p[1], "sql_result");
+                self.result_births.push(line);
+            }
+            "logical_death" => self.result_deaths.push(line),
+            "sql_query_result" => self.result_rows.push((line, p[3].parse().unwrap())),
+            "sql_field" => match p[1] {
+                "0" => self.period_rows.push([sql_uint(p), 0]),
+                "2" => self.period_rows.last_mut().unwrap()[1] = sql_uint(p),
+                _ => (),
+            },
+            "rng_call" | "mt_raw" => panic!("unexpected transport template RNG at {line}"),
+            _ => (),
+        }
+    }
+
+    pub(super) fn assert_load(&self, actual: &[TransportTemplateEvent]) -> usize {
+        let queries = actual.iter().filter_map(|event| match event {
+            TransportTemplateEvent::SqlResult { statement, rows } => {
+                Some((statement.as_bytes(), *rows))
+            }
+            _ => None,
+        });
+        assert_eq!(
+            self.requests
+                .iter()
+                .map(|(line, _)| *line)
+                .collect::<Vec<_>>(),
+            [46233409, 46233692]
+        );
+        assert_eq!(self.result_rows, [(46233528, 9), (46233811, 0)]);
+        assert_eq!(self.result_births, [46233527, 46233810]);
+        assert_eq!(self.result_deaths, [46233678, 46233812]);
+        assert_eq!(self.clocks, [46233411, 46233694]);
+        assert!(queries.eq(self
+            .requests
+            .iter()
+            .zip(&self.result_rows)
+            .map(|((_, sql), (_, rows))| (sql.as_slice(), *rows))));
+        assert!(actual
+            .iter()
+            .filter_map(|event| match event {
+                TransportTemplateEvent::AssignedPeriod { entry, period, .. } =>
+                    Some([*entry, *period]),
+                _ => None,
+            })
+            .eq(self.period_rows.iter().copied()));
+        self.requests.len()
+    }
+}
+
+fn sql_uint(p: &[&str]) -> u32 {
+    std::str::from_utf8(&unhex(p.last().unwrap()))
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
+#[derive(Default)]
+pub(super) struct TransportTrace {
+    births: Vec<(u64, u64, &'static str)>,
+    ids: Vec<(u64, [u64; 5])>,
+    models: Vec<(u64, String)>,
+    inserts: Vec<(u64, u64)>,
+    returned: Option<u64>,
+}
+impl TransportTrace {
+    pub(super) fn observe(&mut self, line: u64, kind: &str, p: &[&str]) {
+        match kind {
+            "logical_birth" => {
+                let class = match p[1] {
+                    "object" => "object",
+                    "event_processor" => "event_processor",
+                    "dynamic_model" => "dynamic_model",
+                    other => panic!("unexpected transport birth: {other} at {line}"),
+                };
+                self.births.push((line, p[0].parse().unwrap(), class));
+            }
+            "object_identity" => self
+                .ids
+                .push((line, std::array::from_fn(|i| p[i + 1].parse().unwrap()))),
+            "vmap_model_acquire" => self.models.push((line, p[1].to_owned())),
+            "dynamic_insert" => self.inserts.push((line, p[1].parse().unwrap())),
+            "thread_return" => {
+                assert_eq!(p, ["7"]);
+                assert!(self.returned.replace(line).is_none());
+            }
+            "object_construct"
+            | "choice_queue_owner_binding"
+            | "choice_queue_begin"
+            | "choice_queue"
+            | "choice_geometry_cache"
+            | "dynamic_transform"
+            | "dynamic_rotation"
+            | "dynamic_bounds" => (),
+            _ => panic!("unexpected map 1 transport record {kind} at {line}"),
+        }
+    }
+
+    // These names also identify the live shared VMap acquisition reference counts.
+    const MODELS: [&str; 2] = ["Transportship.wmo", "Transport_Zeppelin.wmo"];
+
+    pub(super) fn model_references(vmap: &SourceVMapManager) -> [u32; 2] {
+        let shared = vmap.collision.model_inventory();
+        Self::MODELS.map(|name| {
+            shared
+                .iter()
+                .find(|m| m.owner.name.as_ref() == name.as_bytes())
+                .map_or(0, |m| m.references)
+        })
+    }
+
+    pub(super) fn assert_live(
+        &self,
+        map: &SourceContinent,
+        objects: &SourceObjects,
+        models: &SourceDynamicModels,
+        first_object: u64,
+        first_model: u64,
+    ) -> usize {
+        assert_eq!(self.returned, Some(61049852)); // Map.cpp:228.
+        let expected = [
+            (
+                20808,
+                [61049124, 61049128, 61049130, 61049137, 61049140, 61049435],
+                0,
+                b"TEST Ship".as_slice(),
+            ),
+            (
+                164871,
+                [61049436, 61049438, 61049439, 61049440, 61049441, 61049745],
+                1,
+                b"Zeppelin - Orgrimmar to Undercity".as_slice(),
+            ),
+            (
+                176244,
+                [61049750, 61049754, 61049756, 61049759, 61049762, 61049793],
+                0,
+                b"Moonspray".as_slice(),
+            ),
+            (
+                177233,
+                [61049797, 61049801, 61049803, 61049806, 61049809, 61049844],
+                0,
+                b"Feathermoon Ferry".as_slice(),
+            ),
+        ];
+        assert_eq!(
+            (
+                self.births.len(),
+                self.ids.len(),
+                self.models.len(),
+                self.inserts.len()
+            ),
+            (12, 4, 4, 4)
+        );
+        assert_eq!(objects.construction_count(7) - first_object, 4);
+        assert_eq!(models.models.next_generation() - first_model, 4);
+        let inventory = models.models.inventory();
+        assert_eq!(map.transports.members(map.identity).count(), 4);
+        for (i, (entry, [birth, events, guid, model, acquire, insert], name, object_name)) in
+            expected.into_iter().enumerate()
+        {
+            let object_id = 30064773281 + 3 * i as u64;
+            assert_eq!(
+                self.births[3 * i..3 * i + 3],
+                [
+                    (birth, object_id, "object"),
+                    (events, object_id + 1, "event_processor"),
+                    (model, object_id + 2, "dynamic_model")
+                ]
+            );
+            assert_eq!(self.ids[i], (guid, [entry, entry, 0, 8128, object_id]));
+            assert_eq!(
+                (self.models[i].0, self.models[i].1.as_str()),
+                (acquire, Self::MODELS[name])
+            );
+            assert_eq!(self.inserts[i], (insert, object_id + 2));
+
+            let handle = ObjectHandle {
+                thread: 7,
+                construction: first_object + i as u64 + 1,
+            };
+            assert!(map.transports.contains(map.identity, handle));
+            let object = objects.get(handle).unwrap();
+            assert_eq!(object.kind, SourceObjectKind::Transport);
+            assert_eq!(object.map, Some(map.identity));
+            let identity = object.guid.unwrap();
+            assert_eq!(
+                (
+                    object.database_guid,
+                    identity.counter(),
+                    identity.entry(),
+                    identity.high()
+                ),
+                (entry as u32, entry as u32, 0, 8128)
+            );
+            assert_eq!(object.source_allocation, None);
+            assert!(!object.in_world && !object.active);
+            assert!(object.current_cell.is_none());
+            assert_eq!(map.cells.registered_cell(handle), None);
+            assert!(!map.cells.active().contains(handle));
+            assert!(!objects.client_update_pending(map.identity, handle)); // Object.cpp:1107-1117.
+
+            let transport = map.transports.get(handle).unwrap();
+            assert!(transport.event_processor_is_initial());
+            assert_eq!(transport.update_flags, 0x52); // Transports.cpp:120.
+            assert_eq!(
+                (
+                    transport.entry,
+                    transport.state,
+                    transport.kind,
+                    transport.animation
+                ),
+                (entry as u32, 1, 15, 100)
+            );
+            assert_eq!(transport.name.as_slice(), object_name);
+            assert_eq!(transport.motion.progress(), 0); // World.cpp:107 and Map.cpp:78-80.
+            assert!(transport.has_model);
+            let actual_model = models.handle(handle).unwrap();
+            assert_eq!(actual_model.pointer(), None);
+            assert_eq!(actual_model.native_generation(), first_model + i as u64 + 1);
+            assert!(map.dynamic_tree.tree.contains(actual_model));
+            let actual = inventory
+                .iter()
+                .find(|m| m.handle == *actual_model)
+                .unwrap();
+            assert_eq!(actual.shared.name.as_ref(), Self::MODELS[name].as_bytes());
+        }
+        expected.len()
+    }
 }
 
 fn digest<const N: usize>(rows: impl Iterator<Item = [u64; N]>) -> String {

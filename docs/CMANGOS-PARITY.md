@@ -182,7 +182,11 @@ is meaningful without a bounded content/mechanics inventory.
   draw at trace :60941391. `Unit.cpp:7755-7787` removes interrupting auras
   before the display write. The creature mount-info speed steps refuse at
   `Unit.cpp:7766,7782`. Aggro dismount with holders and no stores refuses at
-  `Unit.cpp:7777`. Map 1 stops at `LoadTransports` (`Map.cpp:216`).
+  `Unit.cpp:7777`. Map 1 also loads four transports and returns from
+  `Map::Initialize` at trace :61049852. The four transport births bring its
+  allocation count to 575 without changing the grid completion, RNG, clock,
+  path, or SQL counts. The replay stops at the future join in
+  `MapManager.cpp:110`. It does not execute a map update.
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
   Map 0 completes GUID4195 after event 26501's holder timer draw

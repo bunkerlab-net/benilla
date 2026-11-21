@@ -8,6 +8,8 @@ use std::ops::RangeInclusive;
 
 const OBJECT_END: usize = 0x06; // UpdateFields.h:31.
 pub(super) const OBJECT_FIELD_GUID: usize = 0x00; // UpdateFields.h:26.
+pub(super) const OBJECT_FIELD_ENTRY: usize = 0x03; // UpdateFields.h:28.
+pub(super) const OBJECT_FIELD_SCALE_X: usize = 0x04; // UpdateFields.h:29.
 pub(super) const UNIT_FIELD_TARGET: usize = OBJECT_END + 0x0a; // UpdateFields.h:73.
 pub(super) const UNIT_FIELD_POWER2: usize = OBJECT_END + 0x12; // UpdateFields.h:78.
 pub(super) const UNIT_FIELD_FACTIONTEMPLATE: usize = OBJECT_END + 0x1d; // UpdateFields.h:89.
@@ -28,6 +30,9 @@ pub(super) const GAMEOBJECT_DISPLAYID: usize = OBJECT_END + 0x02; // UpdateField
 pub(super) const GAMEOBJECT_FLAGS: usize = OBJECT_END + 0x03; // UpdateFields.h:273.
 pub(super) const GAMEOBJECT_STATE: usize = OBJECT_END + 0x08; // UpdateFields.h:275.
 pub(super) const GAMEOBJECT_DYN_FLAGS: usize = OBJECT_END + 0x0d; // UpdateFields.h:280.
+pub(super) const GAMEOBJECT_FACTION: usize = OBJECT_END + 0x0e; // UpdateFields.h:281.
+pub(super) const GAMEOBJECT_TYPE_ID: usize = OBJECT_END + 0x0f; // UpdateFields.h:282.
+pub(super) const GAMEOBJECT_ANIMPROGRESS: usize = OBJECT_END + 0x12; // UpdateFields.h:285.
 const UNIT_END: usize = OBJECT_END + 0xb6; // UpdateFields.h:176.
 const PLAYER_END: usize = UNIT_END + 0x446; // UpdateFields.h:266.
 const GAMEOBJECT_END: usize = OBJECT_END + 0x14; // UpdateFields.h:287.
@@ -250,6 +255,9 @@ pub struct SourceObjects {
     event_notified: BTreeMap<MapIdentity, BTreeSet<ObjectHandle>>,
 }
 impl SourceObjects {
+    pub fn construction_count(&self, thread: u64) -> u64 {
+        self.next.get(&thread).map_or(0, |&next| next - 1)
+    }
     // A construction identity exists before _Create assigns any GUID; Object.cpp:48-59,115-125.
     pub fn construct(&mut self, thread: u64, kind: SourceObjectKind) -> Result<ObjectHandle> {
         require(thread > 0, "execution.object_thread")?;
