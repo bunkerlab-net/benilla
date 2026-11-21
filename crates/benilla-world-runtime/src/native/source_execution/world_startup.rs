@@ -158,7 +158,10 @@ pub fn initialize_world_tail(
         .event_timer
         .set_interval(i64::from(delay));
     // Deviation: Omit World.cpp:1421 because solo worlds have no realm character deletion queue.
-    Err(refuse("execution.world.World_1424.anticheat_owner"))
+    // Deviation: Omit World.cpp:1424 because solo worlds have no realm anticheat service.
+
+    // CMakeCache.txt:18 disables BUILD_AHBOT, so World.cpp:1426-1430 does not run.
+    Err(refuse("execution.world.World_1433.world_state_owner"))
 }
 
 #[derive(Default)]

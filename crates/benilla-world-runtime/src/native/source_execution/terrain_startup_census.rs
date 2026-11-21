@@ -185,7 +185,9 @@ fn frozen_startup(later: bool) {
         let thread = fields.next().unwrap().parse::<u64>().unwrap();
         if thread != 1
             && !(later
-                && (matches!(thread, 6 | 7) || seal16::MAP_UPDATER_TRACE.contains(&trace_line)))
+                && (matches!(thread, 6 | 7)
+                    || seal16::MAP_UPDATER_TRACE.contains(&trace_line)
+                    || (thread == 11 && seal16::ANTICHEAT_WORKER_TRACE.contains(&trace_line))))
         {
             continue;
         }

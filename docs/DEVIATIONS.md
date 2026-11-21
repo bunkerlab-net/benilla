@@ -42,7 +42,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - [benilla-srp](#benilla-srp): 2
 - [benilla-ui](#benilla-ui): 135
 - [benilla-world](#benilla-world): 47
-- [benilla-world-runtime](#benilla-world-runtime): 11
+- [benilla-world-runtime](#benilla-world-runtime): 12
 
 ### benilla-app
 
@@ -1023,4 +1023,5 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - CreatureSpellList.h:84-91 leaves Disabled unwritten; the owner permits UnitAI.cpp:106 because both branches are false when Spells is empty. ([`src/native/source_execution/unit_ai.rs:948`](../crates/benilla-world-runtime/src/native/source_execution/unit_ai.rs#L948))
 - Omit World.cpp:1398 because solo worlds have no login database. World.cpp:1402 initializes the weekly quest reset after the ban cleanup. ([`src/native/source_execution/world_startup.rs:141`](../crates/benilla-world-runtime/src/native/source_execution/world_startup.rs#L141))
 - Omit World.cpp:1421 because solo worlds have no realm character deletion queue. ([`src/native/source_execution/world_startup.rs:160`](../crates/benilla-world-runtime/src/native/source_execution/world_startup.rs#L160))
+- Omit World.cpp:1424 because solo worlds have no realm anticheat service. ([`src/native/source_execution/world_startup.rs:161`](../crates/benilla-world-runtime/src/native/source_execution/world_startup.rs#L161))
 

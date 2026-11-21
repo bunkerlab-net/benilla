@@ -81,6 +81,7 @@ const MAP0_NEXT_OWNER_LINE: u64 = 61721576; // First transport birth.
 const MAP0_INITIALIZE_RETURN: u64 = 61721693;
 const MAP0_LAST_STORMWIND_COMPLETION: u64 = 61390644;
 pub(super) const MAP_UPDATER_TRACE: std::ops::RangeInclusive<u64> = 61721695..=61721719;
+pub(super) const ANTICHEAT_WORKER_TRACE: std::ops::RangeInclusive<u64> = 61732724..=61734898;
 
 #[derive(Default)]
 struct MapUpdaterTrace {
@@ -1284,6 +1285,7 @@ pub(super) struct Inputs {
     battlegrounds: battleground_evidence::Evidence,
     bans: world_tail::BansEvidence,
     old_characters: world_tail::OldCharactersEvidence,
+    anticheat: world_tail::AnticheatEvidence,
     weekly: weekly_tail::WeeklyEvidence,
     event_initialize_line: Option<u64>,
     event_status_writes: Vec<(u64, String)>,
@@ -1349,6 +1351,9 @@ impl Inputs {
         }
         if thread == 1 && (line == 12334 || (61727834..=61727859).contains(&line)) {
             self.old_characters.observe(line, kind, p);
+        }
+        if matches!(thread, 1 | 11) && (61727921..61738404).contains(&line) {
+            self.anticheat.observe(thread, line, kind, p);
         }
         self.event_startup.observe_subscriber(thread, line, kind, p);
         if thread == 1 && (46233402..=46233818).contains(&line) {
@@ -7326,6 +7331,7 @@ pub(super) fn continue_startup(
     );
     observed.bans.assert_matches(recording);
     observed.old_characters.assert_matches(recording);
+    observed.anticheat.assert_matches(recording);
     observed.event_startup.bind_subscribers(&mut ready);
     owner.continents = Some(ready);
     let map0 = owner.event_next_map(None, None).unwrap().unwrap();
