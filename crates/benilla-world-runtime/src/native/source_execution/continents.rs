@@ -438,10 +438,11 @@ impl ReadySourceContinents {
             .check_reference_templates(self.battlegrounds.used_refloot(), notice)
     }
 
-    // World.cpp:1398 deletes expired login database bans after the reference audit.
-    pub fn delete_expired_ip_bans(&self) -> Result<()> {
+    pub fn initialize_world_tail(&self) -> Result<()> {
+        // Deviation: Omit World.cpp:1398 because solo worlds have no login database.
+        // World.cpp:1402 initializes the weekly quest reset after the ban cleanup.
         Err(refuse(
-            "execution.world.World_1398.login_database_execute_owner",
+            "execution.world.World_1402.weekly_quest_reset_time_owner",
         ))
     }
 }

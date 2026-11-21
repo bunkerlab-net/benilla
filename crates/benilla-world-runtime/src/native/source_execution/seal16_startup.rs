@@ -37,6 +37,8 @@ mod spell_lists;
 pub(super) mod templates;
 #[path = "seal16_waypoints.rs"]
 mod waypoints;
+#[path = "seal16_world_tail.rs"]
+mod world_tail;
 
 const GROUP_QUERIES: [&str; 6] = [
     "SELECT Id, Name, Type, MaxCount, WorldState, WorldStateExpression, Flags, StringId, RespawnOverrideMin, RespawnOverrideMax FROM spawn_group",
@@ -1275,6 +1277,7 @@ pub(super) struct Inputs {
     map_updater: MapUpdaterTrace,
     loot: loot_evidence::Evidence,
     battlegrounds: battleground_evidence::Evidence,
+    bans: world_tail::BansEvidence,
     event_initialize_line: Option<u64>,
     event_status_writes: Vec<(u64, String)>,
     graveyard_query_line: Option<u64>,
@@ -1323,6 +1326,9 @@ impl Inputs {
         }
         if thread == 1 && (61721736..=61721907).contains(&line) {
             self.battlegrounds.observe(line, kind, p);
+        }
+        if thread == 1 && (61722084..=61722110).contains(&line) {
+            self.bans.observe(line, kind, p);
         }
         if thread == 1 && (46233402..=46233818).contains(&line) {
             self.transport_sql.observe(line, kind, p);
@@ -7249,7 +7255,8 @@ pub(super) fn continue_startup(
         loaded.store(LootStoreKind::Reference).templates().count(),
         551
     );
-    let refusal = ready.delete_expired_ip_bans().unwrap_err();
+    observed.bans.assert_matches(recording);
+    let refusal = ready.initialize_world_tail().unwrap_err();
     assert_eq!(refusal.id, active_init::STARTUP_NEXT_OWNER);
     let next_owner = refusal.id;
     let next_source = active_init::STARTUP_NEXT_SOURCE;
