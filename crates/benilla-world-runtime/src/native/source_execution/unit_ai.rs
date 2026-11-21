@@ -175,6 +175,13 @@ pub struct SourceUnitFields {
     pub resistances: SourceUnitResistances,
     #[serde(skip)]
     pub creature_damage: SourceCreatureDamage,
+    /// Unit.cpp:402-404 initializes all three capabilities to true.
+    #[serde(skip)]
+    pub can_dodge: bool,
+    #[serde(skip)]
+    pub can_parry: bool,
+    #[serde(skip)]
+    pub can_block: bool,
     /// Unit.cpp:409-410 initializes every school multiplier to one.
     #[serde(skip)]
     pub threat_modifier: [f32; 7],
@@ -227,6 +234,42 @@ pub struct SourceUnitFields {
 }
 
 impl SourceUnitFields {
+    /// Unit.cpp:3019-3027.
+    pub fn set_can_dodge(&mut self, object: &SourceObject, flag: bool) -> Result<()> {
+        if self.can_dodge == flag {
+            return Ok(());
+        }
+        self.can_dodge = flag;
+        require(
+            object.kind != SourceObjectKind::Player,
+            "execution.unit.Unit_3026.update_dodge_percentage_owner",
+        )
+    }
+
+    /// Unit.cpp:3029-3037.
+    pub fn set_can_parry(&mut self, object: &SourceObject, flag: bool) -> Result<()> {
+        if self.can_parry == flag {
+            return Ok(());
+        }
+        self.can_parry = flag;
+        require(
+            object.kind != SourceObjectKind::Player,
+            "execution.unit.Unit_3036.update_parry_percentage_owner",
+        )
+    }
+
+    /// Unit.cpp:3039-3047.
+    pub fn set_can_block(&mut self, object: &SourceObject, flag: bool) -> Result<()> {
+        if self.can_block == flag {
+            return Ok(());
+        }
+        self.can_block = flag;
+        require(
+            object.kind != SourceObjectKind::Player,
+            "execution.unit.Unit_3046.update_block_percentage_owner",
+        )
+    }
+
     /// Unit.h:1447-1448 reads the live display field.
     pub fn is_mounted(&self) -> bool {
         self.mount_display() != 0
@@ -475,6 +518,9 @@ impl SourceUnitFields {
             visibility: SourceUnitVisibility::default(),
             resistances: SourceUnitResistances::default(),
             creature_damage: SourceCreatureDamage::default(),
+            can_dodge: true,
+            can_parry: true,
+            can_block: true,
             threat_modifier: [1.0; 7],
             spell_starts: SourceSpellStarts::default(),
             unit_events: SourceUnitEvents::default(),

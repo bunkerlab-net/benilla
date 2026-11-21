@@ -144,8 +144,6 @@ pub struct SourceLoadedCreatureFields {
     pub name: Vec<u8>,
     pub default_movement: u32,
     pub damage_school: u32,
-    pub can_parry: bool,
-    pub can_block: bool,
     pub can_dual_wield: bool,
     pub no_reputation: bool,
     pub detection: u32,
@@ -496,11 +494,13 @@ impl CreatureConstruction {
             )?;
         fields.default_movement = movement_enum(entry.movement)?;
         fields.damage_school = school_enum(w[62])?;
-        fields.can_parry = w[23] & 4 == 0;
-        fields.can_block = w[23] & 0x10 == 0;
-        fields.can_dual_wield = w[23] & 0x800000 != 0;
-        fields.no_reputation = false;
-        fields.detection = (w[31] as f32).to_bits();
+        // Creature.cpp:460-461 writes the shared Unit capabilities.
+        let object = objects.get(self.object)?;
+        live.set_can_parry(object, w[23] & 4 == 0)?;
+        live.set_can_block(object, w[23] & 0x10 == 0)?;
+        live.loaded_creature.can_dual_wield = w[23] & 0x800000 != 0;
+        live.loaded_creature.no_reputation = false;
+        live.loaded_creature.detection = (w[31] as f32).to_bits();
         live.apply_creature_capabilities(w[23]);
         self.corpse_delay = if w[88] != 0 {
             w[88]

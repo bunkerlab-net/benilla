@@ -147,6 +147,9 @@ impl SourcePlayer {
             fields.can_aggro = None;
             fields.respawn_delay = 0;
             fields.loaded_creature = Default::default();
+            // Player.cpp:581-582 overrides the Unit defaults.
+            fields.can_parry = false;
+            fields.can_block = false;
             units.register(objects, object, fields)?;
 
             // uint32 multiplication wraps before division at Player.cpp:515.

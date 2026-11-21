@@ -174,9 +174,7 @@ fn fresh_loaded_init_and_update_entry_write_live_fields_in_order() {
         ),
         (31, 4)
     );
-    assert!(
-        live.loaded_creature.can_parry && !live.loaded_creature.can_block && live.force_attacking
-    );
+    assert!(live.can_parry && !live.can_block && live.force_attacking);
     CreatureConstruction::begin_loaded_update_entry(&objects, unit, &mut live).unwrap();
     assert_eq!(
         (live.sheath_state, live.loaded_creature.misc_flags),

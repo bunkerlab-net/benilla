@@ -69,6 +69,35 @@ pub(super) fn construct(objects: &mut SourceObjects, units: &mut SourceUnits) ->
     .unwrap()
 }
 
+#[test]
+fn avoidance_capabilities_keep_unit_and_player_constructor_defaults() {
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let creature = SourceUnitFields::constructed_creature();
+    assert!(creature.can_dodge && creature.can_parry && creature.can_block);
+
+    let player = construct(&mut objects, &mut units);
+    let object = objects.get(player.object()).unwrap();
+    let unit = units.get_mut(&objects, player.object()).unwrap();
+    assert!(unit.can_dodge && !unit.can_parry && !unit.can_block);
+    unit.set_can_dodge(object, true).unwrap();
+    unit.set_can_parry(object, false).unwrap();
+    unit.set_can_block(object, false).unwrap();
+    assert_eq!(
+        unit.set_can_dodge(object, false).unwrap_err().id,
+        "execution.unit.Unit_3026.update_dodge_percentage_owner"
+    );
+    assert_eq!(
+        unit.set_can_parry(object, true).unwrap_err().id,
+        "execution.unit.Unit_3036.update_parry_percentage_owner"
+    );
+    assert_eq!(
+        unit.set_can_block(object, true).unwrap_err().id,
+        "execution.unit.Unit_3046.update_block_percentage_owner"
+    );
+    assert!(!unit.can_dodge && unit.can_parry && unit.can_block);
+}
+
 pub(super) fn test_items(ids: impl IntoIterator<Item = u32>) -> SourceStartupItems {
     let mut items = SourceStartupItems::default();
     let mut mt = Mt19937::from_seed(1);

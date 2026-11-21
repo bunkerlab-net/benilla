@@ -95,8 +95,8 @@ impl EntryFields {
             default_movement: entry.default_movement,
             damage_school: entry.damage_school,
             capabilities: [
-                entry.can_parry,
-                entry.can_block,
+                live.can_parry,
+                live.can_block,
                 entry.can_dual_wield,
                 live.force_attacking,
                 live.can_call_assistance,
