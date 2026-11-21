@@ -42,6 +42,35 @@ impl SourcePlayer {
         .cast_triggered(caster, Some(caster), id, None)?;
         Ok(())
     }
+
+    // SpellEffects.cpp:2311-2329. The dispatcher has checked the caster type.
+    fn effect_proficiency(
+        &mut self,
+        t: &SpellTemplate,
+        output: impl FnOnce(u16, &[u8]) -> Result<()>,
+    ) -> Result<()> {
+        let (kind, mask) = match t.equippeditemclass {
+            2 => (2, &mut self.weapon_proficiency),
+            4 => (4, &mut self.armor_proficiency),
+            _ => return Ok(()),
+        };
+        let subclass = t.equippeditemsubclassmask as u32;
+        if *mask & subclass != 0 {
+            return Ok(());
+        }
+        *mask |= subclass;
+        Self::send_proficiency(kind, *mask, output)
+    }
+
+    // Player.cpp:16973-16977; Opcodes.h:333.
+    fn send_proficiency(
+        kind: u8,
+        mask: u32,
+        output: impl FnOnce(u16, &[u8]) -> Result<()>,
+    ) -> Result<()> {
+        let [a, b, c, d] = mask.to_le_bytes();
+        output(0x127, &[kind, a, b, c, d])
+    }
 }
 
 struct PlayerCast<'a, 'b> {
@@ -354,6 +383,17 @@ impl SpellAuraHitOwner for PlayerCast<'_, '_> {
         (self.inputs.irand)(low, high)
     }
 
+    fn effect_proficiency(&mut self, t: &SpellTemplate) -> Result<()> {
+        let session = self.inputs.session;
+        self.player.effect_proficiency(t, |opcode, body| {
+            session.send_packet(opcode, body, false, |_, _| {
+                Err(refuse(
+                    "execution.session.WorldSession_252.packet_output_owner",
+                ))
+            })
+        })
+    }
+
     fn targetless_proc(&mut self, spell: &SourceSpell, t: &SpellTemplate, mask: u8) -> Result<()> {
         let live = self.units.get_mut(self.objects, self.player.object)?;
         live.auras.proc_bound_targetless(
@@ -378,6 +418,43 @@ impl SpellAuraHitOwner for PlayerCast<'_, '_> {
             control_guids: &live.control_guids,
         })
     }
+}
+
+#[test]
+fn detached_proficiency_ors_new_bits_and_builds_the_packet() {
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let mut player = super::tests::construct(&mut objects, &mut units);
+    assert_eq!(
+        (player.weapon_proficiency, player.armor_proficiency),
+        (0, 0)
+    );
+    let mut sent = Vec::new();
+    for (kind, mask) in [(2, 0x400), (2, 0x8400), (4, 1), (4, 2), (5, 8)] {
+        let t = SpellTemplate {
+            equippeditemclass: kind,
+            equippeditemsubclassmask: mask,
+            ..Default::default()
+        };
+        player
+            .effect_proficiency(&t, |opcode, body| {
+                sent.push((opcode, <[u8; 5]>::try_from(body).unwrap()));
+                Ok(())
+            })
+            .unwrap();
+    }
+    assert_eq!(
+        (player.weapon_proficiency, player.armor_proficiency),
+        (0x400, 3)
+    );
+    assert_eq!(
+        sent,
+        [
+            (0x127, [2, 0, 4, 0, 0]),
+            (0x127, [4, 1, 0, 0, 0]),
+            (0x127, [4, 3, 0, 0, 0])
+        ]
+    );
 }
 
 #[test]

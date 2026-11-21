@@ -351,6 +351,18 @@ pub trait SpellAuraHitOwner {
         Err(refuse("execution.spells.Object_2955.effect_dice_rng_owner"))
     }
 
+    fn effect_proficiency(&mut self, t: &SpellTemplate) -> Result<()> {
+        match t.equippeditemclass {
+            2 => Err(refuse(
+                "execution.spells.SpellEffects_2319.proficiency_owner",
+            )),
+            4 => Err(refuse(
+                "execution.spells.SpellEffects_2324.proficiency_owner",
+            )),
+            _ => Ok(()),
+        }
+    }
+
     fn targetless_proc(&mut self, _: &SourceSpell, _: &SpellTemplate, _: u8) -> Result<()> {
         Err(refuse(
             "execution.spells.Spell_1551.ProcDamageAndSpell_owner",
@@ -522,13 +534,11 @@ impl SourceSpell {
             20 | 25 | 26 | 37 | 39 => Ok(true),
             // SpellEffects.cpp:107,200-203. Detect's unused handler writes nothing.
             49 => Ok(true),
-            // SpellEffects.cpp:2313-2327. Only player weapon or armor can reach the masks.
-            60 if player && t.equippeditemclass == 2 => Err(refuse(
-                "execution.spells.SpellEffects_2319.proficiency_owner",
-            )),
-            60 if player && t.equippeditemclass == 4 => Err(refuse(
-                "execution.spells.SpellEffects_2324.proficiency_owner",
-            )),
+            // SpellEffects.cpp:2313 returns before reading the item's class for non-players.
+            60 if player => {
+                owner.effect_proficiency(t)?;
+                Ok(true)
+            }
             60 => Ok(true),
             _ => Ok(false),
         }

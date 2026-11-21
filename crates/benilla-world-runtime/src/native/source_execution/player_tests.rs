@@ -556,26 +556,23 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         .unwrap_err();
     assert_eq!(
         error.id,
-        "execution.spells.SpellEffects_2319.proficiency_owner"
+        "execution.spells.Spell_7551.ApplySpellMod_radius_owner"
     );
-    // Northshire-01 A trace:68133282,68133496. No third draw in the Defense loop.
+    // Northshire-01 A trace:68133282,68133496. Diplomacy adds no draw.
     assert_eq!(raw, [(0, 132_753_960), (1, 40_231_698)]);
     assert_eq!(draws.raw, 2);
     let unit = units.get(&objects, player.object()).unwrap();
     let queue = unit.unit_events.inventory();
-    let [defense, dodge, spell_defense, unarmed, staves] = queue.queued.as_slice() else {
-        panic!("creation must schedule five spells through the Staves proficiency");
-    };
-    // SkillLineAbility keys 490, 689, 1424, 1236 and 700.
-    // Northshire-01 A trace:68133333-68133335,68133415-68133417,68133504-68133506,
-    // :68133580-68133583,68133665-68133667.
+    // SkillLineAbility keys 490, 689, 1424, 1236, 700, 2927 and 11728.
+    // Northshire-01 A trace:68133335,68133417,68133506,68133583,
+    // :68133667,68133743,68133825. The seventh cast reaches radius modifiers.
+    let casts = [204, 81, 522, 203, 227, 5009, 20599];
+    assert_eq!(queue.queued.len(), casts.len());
     assert_eq!(queue.clock_ms, 0);
-    for (event, (id, insertion)) in [defense, dodge, spell_defense, unarmed, staves]
-        .into_iter()
-        .zip([(204, 1), (81, 2), (522, 3), (203, 4), (227, 5)])
-    {
+    for (index, (event, id)) in queue.queued.iter().zip(casts).enumerate() {
+        let insertion = index as u64 + 1;
         let SourceUnitEvent::Spell { spell } = event.kind else {
-            panic!("Defense training must schedule a spell event");
+            panic!("creation training must schedule a spell event");
         };
         assert_eq!((event.add_time_ms, event.exec_time_ms), (0, 1));
         let schedule = event.queue.as_ref().unwrap();
@@ -585,9 +582,9 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         );
         let cast = &unit.spell_starts.spells[&spell];
         assert_eq!((cast.spell, cast.event), (id, Some(event.event_id)));
-        if id == 227 {
-            // Stock SQL :837917. The proficiency effect runs before the cast finishes.
-            assert_eq!(cast.state, SourceSpellState::Landing);
+        if id == 20599 {
+            // Stock SQL :853806 targets self. FillTargetMap precedes the hit.
+            assert_eq!(cast.state, SourceSpellState::Casting);
             assert!(cast.executing);
             assert_eq!(player.active_mod_spell, Some(spell));
         } else {
@@ -597,11 +594,15 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         if insertion <= 3 {
             assert_eq!(cast.creation_time, 100);
         }
-        // Stock SQL :837915,837867,838040,837914,837917. Trace :68133497 draws 0.
+        // Stock SQL :837915,837867,838040,837914,837917,841758. Trace :68133497 draws 0.
         assert_eq!(cast.damage_per_effect, [0, 0, 0]);
     }
-    // Spell.cpp:3170 and trace :68133665-68133667. The fifth cast has not returned.
+    // Spell.cpp:3170 and trace :68133825. The seventh cast has not returned.
     assert_eq!(unit.auras.cast_counter, 1);
+    // SQL :837917 and :841758 add the Staves and Wands masks. The session
+    // drops both packets before the Create response at trace :68135391-68135392.
+    assert_eq!(player.weapon_proficiency, 0x0008_0400);
+    assert_eq!(player.armor_proficiency, 0);
     // Stock SQL :671412; SkillLine.dbc key 95; StatSystem.cpp:484,493-502.
     assert_eq!(unit.mod_dodge_chance.to_bits(), 0x4099_9cc6);
     assert_eq!(player.dodge_percentage.to_bits(), 0x4094_7e0e);
@@ -627,6 +628,9 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             (204, learned),
             (227, learned),
             (522, learned),
+            (5009, learned),
+            (5019, learned),
+            (20599, learned),
         ])
     );
     assert!(player.action_buttons().is_empty());
@@ -638,8 +642,8 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             .collect::<Vec<_>>(),
         [95, 162, 183, 415, 6, 8, 136, 228, 237, 754, 98]
     );
-    // Stock SkillLine.dbc keys 95,162,6,8,136. SkillRaceClassInfo.dbc
-    // keys 57 and 301 maximize Frost and Fire at Player.cpp:5865.
+    // SkillLine.dbc keys 95,162,6,8,136,228,237,754. SkillRaceClassInfo.dbc
+    // keys 57,301,55,862 maximize the mono lines at Player.cpp:5865.
     assert_eq!(
         player.skills(),
         [
@@ -648,6 +652,9 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             ([6, 1], [5, 5]),
             ([8, 1], [5, 5]),
             ([136, 0], [1, 5]),
+            ([228, 0], [1, 5]),
+            ([237, 1], [5, 5]),
+            ([754, 1], [5, 5]),
         ]
         .map(|(id_step, value_max)| SourcePlayerSkill {
             id_step,

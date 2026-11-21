@@ -122,6 +122,9 @@ pub struct SourcePlayer {
     block_percentage: f32,
     parry_percentage: f32,
     dodge_percentage: f32,
+    // Player.cpp:579-580; Player.h:2420-2421.
+    weapon_proficiency: u32,
+    armor_proficiency: u32,
     pub taxi_mask: [u32; 8],
     pub free_primary_professions: u32,
     skills: Vec<SourcePlayerSkill>,
@@ -205,6 +208,8 @@ impl SourcePlayer {
                 block_percentage: 0.0,
                 parry_percentage: 0.0,
                 dodge_percentage: 0.0,
+                weapon_proficiency: 0,
+                armor_proficiency: 0,
                 taxi_mask: [0; 8],
                 free_primary_professions: 0,
                 skills: Vec::new(),
