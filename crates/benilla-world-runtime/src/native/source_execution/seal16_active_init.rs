@@ -4,10 +4,9 @@ use super::*;
 use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
-pub(super) const CREATURE_NEXT_OWNER: [&str; 2] = [
-    "execution.continents.MapManager_110.future_join_owner",
-    "execution.continents.MapManager_110.future_join_owner",
-];
+pub(super) const STARTUP_NEXT_OWNER: &str =
+    "execution.continents.MapManager_58.activate_map_updater_owner";
+pub(super) const STARTUP_NEXT_SOURCE: &str = "MapManager.cpp:58";
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
 pub(super) use clocks::{ActiveClock, ActiveClocks};

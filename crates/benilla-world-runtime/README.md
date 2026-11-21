@@ -1376,9 +1376,11 @@ Membership requires only the object identity. Each of the five source walks
 requires every member's address and walks in address order. Replay treats
 recorded addresses as observations.
 
-The seal16 replay binds both world transport SQL requests and loads all four
-map-1 transports. Map 1 returns from initialization. The replay refuses at
-the MapManager future join. Map 0 still stops before transport loading.
+The seal16 replay binds both world transport SQL requests. Map 0 loads five
+transports and returns at trace :61721693. Map 1 loads four and returns at
+:61049852. Both jobs finish before the join (MapManager.cpp:109-110). The
+replay stops before map updater activation (MapManager.cpp:56-58, trace
+:61721695).
 `update_map` is the `MapPreludePhase::Transports` handler, after messages and
 SpawnManager and before sessions/players, `Map.cpp:714-729`.
 It consumes the existing world snapshot, never a new clock read or RNG stream.

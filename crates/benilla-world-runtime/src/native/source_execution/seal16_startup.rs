@@ -1148,7 +1148,6 @@ fn tm(p: &[&str]) -> Tm {
 // The active preload prefix ends before the first transport birth.
 const MAP1_TRANSPORT_START: u64 = 61049124;
 const MAP1_INITIALIZE_RETURN: u64 = 61049852;
-const INITIALIZE_NEXT_SOURCE: &str = "MapManager.cpp:110";
 const MAP1_NEXT_RAW: u64 = 15783; // Final preload word at :61049072.
 
 #[derive(Default)]
@@ -1208,13 +1207,11 @@ pub(super) struct Inputs {
     epoch: Option<[i32; 7]>,
     world_seconds: Option<i64>,
     persistent_owners: [Option<InputOwner>; 2],
-    updating: bool,
-    expected_sql: Vec<String>,
     map_births: usize,
-    persistent_creations: Vec<(u32, u32)>,
     map_identities: BTreeMap<u64, (u64, String)>,
     map_bindings: BTreeMap<u32, (u64, u64, u64)>,
     map_threads: BTreeMap<u64, MapThreadEvidence>,
+    map_updater_activation_line: Option<u64>,
     event_initialize_line: Option<u64>,
     event_status_writes: Vec<(u64, String)>,
     graveyard_query_line: Option<u64>,
@@ -1258,6 +1255,9 @@ impl Inputs {
     pub(super) fn observe_thread(&mut self, thread: u64, line: u64, kind: &str, p: &[&str]) {
         if thread == 1 && (46233402..=46233818).contains(&line) {
             self.transport_sql.observe(line, kind, p);
+        }
+        if thread == 1 && kind == "worker_queue_binding" {
+            self.map_updater_activation_line.get_or_insert(line);
         }
         // The transport trace whitelist excludes clocks, RNG words and SQL.
         if thread == 6 && (MAP0_NEXT_OWNER_LINE..=MAP0_INITIALIZE_RETURN).contains(&line)
@@ -1765,9 +1765,6 @@ impl Inputs {
     pub(super) fn observe(&mut self, kind: &str, p: &[&str]) {
         match kind {
             "logical_birth" if p[1] == "map" => self.map_births += 1,
-            "constructor_persistent_add" => self
-                .persistent_creations
-                .push((p[0].parse().unwrap(), p[1].parse().unwrap())),
             "sql_query_request" => self.query_operation = p[1].parse().unwrap(),
             "sql_query" => {
                 self.query = unhex(p.last().unwrap());
@@ -1837,10 +1834,7 @@ impl Inputs {
                     0xa45ec1 | 0xa45f3e if self.lunar() => {
                         self.calendar.push_back(CalendarRecord::Now(value))
                     }
-                    0xa3fd72 => {
-                        self.update_clocks.push_back(value);
-                        self.updating = true;
-                    }
+                    0xa3fd72 => self.update_clocks.push_back(value),
                     0xa400bb => self.check_clocks.push_back(value),
                     _ => (),
                 }
@@ -1858,12 +1852,6 @@ impl Inputs {
                     p[0].parse().unwrap(),
                     tm(&p[1..]),
                 ))
-            }
-            "sql_write_bytes" if self.updating => {
-                let sql = String::from_utf8(unhex(p.last().unwrap())).unwrap();
-                if sql.contains("game_event_status") {
-                    self.expected_sql.push(sql);
-                }
             }
             _ => (),
         }
@@ -3308,9 +3296,7 @@ pub(super) fn continue_startup(
     let mut matched_map_sql = 0;
     let world_clock = SourceWorldClock::default();
     assert_eq!(world_clock.current_ms(), 0);
-    for (slot, thread, first_line, first_word) in
-        [(0, 6, 60100952, 2440933613), (1, 7, 60117712, 159038541)]
-    {
+    let run_job = |(slot, thread, first_line, first_word): (usize, u64, u64, u64)| {
         let evidence = &observed.map_threads[&thread];
         let stream = Mt19937::from_state(evidence.initial.clone().unwrap()).unwrap();
         // MoveSplineInit.cpp:27 initializes this OS thread's counter beside its RNG.
@@ -3572,54 +3558,47 @@ pub(super) fn continue_startup(
         )
         .unwrap();
         let mut transport_count = 0;
-        let refusal = active_result
-            .and_then(|()| {
-                let map = &mut continents.maps[slot];
-                let before_guid = map.guids.as_ref().unwrap().next_gameobject_counter();
-                let before = active_objects.construction_count(thread);
-                let before_model = dynamic_models.models.next_generation();
-                let before_references =
-                    relations_evidence::TransportTrace::model_references(&geometry.vmap);
-                map.initialize_tail(
-                    &transport_templates,
-                    &gameobject_templates,
-                    &mut active_objects,
-                    &mut dynamic_models,
-                    &mut geometry.vmap,
-                    &world_clock,
-                    thread,
-                )?;
-                assert_eq!(
-                    map.guids.as_ref().unwrap().next_gameobject_counter(),
-                    before_guid
-                );
-                transport_count = evidence.transports.assert_live(
-                    map,
-                    &active_objects,
-                    &dynamic_models,
-                    before,
-                    before_model,
-                    thread,
-                );
-                let after_references =
-                    relations_evidence::TransportTrace::model_references(&geometry.vmap);
-                let added = if slot == 0 { [2, 2, 1] } else { [3, 1, 0] };
-                assert_eq!(
-                    after_references,
-                    std::array::from_fn(|i| before_references[i] + added[i])
-                );
-                continents.await_initialization()
-            })
-            .unwrap_err();
-        if slot == 0 {
+        let job_result = active_result.and_then(|()| {
+            let map = &mut continents.maps[slot];
+            let before_guid = map.guids.as_ref().unwrap().next_gameobject_counter();
+            let before = active_objects.construction_count(thread);
+            let before_model = dynamic_models.models.next_generation();
+            let before_references =
+                relations_evidence::TransportTrace::model_references(&geometry.vmap);
+            map.initialize_tail(
+                &transport_templates,
+                &gameobject_templates,
+                &mut active_objects,
+                &mut dynamic_models,
+                &mut geometry.vmap,
+                &world_clock,
+                thread,
+            )?;
             assert_eq!(
-                refusal.id,
-                active_init::CREATURE_NEXT_OWNER[0],
-                "candidate {}, entry {entry}, {completed} completed, {candidates} allocations, raw {}",
-                attempt.guid,
-                random.cursor().raw
+                map.guids.as_ref().unwrap().next_gameobject_counter(),
+                before_guid
             );
-        }
+            transport_count = evidence.transports.assert_live(
+                map,
+                &active_objects,
+                &dynamic_models,
+                before,
+                before_model,
+                thread,
+            );
+            let after_references =
+                relations_evidence::TransportTrace::model_references(&geometry.vmap);
+            let added = if slot == 0 { [2, 2, 1] } else { [3, 1, 0] };
+            assert_eq!(
+                after_references,
+                std::array::from_fn(|i| before_references[i] + added[i])
+            );
+            Ok(())
+        });
+        let job_owner = job_result
+            .as_ref()
+            .err()
+            .map_or("none", |refusal| refusal.id.as_str());
         for &handle in completed_objects.iter().chain(std::iter::once(&candidate)) {
             assert_eq!(
                 continents.maps[slot].passengers.transport(handle).unwrap(),
@@ -4424,17 +4403,15 @@ pub(super) fn continue_startup(
                 .flatten()
                 .map(|aura| (aura.kind, aura.applied))
                 .eq([(87, true), (79, true), (10, true)]));
-            assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[0]);
         }
         assert_eq!(
             geometry.pathfinder_calculate_completions - calculations_before,
             evidence.path_calculations.len() as u64,
-            "map={slot} next_owner={}",
-            refusal.id
+            "map={slot} next_owner={job_owner}"
         );
         println!(
-            "F6_NEXT_CANDIDATE map={slot} guid={} kind={:?} entry={entry} allocations={candidates} completed={completed} active_members={} refusal={} lookups={lookups:?}",
-            attempt.guid, attempt.kind, continents.maps[slot].cells.active().len(), refusal.id
+            "F6_NEXT_CANDIDATE map={slot} guid={} kind={:?} entry={entry} allocations={candidates} completed={completed} active_members={} refusal={job_owner} lookups={lookups:?}",
+            attempt.guid, attempt.kind, continents.maps[slot].cells.active().len()
         );
         if slot == 1 {
             relations_evidence::assert_world_boss_reach(&creature_templates, owner.spawns);
@@ -4875,7 +4852,6 @@ pub(super) fn continue_startup(
             assert!(!lurker
                 .control_guids
                 .is_client_controlled(lurker.flags, lurker_object, None));
-            assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[1]);
             // Trace :61048467-:61049110 binds the last active preload creature.
             assert_eq!(
                 (attempt.guid, attempt.kind, entry),
@@ -4962,7 +4938,6 @@ pub(super) fn continue_startup(
                 (7276, SourceSpellState::Finished)
             );
             assert_eq!(spell.proc_event_lookups, 1);
-            assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[slot]);
         }
         println!("F6_WMO_CONTINUATION map={slot} raw={} pathfinder_constructors={} swimming={swimming_census:?} completed={completed} zone_lookups={}",
             random.cursor().raw, geometry.pathfinder_constructor_completions - pathfinders_before,
@@ -5094,7 +5069,7 @@ pub(super) fn continue_startup(
                 if slot == 0 { 2 } else { 6 }
             );
         }
-        println!("F6_EQUIPMENT_CONTINUATION map={slot} completed={completed} candidates={candidates} raw={} refusal={} current_equipment={:?}", random.cursor().raw, refusal.id, equipment_writes.get(&attempt.guid));
+        println!("F6_EQUIPMENT_CONTINUATION map={slot} completed={completed} candidates={candidates} raw={} refusal={job_owner} current_equipment={:?}", random.cursor().raw, equipment_writes.get(&attempt.guid));
         if slot == 0 {
             // EventAI returns at :60478585; ObjectGridLoader.cpp:159 completes
             // GUID40520 at :60478609 before the next birth at :60478620.
@@ -5364,7 +5339,7 @@ pub(super) fn continue_startup(
             );
             assert_guid40520_queue(&live.spell_starts, &live.unit_events);
             assert_eq!(evidence.words[27080], (60477501, 27080, 3988355474));
-            println!("F6_ADDON_CAST guid=40520 entry=6491 completed_spells=4 types=[95,4] queued=5 cast_words=0 next_owner={}", refusal.id);
+            println!("F6_ADDON_CAST guid=40520 entry=6491 completed_spells=4 types=[95,4] queued=5 cast_words=0 next_owner={job_owner}");
             println!("F6_ADDON_CAST_UB stock_prefix_spells=2 effect_index_out_of_bounds=0 cast_time_signed_add_overflow=0 cast_time_float_to_int=0 school_mask_shift=0 duration_abs=0 max_duration_abs=0 effect_base_sub=0 effect_float_to_int=0 aura_type_enum=0 immunity_effect_index=0");
             println!("F6_SPELL_BROADCAST start_and_go_visited=true camera_session_reads=0 cell_float_to_int_undefined=0");
             assert_eq!(
@@ -5427,7 +5402,6 @@ pub(super) fn continue_startup(
                 .unwrap()
                 .database_guid
                 == 27923));
-            assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[slot]);
             assert_eq!(
                 zone_lookups[&SpawnKey {
                     kind: GridSpawnKind::GameObject,
@@ -6470,7 +6444,6 @@ pub(super) fn continue_startup(
                 ]
             }
         );
-        assert_eq!(refusal.id, active_init::CREATURE_NEXT_OWNER[slot]);
         assert_eq!(
             (attempt.grid.x, attempt.grid.y),
             if slot == 0 { (7, 32) } else { (29, 34) }
@@ -6793,8 +6766,8 @@ pub(super) fn continue_startup(
             visibility.cameras
         );
         println!(
-            "F6_ACTIVE_PREFIX map={slot} first_grid={:?} candidate_guid={} entry={entry} candidate_allocations={candidates} completed_objects={completed} next_owner={}",
-            evidence.first_grid, attempt.guid, refusal.id
+            "F6_ACTIVE_PREFIX map={slot} first_grid={:?} candidate_guid={} entry={entry} candidate_allocations={candidates} completed_objects={completed} next_owner={job_owner}",
+            evidence.first_grid, attempt.guid
         );
         assert_eq!(continents.maps[slot].graveyards, world_graveyards);
         assert_eq!(
@@ -6881,8 +6854,8 @@ pub(super) fn continue_startup(
             MAP1_INITIALIZE_RETURN
         };
         let transport_receipt = format!(" completed={completed} allocations={allocations} clocks={clocks} paths={paths} sql={sql} idle={idle_count} transports={transport_count} initialize_return_line={initialize_return_line}");
-        println!(
-            "F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={} next_owner={} next_source={}{transport_receipt}",
+        let pool_receipt = format!(
+            "F6_MAP_POOL thread={thread} matched_words={} matched_pool_members={} matched_pool_counts={} shuffles={} map_event_active=[] pool_snapshot_line={} event_initialize_line={event_initialize_line} graveyards=190 graveyard_init_words=0 graveyard_init_sql=0 variable_init_words=0 variable_init_sql=0 encounter_bounds={}",
             matched_map_words[slot],
             evidence
                 .pool_members
@@ -6893,8 +6866,6 @@ pub(super) fn continue_startup(
             shuffles.len(),
             evidence.pool_snapshot_line.unwrap(),
             encounters.by_map(slot as u32).len(),
-            refusal.id,
-            INITIALIZE_NEXT_SOURCE,
         );
         owner.states = states;
         let raw = trace
@@ -7019,98 +6990,35 @@ pub(super) fn continue_startup(
         // Initial-state projection remains independent of the now-executed script draws.
         let mut initial_engine = Mt19937::from_state(evidence.initial.clone().unwrap()).unwrap();
         assert_eq!(u64::from(initial_engine.next_u32()), first_word);
+        (job_result, pool_receipt, transport_receipt)
+    };
+    let [(map0, pool0, transport0), (map1, pool1, transport1)] =
+        [(0, 6, 60100952, 2440933613), (1, 7, 60117712, 159038541)].map(run_job);
+    let ready = continents.join_initialization([map0, map1]).unwrap();
+    // The world binds the updater queue at :61721695 after both map returns.
+    assert_eq!(observed.map_updater_activation_line, Some(61721695));
+    let refusal = ready.activate_map_updater().unwrap_err();
+    assert_eq!(refusal.id, active_init::STARTUP_NEXT_OWNER);
+    let next_owner = refusal.id;
+    let next_source = active_init::STARTUP_NEXT_SOURCE;
+    for (pool, transport) in [(pool0, transport0), (pool1, transport1)] {
+        println!("{pool} next_owner={next_owner} next_source={next_source}{transport}");
     }
-    if continents.maps.iter().any(|map| map.script_id != 0) {
-        let refusal = refuse(active_init::CREATURE_NEXT_OWNER[0]);
-        assert!(!events.inventory().initialized);
-        assert!(owner.sql.is_empty() && owner.raw.is_empty());
-        assert_eq!(owner.cursor.raw, 8712);
-        assert_eq!(next_word, (8712, 3411341330));
-        assert_eq!(u64::from(owner.engine.clone().next_u32()), next_word.1);
-        assert_eq!(matched_map_sql, 4);
-        let results = owner
-            .pool_operations
-            .iter()
-            .filter(|operation| matches!(operation, PoolOperation::Selected { add: true, .. }))
-            .count();
-        assert!(results > 0);
-        println!(
-            "F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_script_names_sql=1 matched_template_sql=6 matched_creature_model_sql=3 matched_equipment_sql=3 matched_creature_immunity_sql=1 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={} next_owner_map1={} next_raw={} next_word={} clone_next_word_checked=true matched_transport_sql={matched_transport_sql}",
-            owner.cursor.raw,
-            refusal.id,
-            active_init::CREATURE_NEXT_OWNER[1],
-            next_word.0,
-            next_word.1
-        );
-        return;
-    }
-    let initial_status = owner.status.iter().copied().collect::<Vec<_>>();
-    let announce = super::super::spawn_loader_config::assignment(&config, "Event.Announce")
-        .unwrap()
-        .1
-        .parse::<u32>()
-        .unwrap()
-        != 0;
-    let delay = events
-        .initialize(
-            (!initial_status.is_empty()).then_some(initial_status.as_slice()),
-            announce,
-            &mut owner,
-        )
-        .unwrap();
-    if owner.sql != observed.expected_sql {
-        let index = owner
-            .sql
-            .iter()
-            .zip(&observed.expected_sql)
-            .position(|(a, b)| a != b)
-            .unwrap_or(owner.sql.len().min(observed.expected_sql.len()));
-        println!(
-            "F6_FIRST_DIVERGENCE event_sql_index={index} expected={:?} got={:?} raw_words={} candidate_causes=calendar_inputs,source_query_order,event_effect_order",
-            observed.expected_sql.get(index),
-            owner.sql.get(index),
-            owner.cursor.raw
-        );
-    }
-    assert_eq!(owner.sql, observed.expected_sql);
-    assert_eq!(&owner.status, &events.inventory().active);
-    assert_eq!(&owner.quests, &events.inventory().quest_active);
-    assert_quest_activity(&owner);
-    assert!(!events.active(27));
-    assert_eq!(owner.loaded_maps.len(), observed.map_births);
-    let created = persistent
-        .operations
+    assert!(!events.inventory().initialized);
+    assert!(owner.sql.is_empty() && owner.raw.is_empty());
+    assert_eq!(owner.cursor.raw, 8712);
+    assert_eq!(next_word, (8712, 3411341330));
+    assert_eq!(u64::from(owner.engine.clone().next_u32()), next_word.1);
+    assert_eq!(matched_map_sql, 4);
+    let results = owner
+        .pool_operations
         .iter()
-        .filter_map(|op| {
-            if let PersistentOperation::Created { state } = op {
-                Some((state.map, state.instance))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(created, observed.persistent_creations);
-    assert!(events.active(400));
-    assert!(owner.update.is_empty() && owner.checks.is_empty());
-    if !owner.raw.is_empty() {
-        println!(
-            "F6_FIRST_DIVERGENCE raw_index={} expected_owner=WorldState.cpp:605 got_owner=PoolManager expected_word={} got_words={:?} candidate_causes=event_windows,source_query_order,pool_event_membership",
-            next_word.0, next_word.1, owner.raw
-        );
-    }
-    assert!(owner.raw.is_empty());
-    assert_eq!(owner.cursor.raw, next_word.0);
-    let next = u64::from(owner.engine.clone().next_u32());
-    assert_eq!(next, next_word.1);
-    let refusal = refuse("execution.world_state.startup_owner");
+        .filter(|operation| matches!(operation, PoolOperation::Selected { add: true, .. }))
+        .count();
+    assert!(results > 0);
     println!(
-        "F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} event_definitions={} event7_clock_bound=true actual_sine_dispatch_bound=true event27_active=false pool_shuffles=0 pool_results=0 matched_status_writes={} persistent_states={} event_delay_ms={delay} next_raw={} next_word={next} next_owner={} next_source=WorldState.cpp:605",
-        owner.cursor.raw,
-        events.inventory().definitions.len(),
-        owner.sql.len(),
-        owner.states.inventories().len(),
-        next_word.0,
-        refusal.id
+        "F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_script_names_sql=1 matched_template_sql=6 matched_creature_model_sql=3 matched_equipment_sql=3 matched_creature_immunity_sql=1 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={next_owner} next_owner_map1={next_owner} next_raw={} next_word={} clone_next_word_checked=true matched_transport_sql={matched_transport_sql}",
+        owner.cursor.raw, next_word.0, next_word.1
     );
 }
 

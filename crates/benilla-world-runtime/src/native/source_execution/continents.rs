@@ -320,16 +320,16 @@ impl ReadySourceContinents {
     pub fn continents(&self) -> &SourceContinents {
         &self.0
     }
+
+    // MapManager.cpp:58 activates the updater only after the continent join.
+    pub fn activate_map_updater(&self) -> Result<()> {
+        Err(refuse(
+            "execution.continents.MapManager_58.activate_map_updater_owner",
+        ))
+    }
 }
 
 impl SourceContinents {
-    // MapManager.cpp:109-110 waits for both continent initialization futures.
-    pub fn await_initialization(&self) -> Result<()> {
-        Err(refuse(
-            "execution.continents.MapManager_110.future_join_owner",
-        ))
-    }
-
     // MapManager.cpp:92-111 waits for both initialization jobs before returning.
     pub fn join_initialization(self, outcomes: [Result<()>; 2]) -> Result<ReadySourceContinents> {
         // Deviation: Report map 0's refusal first because startup needs a deterministic error.

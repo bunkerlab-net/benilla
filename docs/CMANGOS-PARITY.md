@@ -185,8 +185,7 @@ is meaningful without a bounded content/mechanics inventory.
   `Unit.cpp:7777`. Map 1 also loads four transports and returns from
   `Map::Initialize` at trace :61049852. The four transport births bring its
   allocation count to 575 without changing the grid completion, RNG, clock,
-  path, or SQL counts. The replay stops at the future join in
-  `MapManager.cpp:110`. It does not execute a map update.
+  path, or SQL counts.
   EventAI event 649101 replaces 10848 and adds a second passive 9036.
   `Unit.cpp:5326-5446,10856-10866` unlinks both indexes and defers disposal.
   Map 0 completes GUID4195 after event 26501's holder timer draw
@@ -259,7 +258,9 @@ is meaningful without a bounded content/mechanics inventory.
   phase (trace :61581186-:61581278) and completes at :61581298.
   Map 0 finishes active preload at :61721572. It loads five transports
   at :61721576-:61721692 and returns from `Map::Initialize` at :61721693.
-  The replay stops at the continent worker join (`MapManager.cpp:110`).
+  The replay joins both jobs (MapManager.cpp:109-110) and stops before map
+  updater activation (MapManager.cpp:56-58, trace :61721695). It does not
+  create battlegrounds or execute a map update.
 - **Creature damage fields.** `Creature.cpp:1459-1485,599-600` binds the
   base weapon damage, attack power, and damage multiplier on the live unit.
   `StatSystem.cpp:614-642,675-806` recalculates attack power and mainhand,
