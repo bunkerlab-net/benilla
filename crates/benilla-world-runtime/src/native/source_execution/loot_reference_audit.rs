@@ -150,7 +150,7 @@ impl SourceLootStores {
             let template = self
                 .store(frame.kind)
                 .get_loot_for(frame.entry)
-                .expect("frames only name loaded templates");
+                .ok_or_else(|| refuse("execution.loot.LootMgr_2766.audit_template_missing"))?;
             let Some((position, operand)) = frame.next.next_reference(template) else {
                 let Some(parent) = path.parents.pop() else {
                     return Ok(true);
@@ -178,7 +178,7 @@ impl SourceLootStores {
                 let template = self.stores[frame.kind as usize]
                     .templates
                     .get_mut(u64::from(frame.entry))
-                    .expect("the audit does not erase templates");
+                    .ok_or_else(|| refuse("execution.loot.LootMgr_101.audit_template_missing"))?;
                 position.disable(template);
                 return Ok(false);
             }
