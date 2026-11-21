@@ -83,7 +83,7 @@ pub(super) struct Prefix<'a> {
     pub random: &'a mut dyn CreatureRandom,
     pub spline_thread: &'a mut SourceSplineThread,
     pub dynamic_models: &'a mut SourceDynamicModels,
-    pub dynamic_map: SourceDynamicMap,
+    pub dynamic_map: &'a mut SourceDynamicMap,
     pub trig_dispatch: benilla_sim::source_trig_fma::DispatchBinding,
     pub gameobjects: SourceGameObjects,
     pub creature_model: Option<[u32; 8]>,
@@ -440,7 +440,7 @@ pub(super) fn load_first(
         random,
         spline_thread,
         dynamic_models,
-        dynamic_map: SourceDynamicMap::new(map.identity),
+        dynamic_map: &mut map.dynamic_tree,
         trig_dispatch,
         gameobjects: SourceGameObjects::default(),
         creature_model: None,
@@ -561,6 +561,16 @@ pub(super) fn load_first(
         // Map.cpp:214-216 calls LoadTransports after active preload returns.
         Ok(()) => refuse("execution.continents.load_transports_owner"),
     };
+    for &handle in &factory.completed_objects {
+        if factory
+            .gameobjects
+            .get(handle)
+            .is_ok_and(|object| object.has_model)
+        {
+            let model = factory.dynamic_models.handle(handle)?;
+            assert!(factory.dynamic_map.tree.contains(model));
+        }
+    }
     let attempt = *factory.attempts.last().ok_or_else(|| refusal.clone())?;
     let bound_guid = factory
         .candidates

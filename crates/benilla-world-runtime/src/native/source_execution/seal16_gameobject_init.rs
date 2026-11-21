@@ -161,7 +161,7 @@ impl<D: GridDefinitions<Row = SpawnKey>> GameObjectFactoryOwner<D, SourceTerrain
         let value = self.gameobjects.get(handle)?;
         self.entry = Some(value.template.entry);
         self.dynamic_models.operation(
-            &mut self.dynamic_map,
+            self.dynamic_map,
             &mut context.products.vmap,
             DynamicGameObject {
                 handle,
