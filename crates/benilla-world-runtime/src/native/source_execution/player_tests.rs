@@ -633,7 +633,8 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         )
         .unwrap();
     let targets = SourceSpellTargetMgr::initialize(&spells);
-    let mut session = SourceWorldSession::construct(true);
+    // Northshire-01 A proxy-requests.jsonl:1514 binds account 1 at Player.cpp:15644.
+    let mut session = SourceWorldSession::construct(1, true);
     // Northshire-01 A client-packets.jsonl:4-7. WorldSession.cpp:479-499 runs before create.
     session.set_in_char_selection();
     let mut objects = SourceObjects::default();

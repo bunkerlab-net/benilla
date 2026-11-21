@@ -696,7 +696,7 @@ fn detached_cast_binds_empty_duration_mods_and_refuses_cooldown_and_delivery() {
     stores.bind_test_dbc("SpellDuration.dbc", []);
     let targets = SourceSpellTargetMgr::initialize(&stores);
     let mut terrain = SourceTerrainManager::new(Default::default(), Default::default());
-    let session = SourceWorldSession::construct(true);
+    let session = SourceWorldSession::construct(19, true);
     let mut inputs = SourcePlayerCastInputs {
         targets: &targets,
         terrain: &mut terrain,
