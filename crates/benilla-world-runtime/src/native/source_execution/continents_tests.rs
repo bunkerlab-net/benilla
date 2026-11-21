@@ -27,6 +27,54 @@ fn construct(terrain: &mut SourceTerrainManager, maximum: GuidMaximum) -> (Sourc
     (maps, cursor.raw)
 }
 
+fn join_jobs(results: [Result<()>; 2]) -> Result<ReadySourceContinents> {
+    let (mut continents, _) =
+        construct(&mut SourceTerrainManager::default(), GuidMaximum::Value(97));
+    let mut completed = [false; 2];
+    let [map0, map1] = &mut continents.maps;
+    let [result0, result1] = results;
+    let outcomes = [(map0, result0), (map1, result1)].map(|(map, result)| {
+        completed[map.identity.map as usize] = true;
+        result
+    });
+    let joined = continents.join_initialization(outcomes);
+    assert_eq!(completed, [true; 2]);
+    joined
+}
+
+#[test]
+fn both_completed_jobs_make_continents_ready() {
+    let ready = join_jobs([Ok(()), Ok(())]).unwrap();
+    let continents = ready.continents();
+    assert_eq!(continents.max_instance_id, 97);
+    assert_eq!(
+        continents.maps.each_ref().map(|map| map.identity.map),
+        [0, 1]
+    );
+}
+
+#[test]
+fn map_zero_refusal_prevents_readiness() {
+    let id = "execution.continents.test_map_zero";
+    assert_eq!(join_jobs([Err(refuse(id)), Ok(())]).err().unwrap().id, id);
+}
+
+#[test]
+fn map_one_refusal_prevents_readiness() {
+    let id = "execution.continents.test_map_one";
+    assert_eq!(join_jobs([Ok(()), Err(refuse(id))]).err().unwrap().id, id);
+}
+
+#[test]
+fn both_refusals_report_map_zero_and_prevent_readiness() {
+    let id = "execution.continents.test_map_zero";
+    let other = refuse("execution.continents.test_map_one");
+    assert_eq!(
+        join_jobs([Err(refuse(id)), Err(other)]).err().unwrap().id,
+        id
+    );
+}
+
 fn create_data(map: &mut SourceContinent, script_id: u32) -> Result<()> {
     let mut mt = Mt19937::from_seed(7);
     let mut cursor = DrawCursor::default();

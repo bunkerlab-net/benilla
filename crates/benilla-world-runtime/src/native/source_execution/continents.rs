@@ -314,12 +314,29 @@ pub struct SourceContinents {
     pub max_instance_id: u32,
     pub maps: [SourceContinent; 2],
 }
+
+pub struct ReadySourceContinents(SourceContinents);
+impl ReadySourceContinents {
+    pub fn continents(&self) -> &SourceContinents {
+        &self.0
+    }
+}
+
 impl SourceContinents {
     // MapManager.cpp:109-110 waits for both continent initialization futures.
     pub fn await_initialization(&self) -> Result<()> {
         Err(refuse(
             "execution.continents.MapManager_110.future_join_owner",
         ))
+    }
+
+    // MapManager.cpp:92-111 waits for both initialization jobs before returning.
+    pub fn join_initialization(self, outcomes: [Result<()>; 2]) -> Result<ReadySourceContinents> {
+        // Deviation: Report map 0's refusal first because startup needs a deterministic error.
+        let [map0, map1] = outcomes;
+        map0?;
+        map1?;
+        Ok(ReadySourceContinents(self))
     }
 
     /// MapManager.cpp:52-54,96-106; only constructors have a world-thread order.

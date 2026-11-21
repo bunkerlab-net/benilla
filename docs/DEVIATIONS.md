@@ -42,7 +42,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - [benilla-srp](#benilla-srp): 2
 - [benilla-ui](#benilla-ui): 135
 - [benilla-world](#benilla-world): 47
-- [benilla-world-runtime](#benilla-world-runtime): 6
+- [benilla-world-runtime](#benilla-world-runtime): 7
 
 ### benilla-app
 
@@ -1014,6 +1014,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 - CreatureSpellList.h:84-91 leaves ChanceRangedAttack unwritten; the owner permits guard\_ai.cpp:68 because both branches do nothing when Spells is empty. ([`src/native/source_execution/ai/script_guard.rs:45`](../crates/benilla-world-runtime/src/native/source_execution/ai/script_guard.rs#L45))
 - Preserve the raw u32 event number, because C++ leaves the non-fixed AIEventType enum indeterminate outside 0..1023 (AIDefines.h:22-56) and the owner chose intent on 2026-11-12 so scourge\_invasion.cpp:956-965's 7166 reaches its receiver unchanged; ScriptMgr.cpp:2759-2775. ([`src/native/source_execution/assistance.rs:8`](../crates/benilla-world-runtime/src/native/source_execution/assistance.rs#L8))
+- Report map 0's refusal first because startup needs a deterministic error. ([`src/native/source_execution/continents.rs:335`](../crates/benilla-world-runtime/src/native/source_execution/continents.rs#L335))
 - CreatureSpellList.h:84-91 leaves Disabled unwritten; the owner permits UnitAI.cpp:1165 because both branches do nothing for empty spells outside combat. ([`src/native/source_execution/creature_ai.rs:1061`](../crates/benilla-world-runtime/src/native/source_execution/creature_ai.rs#L1061))
 - Pin never-assigned scheduleType to recorded F1 round-15 zero because CMaNGOS GameEventMgr.h:53-71 leaves it indeterminate. ([`src/native/source_execution/game_events.rs:14`](../crates/benilla-world-runtime/src/native/source_execution/game_events.rs#L14))
 - Synchronize global pet numbers because ObjectMgr.cpp:119-127 and ObjectMgr.h:826,1247 race across SpellEffects.cpp:2372,3288; owner approved 2026-11-06. ([`src/native/source_execution/guids.rs:168`](../crates/benilla-world-runtime/src/native/source_execution/guids.rs#L168))
