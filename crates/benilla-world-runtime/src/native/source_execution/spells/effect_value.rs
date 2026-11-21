@@ -3,13 +3,14 @@
 use super::*;
 use rustc_apfloat::{ieee::Single, Float, Round, Status};
 
-// Object.cpp:2923-2965. The self-hit caller has a unit caster and uses fixed dice.
-pub(super) fn effect_value(
+// Object.cpp:2923-2965. The bound hit has a unit caster.
+pub(super) fn effect_value_with_dice(
     t: &SpellTemplate,
     i: usize,
     current: i32,
     caster_level: Option<u32>,
     caster_is_player: bool,
+    owner: &mut impl SpellAuraHitOwner,
 ) -> Result<i32> {
     let dice = [t.effectbasedice1, t.effectbasedice2, t.effectbasedice3][i] as i32;
     let base = current
@@ -60,11 +61,12 @@ pub(super) fn effect_value(
             .checked_add(extra_dice)
             .ok_or_else(|| refuse("execution.spells.Object_2941.effect_dice_add_undefined"))?;
     }
-    require(
-        matches!(random_points, 0 | 1),
-        "execution.spells.Object_2955.effect_dice_rng_owner",
-    )?;
-    let value = (base + Single::from_i128(i128::from(dice)).value).value;
+    // Object.cpp:2944-2959. Only sides 0 and 1 skip the signed draw.
+    let roll = match random_points {
+        0 | 1 => dice,
+        _ => owner.effect_dice(dice.min(random_points), dice.max(random_points))?,
+    };
+    let value = (base + Single::from_i128(i128::from(roll)).value).value;
     // Object.cpp:3014-3024. Stop before unowned scaling or an undefined cast.
     require(
         t.attributes & 0x0008_0000 == 0
@@ -82,6 +84,56 @@ fn effect_int(value: Single, id: &str) -> Result<i32> {
     let converted = value.to_i128_r(32, Round::TowardZero, &mut false);
     require(!converted.status.contains(Status::INVALID_OP), id)?;
     Ok(converted.value as i32)
+}
+
+#[cfg(test)]
+fn effect_value(
+    t: &SpellTemplate,
+    i: usize,
+    current: i32,
+    caster_level: Option<u32>,
+    caster_is_player: bool,
+) -> Result<i32> {
+    struct Unbound;
+    impl SpellAuraHitOwner for Unbound {}
+    effect_value_with_dice(t, i, current, caster_level, caster_is_player, &mut Unbound)
+}
+
+#[test]
+fn signed_effect_dice_draw_uses_inclusive_sorted_bounds() {
+    struct Dice {
+        bounds: (i32, i32),
+        result: i32,
+        drawn: bool,
+    }
+    impl SpellAuraHitOwner for Dice {
+        fn effect_dice(&mut self, low: i32, high: i32) -> Result<i32> {
+            assert!(!self.drawn);
+            assert_eq!((low, high), self.bounds);
+            self.drawn = true;
+            Ok(self.result)
+        }
+    }
+    // Object.cpp:2955-2957 still calls irand when the two signed bounds are equal.
+    for (base_dice, die_sides, bounds, result) in
+        [(0, 6, (0, 6), 6), (4, -2, (-2, 4), -2), (6, 6, (6, 6), 6)]
+    {
+        let t = SpellTemplate {
+            effectbasedice1: base_dice as u32,
+            effectdiesides1: die_sides,
+            ..Default::default()
+        };
+        let mut dice = Dice {
+            bounds,
+            result,
+            drawn: false,
+        };
+        assert_eq!(
+            effect_value_with_dice(&t, 0, 10 + base_dice, None, false, &mut dice).unwrap(),
+            10 + result
+        );
+        assert!(dice.drawn);
+    }
 }
 
 #[test]

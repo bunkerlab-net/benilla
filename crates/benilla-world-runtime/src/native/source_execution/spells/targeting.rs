@@ -40,8 +40,12 @@ impl SelfSpellTargeting<'_> {
                 .targets
                 .get_spell_targeting_data(t.id)
                 .map_err(targeting_error)?;
-            if data.implicit_type[i] == SpellTargetImplicitType::None {
-                // Spell.cpp:578-584,602-604. No default target is selected.
+            let implicit = data.implicit_type[i];
+            if matches!(
+                implicit,
+                SpellTargetImplicitType::None | SpellTargetImplicitType::Unknown
+            ) {
+                // Spell.cpp:578-584,602-604,680-681. Neither type accepts an entry mask.
                 require(
                     effect.target_a == 0 && effect.target_b == 0,
                     "execution.spells.Spell_589.SetTargetMap_owner",
@@ -52,11 +56,13 @@ impl SelfSpellTargeting<'_> {
                         .is_some_and(|row| row.default_target == 0),
                     "execution.spells.Spell_584.SetTargetMap_default_owner",
                 )?;
-                s.targetless_mask |= 1 << i;
+                if implicit == SpellTargetImplicitType::None {
+                    s.targetless_mask |= 1 << i;
+                }
                 continue;
             }
             let (selection, candidates) =
-                self.select(s, t, i, data.implicit_type[i], data.ignored_targets[i])?;
+                self.select(s, t, i, implicit, data.ignored_targets[i])?;
             observe(selection);
             self.fill_unit_targets(s, t, i, data, candidates)?;
         }

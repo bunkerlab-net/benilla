@@ -210,18 +210,18 @@ impl SourcePlayer {
 
     /// Player.cpp:747-945. The caller owns destruction if this partial port refuses.
     #[allow(clippy::too_many_arguments)]
-    pub fn create(
+    pub fn create<'a>(
         &mut self,
-        objects: &mut SourceObjects,
-        units: &mut SourceUnits,
+        objects: &'a mut SourceObjects,
+        units: &'a mut SourceUnits,
         request: SourcePlayerCreation,
-        rows: &PlayerCreateRows,
-        spells: &SourceSpellStores,
-        items: &SourceStartupItems,
+        rows: &'a PlayerCreateRows,
+        spells: &'a SourceSpellStores,
+        items: &'a SourceStartupItems,
         models: &LoadedCreatureModels,
         cells: &SourceCells,
         config: SourcePlayerCreateConfig,
-        cast: Option<SourcePlayerCastInputs<'_>>,
+        cast: Option<SourcePlayerCastInputs<'a>>,
         mut wall_seconds: impl FnMut() -> Result<i64>,
     ) -> Result<()> {
         let object = self.object;

@@ -241,6 +241,35 @@ fn legal_pair_without_playercreateinfo_refuses() {
     assert_eq!(objects.get(player.object()).unwrap().pose, None);
 }
 
+fn northshire_creation_rng(path: &Path) -> Mt19937 {
+    use std::fs::File;
+    use std::io::{BufRead, BufReader, Seek, SeekFrom};
+
+    let mut trace = BufReader::new(File::open(path).unwrap());
+    // Northshire-01 A trace:68133280-68133281. Seek to the captured seed and state.
+    trace.seek(SeekFrom::Start(4_371_307_944)).unwrap();
+    let mut line = String::new();
+    trace.read_line(&mut line).unwrap();
+    assert_eq!(
+        line.trim_end(),
+        "12\t13807\tmt_seed\t0x201800037ec0 1795246040 236208755"
+    );
+    line.clear();
+    trace.read_line(&mut line).unwrap();
+    let mut data = line
+        .strip_prefix("12\t13808\tmt_state\t0x201800037ec0 ")
+        .unwrap()
+        .split_ascii_whitespace();
+    let rng = Mt19937::from_seed_seq(&[1_795_246_040, 236_208_755]);
+    let state = rng.state();
+    for &word in &state.words {
+        assert_eq!(Some(word), data.next().map(|v| v.parse().unwrap()));
+    }
+    assert_eq!(Some(state.index), data.next().map(|v| v.parse().unwrap()));
+    assert_eq!(data.next(), None);
+    rng
+}
+
 #[test]
 fn private_catalog_human_mage_matches_seal16_packets() {
     let Some(root) = std::env::var_os("BENILLA_F2_CATALOG") else {
@@ -285,7 +314,37 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     let mut objects = SourceObjects::default();
     let mut units = SourceUnits::default();
     let cells = SourceCells::new(MAP).unwrap();
-    let mut player = construct(&mut objects, &mut units);
+    let trace = std::env::var_os("BENILLA_NORTHSHIRE_A_TRACE").unwrap();
+    let mut engine = northshire_creation_rng(Path::new(&trace));
+    let mut draws = DrawCursor::default();
+    let mut raw = Vec::new();
+    let mut observe = |event: benilla_sim::source_rng::TraceEvent| {
+        assert_eq!(event.stream, 12);
+        if let benilla_sim::source_rng::EventKind::Raw { position, word, .. } = event.kind {
+            raw.push((position, word));
+        }
+    };
+    let mut rng = SourceRandom::new(12, &mut engine, &mut draws, &mut observe).unwrap();
+    let mut player = SourcePlayer::construct(
+        &mut objects,
+        &mut units,
+        12,
+        CONFIG.save_interval,
+        |min, max| {
+            assert_eq!((min, max), (450_000, 1_350_000)); // Trace :68133268.
+            let delay = rng.urand(min, max).unwrap();
+            assert_eq!(delay, 477_818); // Trace :68133283.
+            Ok(delay)
+        },
+        || Ok(101),
+    )
+    .unwrap();
+    let mut irand = |min, max| {
+        assert_eq!((min, max), (0, 6)); // Trace :68133495.
+        let result = rng.irand(min, max).unwrap();
+        assert_eq!(result, 0); // Trace :68133497.
+        Ok(result)
+    };
     let error = player
         .create(
             &mut objects,
@@ -304,6 +363,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
                     assert_eq!(map, MAP);
                     Ok(100)
                 },
+                irand: &mut irand,
                 session: &session,
                 max_casts: 20,
                 indoor_policy: true,
@@ -311,23 +371,26 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             || Ok(107),
         )
         .unwrap_err();
-    // Northshire-01 A trace:68133495-68133497. The next read is irand(0, 6).
     assert_eq!(
         error.id,
-        "execution.spells.Object_2955.effect_dice_rng_owner"
+        "execution.player.Player_5404.defense_bonuses_owner"
     );
+    // Northshire-01 A trace:68133282,68133496. No third draw in the Defense loop.
+    assert_eq!(raw, [(0, 132_753_960), (1, 40_231_698)]);
+    assert_eq!(draws.raw, 2);
     let unit = units.get(&objects, player.object()).unwrap();
     let queue = unit.unit_events.inventory();
-    let [defense, dodge] = queue.queued.as_slice() else {
-        panic!("Defense training must schedule Defense and Dodge");
+    let [defense, dodge, spell_defense] = queue.queued.as_slice() else {
+        panic!("Defense training must schedule three spells");
     };
-    // Player.cpp:5650-5694; SkillLineAbility keys 490 and 689 grant 204 and 81.
-    // Northshire-01 A trace:68133333-68133335,68133415-68133417.
+    // Player.cpp:5650-5694; SkillLineAbility keys 490, 689 and 1424.
+    // Northshire-01 A trace:68133333-68133335,68133415-68133417,68133504-68133506.
     assert_eq!(queue.clock_ms, 0);
-    for (event, (id, insertion, state, executing)) in [defense, dodge].into_iter().zip([
-        (204, 1, SourceSpellState::Finished, false),
-        (81, 2, SourceSpellState::Landing, true),
-    ]) {
+    for (event, (id, insertion)) in
+        [defense, dodge, spell_defense]
+            .into_iter()
+            .zip([(204, 1), (81, 2), (522, 3)])
+    {
         let SourceUnitEvent::Spell { spell } = event.kind else {
             panic!("Defense training must schedule a spell event");
         };
@@ -339,16 +402,14 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         );
         let cast = &unit.spell_starts.spells[&spell];
         assert_eq!((cast.spell, cast.event), (id, Some(event.event_id)));
-        assert_eq!((cast.state, cast.executing), (state, executing));
+        assert_eq!(cast.state, SourceSpellState::Finished);
+        assert!(!cast.executing);
         assert_eq!(cast.creation_time, 100);
-        if id == 204 {
-            // Stock SQL :837915; Spell.cpp:4600,4610-4612.
-            assert_eq!(cast.damage_per_effect, [0, 0, 0]);
-        }
+        // Stock SQL :837915,837867,838040; Dodge draws 0 at trace:68133497.
+        assert_eq!(cast.damage_per_effect, [0, 0, 0]);
     }
-    assert_eq!(unit.auras.cast_counter, 1);
-    let active = player.active_mod_spell.unwrap();
-    assert_eq!(unit.spell_starts.spells[&active].spell, 81);
+    assert_eq!(unit.auras.cast_counter, 0);
+    assert_eq!(player.active_mod_spell, None);
     assert!(terrain.terrain(0).unwrap().grid(48, 32).is_some());
     let learned = SourcePlayerSpell {
         state: SourcePlayerSpellState::New,
@@ -358,7 +419,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     };
     assert_eq!(
         player.spellbook(),
-        &BTreeMap::from([(81, learned), (204, learned)])
+        &BTreeMap::from([(81, learned), (204, learned), (522, learned)])
     );
     assert!(player.action_buttons().is_empty());
     // Northshire-01 A proxy-requests.jsonl:534-535,1647-1648.

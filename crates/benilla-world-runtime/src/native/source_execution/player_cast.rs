@@ -7,6 +7,8 @@ pub struct SourcePlayerCastInputs<'a> {
     pub targets: &'a SourceSpellTargetMgr,
     pub terrain: &'a mut SourceTerrainManager,
     pub map_time: &'a dyn Fn(MapIdentity) -> Result<u32>,
+    /// Object.cpp:2955-2957 draws from the same thread as the Player constructor.
+    pub irand: &'a mut dyn FnMut(i32, i32) -> Result<i32>,
     pub session: &'a SourceWorldSession,
     pub max_casts: u32,
     pub indoor_policy: bool,
@@ -348,6 +350,10 @@ impl SpellCastEffects for PlayerCast<'_, '_> {
 }
 
 impl SpellAuraHitOwner for PlayerCast<'_, '_> {
+    fn effect_dice(&mut self, low: i32, high: i32) -> Result<i32> {
+        (self.inputs.irand)(low, high)
+    }
+
     fn targetless_proc(&mut self, spell: &SourceSpell, t: &SpellTemplate, mask: u8) -> Result<()> {
         let live = self.units.get_mut(self.objects, self.player.object)?;
         live.auras.proc_bound_targetless(
@@ -397,6 +403,7 @@ fn detached_cast_refuses_unbound_duration_cooldown_and_delivery() {
         targets: &targets,
         terrain: &mut terrain,
         map_time: &|_| Ok(0),
+        irand: &mut |_, _| panic!("owner guard does not draw dice"),
         session: &session,
         max_casts: 20,
         indoor_policy: false,

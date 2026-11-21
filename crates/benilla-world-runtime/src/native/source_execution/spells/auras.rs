@@ -347,6 +347,10 @@ pub struct SelfAuraHitTarget<'a> {
 
 /// Operands and continuations of an immediate self cast's effects.
 pub trait SpellAuraHitOwner {
+    fn effect_dice(&mut self, _low: i32, _high: i32) -> Result<i32> {
+        Err(refuse("execution.spells.Object_2955.effect_dice_rng_owner"))
+    }
+
     fn targetless_proc(&mut self, _: &SourceSpell, _: &SpellTemplate, _: u8) -> Result<()> {
         Err(refuse(
             "execution.spells.Spell_1551.ProcDamageAndSpell_owner",
@@ -425,6 +429,7 @@ fn targetless_empty_effects_calculate_value_before_procs() {
         (26, -1, true, None),
         (37, -1, true, None),
         (39, -1, true, None),
+        (49, -1, true, None),
         (60, 2, false, None),
         (60, -1, true, None),
         (
@@ -463,7 +468,7 @@ fn targetless_empty_effects_calculate_value_before_procs() {
             result.unwrap();
         }
     }
-    assert_eq!(procs.0, 7);
+    assert_eq!(procs.0, 8);
 }
 
 impl SourceSpell {
@@ -479,7 +484,7 @@ impl SourceSpell {
         for i in 0..3 {
             if mask & (1 << i) != 0 {
                 require(
-                    self.handle_bound_effect(t, i, level, player)?,
+                    self.handle_bound_effect(t, i, level, player, owner)?,
                     "execution.spells.Spell_1527.targetless_effect_owner",
                 )?;
             }
@@ -497,9 +502,16 @@ impl SourceSpell {
         index: usize,
         level: Option<u32>,
         player: bool,
+        owner: &mut impl SpellAuraHitOwner,
     ) -> Result<bool> {
-        let amount =
-            super::effect_value::effect_value(t, index, self.base_points[index], level, player)?;
+        let amount = super::effect_value::effect_value_with_dice(
+            t,
+            index,
+            self.base_points[index],
+            level,
+            player,
+            owner,
+        )?;
         require(
             self.spell_script.is_none(),
             "execution.spells.Spell_4610.OnEffectExecute_owner",
@@ -508,6 +520,8 @@ impl SourceSpell {
         // SpellEffects.cpp:78,83-84,95,97,190-193. Empty effects write nothing.
         match t.effects()[index].effect {
             20 | 25 | 26 | 37 | 39 => Ok(true),
+            // SpellEffects.cpp:107,200-203. Detect's unused handler writes nothing.
+            49 => Ok(true),
             // SpellEffects.cpp:2313-2327. Only player weapon or armor can reach the masks.
             60 if player && t.equippeditemclass == 2 => Err(refuse(
                 "execution.spells.SpellEffects_2319.proficiency_owner",
@@ -566,7 +580,7 @@ impl SourceSpell {
                 alive,
                 ..
             } = owner.aura_target(target_unit)?;
-            if self.handle_bound_effect(t, i, level, player)? {
+            if self.handle_bound_effect(t, i, level, player, owner)? {
                 continue;
             }
             let amount = self.damage_per_effect[i];

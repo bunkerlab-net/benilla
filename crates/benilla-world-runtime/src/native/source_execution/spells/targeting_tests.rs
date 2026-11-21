@@ -205,6 +205,23 @@ fn targetless_effect_has_no_unit_hit_and_refuses_explicit_target_map() {
 }
 
 #[test]
+fn unknown_effect_without_default_selects_no_hit() {
+    // Stock SQL :840044; SpellTargets.cpp:150; Spell.cpp:578-584,680-681.
+    let t = SpellTemplate {
+        id: 3050,
+        effect1: 49,
+        ..SpellTemplate::default()
+    };
+    with_fixture(&t, 0, SourceObjectKind::Creature, |live, spell| {
+        live.fill(spell, &t, |_| panic!("Detect selected a unit"))?;
+        assert_eq!(spell.targetless_mask, 0);
+        assert!(spell.unique_targets.is_empty());
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
 fn radius_callback_gates_precede_caster_arm() {
     let t = area_spell(1, 0);
     for (kind, scripted, owner) in [
