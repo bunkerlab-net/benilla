@@ -428,9 +428,20 @@ impl ReadySourceContinents {
     }
 
     // World.cpp:1395 audits all loaded loot stores after battleground templates bind their references.
-    pub fn check_reference_loot_templates(&self) -> Result<()> {
+    pub fn check_reference_loot_templates(
+        &mut self,
+        notice: impl FnMut(LootReferenceNotice),
+    ) -> Result<()> {
+        self.loot
+            .as_mut()
+            .ok_or_else(|| refuse("execution.world.World_1395.loot_stores_owner"))?
+            .check_reference_templates(self.battlegrounds.used_refloot(), notice)
+    }
+
+    // World.cpp:1398 deletes expired login database bans after the reference audit.
+    pub fn delete_expired_ip_bans(&self) -> Result<()> {
         Err(refuse(
-            "execution.world.World_1395.check_reference_loot_templates_owner",
+            "execution.world.World_1398.login_database_execute_owner",
         ))
     }
 }

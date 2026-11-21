@@ -398,6 +398,10 @@ impl SourceLootStores {
     }
 }
 
+#[path = "loot_reference_audit.rs"]
+mod reference_audit;
+pub use reference_audit::LootReferenceNotice;
+
 #[cfg(test)]
 #[path = "loot_stores_tests.rs"]
 mod tests;

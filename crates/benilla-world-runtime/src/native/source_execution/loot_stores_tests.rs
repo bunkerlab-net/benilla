@@ -2,6 +2,9 @@
 use super::*;
 use std::collections::BTreeMap;
 
+#[path = "loot_reference_audit_tests.rs"]
+mod reference_audit;
+
 #[derive(Default)]
 struct Inputs {
     rows: BTreeMap<LootStoreKind, Vec<LootRow>>,

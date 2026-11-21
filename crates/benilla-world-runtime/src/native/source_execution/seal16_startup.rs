@@ -7163,7 +7163,41 @@ pub(super) fn continue_startup(
             ],
         ],
     );
-    let refusal = ready.check_reference_loot_templates().unwrap_err();
+    let loaded = ready.loot().unwrap();
+    let mut edges = 0;
+    for kind in LootStoreKind::LOAD_ORDER {
+        for (_, template) in loaded.store(kind).templates() {
+            for row in template.entries.iter().chain(
+                template
+                    .groups
+                    .iter()
+                    .flat_map(|group| group.explicit.iter().chain(&group.equal)),
+            ) {
+                assert_ne!(row.min_count_or_ref, i32::MIN);
+                edges += usize::from(row.min_count_or_ref < 0);
+            }
+        }
+    }
+    // The nine SQL results in seal16_loot.rs contain 20,009 reference operands.
+    assert_eq!(edges, 20009);
+    let mut loot_notices = Vec::new();
+    ready
+        .check_reference_loot_templates(|notice| loot_notices.push(notice))
+        .unwrap();
+    assert!(loot_notices.is_empty(), "{loot_notices:?}");
+    let loaded = ready.loot().unwrap();
+    assert!(loaded.unused_reference_ids().is_empty());
+    let vermin = loaded
+        .store(LootStoreKind::Creature)
+        .get_loot_for(6)
+        .unwrap();
+    assert_eq!(vermin.entries[4].min_count_or_ref, -60000);
+    assert_eq!(vermin.entries[5].min_count_or_ref, -60441);
+    assert_eq!(
+        loaded.store(LootStoreKind::Reference).templates().count(),
+        551
+    );
+    let refusal = ready.delete_expired_ip_bans().unwrap_err();
     assert_eq!(refusal.id, active_init::STARTUP_NEXT_OWNER);
     let next_owner = refusal.id;
     let next_source = active_init::STARTUP_NEXT_SOURCE;
