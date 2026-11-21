@@ -338,6 +338,8 @@ pub fn creature_self_aura_duration(stores: &SourceSpellStores, t: &SpellTemplate
 }
 
 pub struct SelfAuraHitTarget<'a> {
+    pub unit: SelfAuraTarget<'a>,
+    pub stand: u8,
     pub auras: &'a mut SourceUnitAuras,
     pub visibility: &'a mut SourceUnitVisibility,
     pub damage: DamageAuraTarget<'a>,
@@ -353,6 +355,10 @@ pub trait SpellAuraHitOwner {
         Err(refuse("execution.spells.Aura_270.time_owner"))
     }
 
+    fn aura_target(&self, _target: ObjectHandle) -> Result<SelfAuraTarget<'_>> {
+        Err(refuse("execution.spells.Spell_1445.aura_target_owner"))
+    }
+
     fn aura_hit_target(&mut self, _target: ObjectHandle) -> Result<SelfAuraHitTarget<'_>> {
         Err(refuse(
             "execution.spells.Spell_1490.AddSpellAuraHolder_target_owner",
@@ -363,7 +369,6 @@ pub trait SpellAuraHitOwner {
         &mut self,
         _t: &SpellTemplate,
         _holder: SourceAuraHolderId,
-        _nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
     ) -> Result<()> {
         Err(refuse(
             "execution.spells.Unit_4855.ApplyAuraModifiers_owner",
@@ -394,9 +399,6 @@ impl SourceSpell {
         &mut self,
         t: &SpellTemplate,
         stores: &SourceSpellStores,
-        live: SelfAuraTarget<'_>,
-        stand: u8,
-        nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
         owner: &mut impl SpellAuraHitOwner,
     ) -> Result<()> {
         let Some(target) = self.unique_targets.first_mut() else {
@@ -432,6 +434,7 @@ impl SourceSpell {
             if mask & (1 << i) == 0 {
                 continue;
             }
+            let live = owner.aura_target(target_unit)?;
             // Spell.cpp:4593-4612. Calculate damage before dispatching the effect.
             let amount = super::effect_value::effect_value(
                 t,
@@ -468,6 +471,7 @@ impl SourceSpell {
                 time,
             )?;
             if let Some(kind) = area {
+                let live = owner.aura_target(target_unit)?;
                 SourceAreaAura::attach(
                     &mut aura,
                     kind,
@@ -504,13 +508,13 @@ impl SourceSpell {
                 t,
                 &mut self.pending_aura,
                 &mut SelfAuraRemoval {
-                    unit: live,
+                    unit: target.unit,
                     visibility: target.visibility,
                     damage: target.damage,
                 },
-                stand,
+                target.stand,
             )?;
-            owner.apply_inserted_aura_holder(t, holder, nested)?;
+            owner.apply_inserted_aura_holder(t, holder)?;
             Some(holder)
         } else {
             None
@@ -1173,7 +1177,11 @@ pub struct SelfAuraApplication<'a> {
 }
 
 pub trait SelfAuraApplicationOwner: SpellExecutionOwner {
-    fn self_aura_application(&mut self) -> SelfAuraApplication<'_>;
+    fn self_aura_application(&mut self) -> Result<SelfAuraApplication<'_>>;
+
+    fn cast_aura_boost(&mut self, _caster: ObjectHandle, _spell: u32, _aura: u32) -> Result<()> {
+        Err(refuse("execution.spells.Aura_4291.CastSpell_owner"))
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1226,10 +1234,9 @@ pub fn apply_self_aura_holder(
     stores: &SourceSpellStores,
     t: &SpellTemplate,
     holder: SourceAuraHolderId,
-    mut nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
 ) -> Result<()> {
     for i in 0..3 {
-        let mut live = owner.self_aura_application();
+        let mut live = owner.self_aura_application()?;
         let aura_holder = live.auras.applied_holder_mut(holder)?;
         if aura_holder.deleted {
             return Ok(());
@@ -1325,24 +1332,10 @@ pub fn apply_self_aura_holder(
                 if let Some(spell) = live.apply_shape(stores, holder, misc)? {
                     // SpellAuras.cpp:4291-4295. The outer holder is still unready.
                     let caster = unit.target;
-                    let (starts, events) = nested
-                        .as_mut()
-                        .ok_or_else(|| refuse("execution.spells.Aura_4291.CastSpell_owner"))?;
-                    SpellStartContext {
-                        stores,
-                        starts,
-                        events,
-                        owner,
-                    }
-                    .cast_triggered(
-                        caster,
-                        None,
-                        spell,
-                        Some(holder.spell()),
-                    )?;
+                    owner.cast_aura_boost(caster, spell, holder.spell())?;
                 }
                 owner
-                    .self_aura_application()
+                    .self_aura_application()?
                     .auras
                     .mark_effect_applied(holder, i)?;
                 continue;
@@ -1400,7 +1393,7 @@ pub fn apply_self_aura_holder(
         aura.applied = true;
     }
     owner
-        .self_aura_application()
+        .self_aura_application()?
         .auras
         .apply_holder_boosts(stores, t, holder)
 }

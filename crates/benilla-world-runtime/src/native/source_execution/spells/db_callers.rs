@@ -75,15 +75,8 @@ impl SpellStartContext<'_> {
             None => self.db_construct(source, caster, spell, flags, base)?,
         };
         let id = value.id;
-        let result = value.start(
-            t,
-            targets,
-            None,
-            self.events,
-            &mut self.starts.spells,
-            self.owner,
-        );
-        self.starts.spells.insert(id, value);
+        let result = self.start(&mut value, t, targets, None);
+        self.storage(caster)?.0.spells.insert(id, value);
         result.map(|_| ())
     }
     fn db_construct(
@@ -94,7 +87,7 @@ impl SpellStartContext<'_> {
         flags: u32,
         base: Option<[i32; 3]>,
     ) -> Result<SourceSpell> {
-        let id = self.starts.allocate()?;
+        let id = self.storage(caster)?.0.allocate()?;
         let flags = if source != caster {
             0x41
         } else if base.is_some() {

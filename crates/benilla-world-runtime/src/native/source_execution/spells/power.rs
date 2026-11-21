@@ -22,7 +22,10 @@ impl SpellPowerContext<'_> {
     pub fn maximum(&self, caster: ObjectHandle, ty: u32) -> Result<u32> {
         SpellPowerRead::Maximum.read(ty, || self.fields(caster))
     }
-    fn fields(&self, caster: ObjectHandle) -> Result<SpellPowerFields<'_>> {
+    pub(in crate::native::source_execution) fn fields(
+        &self,
+        caster: ObjectHandle,
+    ) -> Result<SpellPowerFields<'_>> {
         let live = self.units.get(self.objects, caster)?;
         Ok(SpellPowerFields {
             vitals: &live.vitals,

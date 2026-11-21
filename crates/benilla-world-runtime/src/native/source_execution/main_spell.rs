@@ -57,49 +57,7 @@ impl SourceUnitAi {
 /// Creature.cpp:1426-1475 and Object.cpp:105-108 own these live update fields.
 pub(super) struct UnitPowerOwner<'a> {
     pub objects: &'a SourceObjects,
-    pub units: UnitPowerSource<'a>,
-}
-#[cfg(test)]
-pub(super) enum UnitPowerSource<'a> {
-    Units(&'a SourceUnits),
-    Caster(ObjectHandle, UnitPowerOperands<'a>),
-}
-#[cfg(test)]
-#[derive(Clone, Copy)]
-pub(super) struct UnitPowerOperands<'a> {
-    pub vitals: &'a Option<SourceUnitVitals>,
-    pub fields: &'a Option<SourceUnitPowerFields>,
-    pub flat: &'a [i32; 7],
-    pub multiplier: &'a [u32; 7],
-}
-#[cfg(test)]
-impl UnitPowerOwner<'_> {
-    fn operands(&self, caster: ObjectHandle) -> Result<UnitPowerOperands<'_>> {
-        match &self.units {
-            UnitPowerSource::Units(units) => {
-                let live = units.get(self.objects, caster)?;
-                Ok(UnitPowerOperands {
-                    vitals: &live.vitals,
-                    fields: &live.power_fields,
-                    flat: &live.power_cost_modifier,
-                    multiplier: &live.power_cost_multiplier,
-                })
-            }
-            UnitPowerSource::Caster(unit, operands) => {
-                self.objects.get(caster)?;
-                require(*unit == caster, "execution.spells.ai_cast.other_unit_owner")?;
-                Ok(*operands)
-            }
-        }
-    }
-
-    fn power_fields(&self, caster: ObjectHandle) -> Result<SpellPowerFields<'_>> {
-        let operands = self.operands(caster)?;
-        Ok(SpellPowerFields {
-            vitals: operands.vitals,
-            power: operands.fields,
-        })
-    }
+    pub units: &'a SourceUnits,
 }
 #[cfg(test)]
 impl SpellExecutionOwner for UnitPowerOwner<'_> {
@@ -107,36 +65,24 @@ impl SpellExecutionOwner for UnitPowerOwner<'_> {
         Ok(self.objects)
     }
     fn power_context(&mut self) -> Result<SpellPowerContext<'_>> {
-        let UnitPowerSource::Units(units) = self.units else {
-            return Err(refuse("execution.spells.Unit_GetPower_fields_owner"));
-        };
         Ok(SpellPowerContext {
             objects: self.objects,
-            units,
+            units: self.units,
         })
     }
-    fn power_health(&mut self, caster: ObjectHandle) -> Result<u32> {
-        Ok(self.power_fields(caster)?.vitals()?.health)
-    }
     fn power_level(&mut self, caster: ObjectHandle) -> Result<u32> {
-        Ok(self.power_fields(caster)?.power()?.level)
+        Ok(self.power_context()?.fields(caster)?.power()?.level)
     }
     fn power_create_health(&mut self, caster: ObjectHandle) -> Result<u32> {
-        Ok(self.power_fields(caster)?.power()?.create_health)
+        Ok(self.power_context()?.fields(caster)?.power()?.create_health)
     }
     fn power_create_mana(&mut self, caster: ObjectHandle) -> Result<u32> {
-        Ok(self.power_fields(caster)?.power()?.create_mana)
-    }
-    fn power_current(&mut self, caster: ObjectHandle, ty: u32) -> Result<u32> {
-        SpellPowerRead::Current.read(ty, || self.power_fields(caster))
-    }
-    fn power_maximum(&mut self, caster: ObjectHandle, ty: u32) -> Result<u32> {
-        SpellPowerRead::Maximum.read(ty, || self.power_fields(caster))
+        Ok(self.power_context()?.fields(caster)?.power()?.create_mana)
     }
     fn power_flat_modifier(&mut self, caster: ObjectHandle, school: u32) -> Result<i32> {
-        Ok(self.operands(caster)?.flat[school as usize])
+        Ok(self.units.get(self.objects, caster)?.power_cost_modifier[school as usize])
     }
     fn power_multiplier(&mut self, caster: ObjectHandle, school: u32) -> Result<u32> {
-        Ok(self.operands(caster)?.multiplier[school as usize])
+        Ok(self.units.get(self.objects, caster)?.power_cost_multiplier[school as usize])
     }
 }

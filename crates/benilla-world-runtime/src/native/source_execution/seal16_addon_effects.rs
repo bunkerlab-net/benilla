@@ -35,44 +35,35 @@ impl SpellSelfCastOwner for Owner<'_> {
     fn cast_mod_owner(&mut self, caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
         world_object_spell_mod_owner(self.objects, caster, self.unit.totem)
     }
-    fn cast_chain(&mut self) -> (&mut SourceUnitAuras, u32) {
-        (self.auras, self.max_casts)
+    fn cast_chain(&mut self) -> Result<(&mut SourceUnitAuras, u32)> {
+        let live = self.units.get_mut(self.objects, self.object)?;
+        Ok((&mut live.auras, self.max_casts))
     }
-    fn cast_checked(
-        &mut self,
-        spell: &mut SourceSpell,
-        t: &SpellTemplate,
-        starts: &mut SourceSpellStarts,
-        events: &mut SourceUnitEvents,
-    ) -> Result<()> {
-        spell.cast_checked(t, self.stores, None, Some((starts, events)), self, |_| {
-            Ok(())
-        })
+    fn cast_checked(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
+        spell.cast_checked(t, self.stores, None, self, |_, _| Ok(()))
     }
 }
 
 impl SpellCastEffects for Owner<'_> {
-    fn cast_unit(&self) -> &SpellUnitState {
-        &self.unit
+    fn cast_unit(&mut self) -> Result<SpellUnitState> {
+        Ok(self.unit)
     }
 
-    fn cast_auras(&mut self) -> &mut SourceUnitAuras {
-        self.auras
+    fn cast_auras(&mut self) -> Result<&mut SourceUnitAuras> {
+        Ok(&mut self.units.get_mut(self.objects, self.object)?.auras)
     }
 
-    fn finish_operands<'a>(
-        &'a mut self,
-        starts: Option<&'a SourceSpellStarts>,
-    ) -> Result<SpellFinishOperands<'a>> {
+    fn finish_operands(&mut self) -> Result<SpellFinishOperands<'_>> {
+        let live = self.units.get_mut(self.objects, self.object)?;
         Ok(SpellFinishOperands {
             attack: CastAttackStop {
                 object: self.objects.get(self.object)?,
-                flags: self.flags,
-                control_guids: self.control_guids,
-                state: self.state,
-                victim: self.victim,
-                slots: self.slots,
-                starts,
+                flags: &live.flags,
+                control_guids: &live.control_guids,
+                state: &mut live.state,
+                victim: &live.victim,
+                slots: &live.spell_slots,
+                starts: Some(&live.spell_starts),
                 stores: self.stores,
             },
             map_types: self.terrain.pathfinder_map_types.as_ref(),
@@ -95,7 +86,7 @@ impl SpellCastEffects for Owner<'_> {
             self.objects,
             spell.caster,
             self.broadcast,
-            self.bounding_radius,
+            self.live()?.bounding_radius,
         )?);
         Ok(())
     }
@@ -106,20 +97,24 @@ impl SpellCastEffects for Owner<'_> {
         caster: ObjectHandle,
         flag: u32,
     ) -> Result<()> {
+        let fields = self.units.get_mut(self.objects, caster)?;
         let live = SelfAuraRemoval {
-            unit: SelfAuraTarget {
-                target: caster,
-                ..self.aura_target()
-            },
-            visibility: self.visibility,
+            unit: Self::aura_operands(
+                self.objects,
+                caster,
+                self.level,
+                fields.totem,
+                &fields.control_guids,
+            )?,
+            visibility: &mut fields.visibility,
             damage: DamageAuraTarget::new(
-                self.creature_damage,
-                self.loaded_creature,
-                *self.flags,
-                *self.form,
+                &mut fields.creature_damage,
+                &fields.loaded_creature,
+                fields.flags,
+                fields.shapeshift_form,
             ),
         };
-        check_cast_aura_removals(self.stores, self.auras, t, live, flag, || {})
+        check_cast_aura_removals(self.stores, &mut fields.auras, t, live, flag, || {})
     }
 
     fn proc_cast_end(&mut self, spell: &mut SourceSpell) -> Result<()> {
@@ -132,11 +127,12 @@ impl SpellCastEffects for Owner<'_> {
             (8990, ProcTriggerExit::ZeroFlags),
             (18943, ProcTriggerExit::SelfTrigger),
         ];
-        self.auras.proc_creature_self_cast_end(
+        let live = self.units.get_mut(self.objects, self.object)?;
+        live.auras.proc_creature_self_cast_end(
             self.stores,
             spell,
             self.objects,
-            self.stand,
+            live.stand_state,
             |id, exit| {
                 if bolvar {
                     assert_eq!(expected[lookups as usize], (id, exit));
@@ -163,19 +159,20 @@ impl SpellCastEffects for Owner<'_> {
             && t.id == 1032
             && self.objects.get(self.object)?.database_guid == 35891;
         let mut selections = Vec::new();
+        let live = self.live()?;
         SelfSpellTargeting {
             stores: self.stores,
             targets: self.targets,
             objects: self.objects,
             unit: &self.unit,
             level: self.level,
-            immunities: self.immunities,
-            auras: self.auras,
+            immunities: &live.immunities,
+            auras: &live.auras,
             relations: &SourceCasterRelations {
                 caster: self.object,
                 objects: self.objects,
-                flags: self.flags,
-                control_guids: self.control_guids,
+                flags: &live.flags,
+                control_guids: &live.control_guids,
             },
         }
         .fill(s, t, |selection| {
@@ -213,13 +210,8 @@ impl SpellCastEffects for Owner<'_> {
         Ok(())
     }
 
-    fn hit_self(
-        &mut self,
-        s: &mut SourceSpell,
-        t: &SpellTemplate,
-        nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
-    ) -> Result<()> {
-        s.hit_self_auras(t, self.stores, self.aura_target(), self.stand, nested, self)
+    fn hit_self(&mut self, s: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
+        s.hit_self_auras(t, self.stores, self)
     }
 }
 
@@ -248,19 +240,35 @@ impl SpellAuraHitOwner for Owner<'_> {
         Ok(clock.seconds)
     }
 
+    fn aura_target(&self, target: ObjectHandle) -> Result<SelfAuraTarget<'_>> {
+        let live = self.units.get(self.objects, target)?;
+        Self::aura_operands(
+            self.objects,
+            target,
+            self.level,
+            live.totem,
+            &live.control_guids,
+        )
+    }
+
     fn aura_hit_target(&mut self, target: ObjectHandle) -> Result<SelfAuraHitTarget<'_>> {
-        require(
-            target == self.object,
-            "execution.spells.Spell_1490.AddSpellAuraHolder_target_owner",
-        )?;
+        let live = self.units.get_mut(self.objects, target)?;
         Ok(SelfAuraHitTarget {
-            auras: self.auras,
-            visibility: self.visibility,
+            unit: Self::aura_operands(
+                self.objects,
+                target,
+                self.level,
+                live.totem,
+                &live.control_guids,
+            )?,
+            stand: live.stand_state,
+            auras: &mut live.auras,
+            visibility: &mut live.visibility,
             damage: DamageAuraTarget::new(
-                self.creature_damage,
-                self.loaded_creature,
-                *self.flags,
-                *self.form,
+                &mut live.creature_damage,
+                &live.loaded_creature,
+                live.flags,
+                live.shapeshift_form,
             ),
         })
     }
@@ -269,22 +277,22 @@ impl SpellAuraHitOwner for Owner<'_> {
         &mut self,
         t: &SpellTemplate,
         holder: SourceAuraHolderId,
-        nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
     ) -> Result<()> {
         let stores = self.stores;
-        apply_self_aura_holder(self, stores, t, holder, nested)
+        apply_self_aura_holder(self, stores, t, holder)
     }
 
     fn proc_aura_hit(&mut self, s: &mut SourceSpell) -> Result<()> {
         let raw = self.random.creature_raw_position()?;
         let mut lookups = 0;
         let alive = self.objects.get(self.object)?.alive;
-        self.auras.proc_creature_self_hit(
+        let live = self.units.get_mut(self.objects, self.object)?;
+        live.auras.proc_creature_self_hit(
             self.stores,
             s,
             alive,
             self.objects,
-            self.stand,
+            live.stand_state,
             |_, _| lookups += 1,
         )?;
         assert_eq!(self.random.creature_raw_position()?, raw);
@@ -654,9 +662,9 @@ fn finish_attack_stop_nested_stance_runs_before_the_parent_tail() {
             has_ai: false,
             position: [0; 4],
         };
+        let mut units = SourceUnits::default();
+        units.register(&objects, object, live).unwrap();
         let result = Execution {
-            object,
-            objects: &objects,
             terrain: &mut geometry,
             stores: &stores,
             targets: &targets,
@@ -669,7 +677,14 @@ fn finish_attack_stop_nested_stance_runs_before_the_parent_tail() {
             raw: 1,
             max_casts: 4,
         }
-        .cast_spell(&mut CreatureAddonState::default(), &mut live, 2457);
+        .cast_spell(
+            &mut CreatureAddonState::default(),
+            &mut units,
+            object,
+            &objects,
+            2457,
+        );
+        let live = units.get(&objects, object).unwrap();
         let expected = if victim.is_some() {
             "execution.spells.Unit_6405.SendMeleeAttackStop_owner"
         } else {

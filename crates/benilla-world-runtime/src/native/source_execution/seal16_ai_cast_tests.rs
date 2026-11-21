@@ -98,7 +98,7 @@ fn live_binding_runs_once_restores_event_owner_and_preserves_saved_bytes() {
     let result: Result<()> = binding.run(&mut units, &mut ais, &objects, |context| {
         calls += 1;
         assert!(context.owner.unit(object)?.has_ai);
-        context.events.schedule_ai_notify(5000, false)?;
+        context.storage(object)?.1.schedule_ai_notify(5000, false)?;
         Err(expected.clone())
     });
     assert_eq!(calls, 1);
@@ -196,7 +196,7 @@ fn live_ai_cast_keeps_its_spell_after_cooldowns_before_missing_geometry() {
     binding
         .run(&mut units, &mut ais, &objects, |c| {
             assert_eq!(
-                c.owner.ai_cast_state(object, object, c.starts, 2)?,
+                c.owner.ai_cast_state(object, object, None, 2)?,
                 (true, false)
             );
             Ok(())
@@ -308,7 +308,7 @@ fn live_unit_reads_current_flags_pose_auras_control_and_interrupt_slots() {
             assert_eq!(value.form, 5);
             assert_eq!(value.position[0], 1f32.to_bits());
             assert!(!c.owner.has_aura(object, 10848)?);
-            assert_eq!(c.owner.active_auto_spell(object, c.starts)?, None);
+            assert_eq!(c.owner.active_auto_spell(object, None)?, None);
             c.owner.interrupt_for_ai(object, true)?;
             c.owner.interrupt_for_ai(object, false)?;
             for slot in 0..4 {
@@ -382,7 +382,7 @@ fn live_slots_and_ai_order_use_persistent_spells_in_source_order() {
         binding
             .run(&mut units, &mut ais, &objects, |c| {
                 assert_eq!(
-                    c.owner.ai_cast_state(object, object, c.starts, 0)?,
+                    c.owner.ai_cast_state(object, object, None, 0)?,
                     (false, !melee)
                 );
                 assert_eq!(
@@ -396,11 +396,11 @@ fn live_slots_and_ai_order_use_persistent_spells_in_source_order() {
         binding
             .run(&mut units, &mut ais, &objects, |c| {
                 assert_eq!(
-                    c.owner.ai_cast_state(object, object, c.starts, 0)?,
+                    c.owner.ai_cast_state(object, object, None, 0)?,
                     (true, false)
                 );
                 assert_eq!(
-                    c.owner.ai_cast_state(object, object, c.starts, 2)?,
+                    c.owner.ai_cast_state(object, object, None, 2)?,
                     (true, !melee)
                 );
                 assert!(!c.ai_cast(object, Some(object), 10848, 0)?);
@@ -420,30 +420,17 @@ fn live_slots_and_ai_order_use_persistent_spells_in_source_order() {
 }
 
 #[test]
-fn contested_slot_refuses_callback_reads_and_restores_old_spell() {
-    struct ReadOnCancel<'a, 'b>(&'a mut Owner<'b>);
-    impl SpellExecutionOwner for ReadOnCancel<'_, '_> {
-        fn unit(&mut self, unit: ObjectHandle) -> Result<SpellUnitState> {
-            self.0.unit(unit)
-        }
-        fn call(&mut self, spell: &mut SourceSpell, call: SpellCall) -> Result<()> {
-            assert_eq!(call, SpellCall::ResetMods);
-            assert_eq!((spell.id, spell.referenced), (1, true));
-            self.0.interrupt_slot(spell.caster, 1)
-        }
-    }
-
+fn contested_slot_leaves_old_spell_live_at_cancel_refusal() {
     let (objects, mut units, mut ais, object) = setup();
     let stores = stores();
     let t = stores.template(10848).unwrap();
     let mut old = SourceSpell::new(1, t, object, SpellTriggerFlags(0), 0).unwrap();
     old.state = SourceSpellState::Casting;
     let mut new = SourceSpell::new(2, t, object, SpellTriggerFlags(0), 0).unwrap();
-    let mut spells = BTreeMap::new();
     let mut owner = Owner {
         object,
         objects: &objects,
-        live: units.get_mut(&objects, object).unwrap().borrow_cast().0,
+        units: &mut units,
         ai: ais.get_mut(&objects, object).unwrap(),
         stores: &stores,
         targets: &SourceSpellTargetMgr::initialize(&stores),
@@ -454,20 +441,17 @@ fn contested_slot_refuses_callback_reads_and_restores_old_spell() {
         creature_spells: None,
         max_casts: 0,
         broadcast: None,
-        slots_detached: false,
     };
-    owner.set_current(&mut old, t, &mut spells).unwrap();
-    spells.insert(1, old);
-    let error = owner
-        .with_detached_slots(|slots, owner| {
-            slots.set(&mut new, t, &mut spells, &stores, &mut ReadOnCancel(owner))
-        })
-        .unwrap_err();
+    owner.set_current(&mut old, t, None).unwrap();
+    owner.spell_storage(object).unwrap().0.spells.insert(1, old);
+    let error = owner.set_current(&mut new, t, None).unwrap_err();
     assert_eq!(
         error.id,
-        "execution.spells.Unit_4226.slot_read_during_interrupt_owner"
+        "execution.spells.Unit_GetSpellModOwner_cancel_owner"
     );
-    assert_eq!(owner.slots().unwrap().current(SpellSlot::Generic), Some(1));
+    let live = owner.live().unwrap();
+    let spells = &live.spell_starts.spells;
+    assert_eq!(live.spell_slots.current(SpellSlot::Generic), Some(1));
     assert!(spells[&1].referenced);
     assert_eq!(spells[&1].state, SourceSpellState::Casting);
     assert!(!new.referenced);
@@ -493,8 +477,7 @@ fn default_context_callback_runs_once_and_preserves_refusal() {
         fn spell_context(&mut self) -> Result<SpellStartContext<'_>> {
             Ok(SpellStartContext {
                 stores: self.stores,
-                starts: self.starts,
-                events: self.events,
+                storage: SpellStartStorage::Separate(self.starts, self.events),
                 owner: self.spell_owner,
             })
         }
@@ -643,17 +626,16 @@ fn prepare_walk_preserves_holders_and_reaches_the_actual_ai_write() {
         max_casts: 0,
         broadcast: None,
     };
+    let t = stores.template(10848).unwrap();
+    let mut s = SourceSpell::new(3, t, object, SpellTriggerFlags(0x100), 0).unwrap();
+    s.targets.unit = Some(object);
     binding
         .run(&mut units, &mut ais, &objects, |c| {
-            let t = stores.template(10848).unwrap();
-            let mut s = SourceSpell::new(3, t, object, SpellTriggerFlags(0x100), 0)?;
-            s.targets.unit = Some(object);
             c.owner.call(&mut s, SpellCall::RemoveCastAuras(4))?;
             assert_eq!(s.prepare_lookups[2], 2);
             c.owner.call(&mut s, SpellCall::AiCastState(true))?;
             assert_eq!(&s.prepare_lookups[3..], &[1, 1, 1]);
             c.owner.call(&mut s, SpellCall::AiCastState(false))?;
-            c.starts.spells.insert(s.id, s);
             Ok(())
         })
         .unwrap();
@@ -684,15 +666,15 @@ fn prepare_walk_preserves_holders_and_reaches_the_actual_ai_write() {
     assert_eq!(units.get(&objects, object).unwrap().target, Some(object));
     binding
         .run(&mut units, &mut ais, &objects, |c| {
-            let s = c.starts.spells.get_mut(&3).unwrap();
-            c.owner.call(s, SpellCall::AiCastState(false))?;
+            c.owner.call(&mut s, SpellCall::AiCastState(false))?;
             assert_eq!(
                 c.owner
-                    .call(s, SpellCall::AiChannelState(true))
+                    .call(&mut s, SpellCall::AiChannelState(true))
                     .unwrap_err()
                     .id,
                 "execution.spells.UnitAI_474.SetFacingTo_owner",
             );
+            c.storage(object)?.0.spells.insert(s.id, s);
             Ok(())
         })
         .unwrap();

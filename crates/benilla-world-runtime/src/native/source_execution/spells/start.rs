@@ -139,7 +139,7 @@ impl SourceSpell {
     ) -> Result<SpellCastResult> {
         self.schedule_start(targets, aura, queue)?;
         // Spell.cpp:3018-3020,3083,3094. Dispatch the tail cast before returning.
-        self.start_scheduled(t, spells, owner)?
+        self.start_scheduled(t, Some(spells), owner)?
             .dispatch(|skip| owner.call(self, SpellCall::Cast(skip)))
     }
     // Split at AddEvent so a synchronous cast can start another spell on the same queue.
@@ -163,7 +163,7 @@ impl SourceSpell {
     pub(in crate::native::source_execution) fn start_scheduled(
         &mut self,
         t: &SpellTemplate,
-        spells: &mut BTreeMap<u64, SourceSpell>,
+        spells: Option<&mut BTreeMap<u64, SourceSpell>>,
         owner: &mut (impl SpellExecutionOwner + ?Sized),
     ) -> Result<ScheduledSpellStart> {
         let result = self.check_cast(t, true, owner)?;
@@ -187,7 +187,7 @@ impl SourceSpell {
         spells: &mut BTreeMap<u64, SourceSpell>,
         owner: &mut (impl SpellExecutionOwner + ?Sized),
     ) -> Result<()> {
-        if let Some(skip) = self.prepare_cast(t, spells, owner)? {
+        if let Some(skip) = self.prepare_cast(t, Some(spells), owner)? {
             owner.call(self, SpellCall::Cast(skip))?;
         }
         Ok(())
@@ -198,7 +198,7 @@ impl SourceSpell {
     fn prepare_cast(
         &mut self,
         t: &SpellTemplate,
-        spells: &mut BTreeMap<u64, SourceSpell>,
+        spells: Option<&mut BTreeMap<u64, SourceSpell>>,
         owner: &mut (impl SpellExecutionOwner + ?Sized),
     ) -> Result<Option<bool>> {
         self.state = SourceSpellState::Casting;
@@ -465,6 +465,21 @@ impl SourceSpellSlots {
     pub fn current(&self, slot: SpellSlot) -> Option<u64> {
         self.current[slot.index()]
     }
+    pub(crate) fn replace_slot(
+        &mut self,
+        slot: SpellSlot,
+        id: u64,
+        spells: &mut BTreeMap<u64, SourceSpell>,
+    ) -> Result<()> {
+        if let Some(old) = self.current(slot) {
+            spells
+                .get_mut(&old)
+                .ok_or_else(|| refuse("execution.spells.current_identity"))?
+                .referenced = false;
+        }
+        self.current[slot.index()] = Some(id);
+        Ok(())
+    }
     pub fn interrupt(
         &mut self,
         slot: SpellSlot,
@@ -483,14 +498,7 @@ impl SourceSpellSlots {
             if slot == SpellSlot::AutoRepeat && owner.unit(s.caster)?.player {
                 owner.call(s, SpellCall::AutoRepeatCancel)?;
             }
-            if !matches!(
-                s.state,
-                SourceSpellState::Created
-                    | SourceSpellState::Targeting
-                    | SourceSpellState::Casting
-                    | SourceSpellState::Delayed
-                    | SourceSpellState::Channeling
-            ) {
+            if !s.can_interrupt_current() {
                 return Ok(());
             }
             let t = stores
@@ -514,78 +522,17 @@ impl SourceSpellSlots {
         stores: &SourceSpellStores,
         owner: &mut (impl SpellExecutionOwner + ?Sized),
     ) -> Result<()> {
-        let slot = SpellSlot::for_spell(t, spell);
-        if self.current(slot) == Some(spell.id) {
-            return Ok(());
-        }
-        let parallel = t.attributesex4 & 0x80 != 0;
-        let triggered = spell.flags.old_triggered();
-        let cancels_auto = t.attributesex3 & 0x400000 != 0;
-        self.interrupt(slot, false, spells, stores, owner)?;
-        let attr = |slot: SpellSlot,
-                    mask: u32,
-                    ex4: bool,
-                    slots: &Self,
-                    spells: &BTreeMap<u64, SourceSpell>|
-         -> bool {
-            slots
-                .current(slot)
-                .and_then(|id| spells.get(&id))
-                .and_then(|s| stores.template(s.spell))
-                .is_some_and(|t| {
-                    if ex4 {
-                        t.attributesex4 & mask != 0
-                    } else {
-                        t.attributesex3 & mask != 0
-                    }
-                })
-        };
-        match slot {
-            SpellSlot::Generic => {
-                if self.current(SpellSlot::Channel).is_some()
-                    && !parallel
-                    && !attr(SpellSlot::Channel, 0x80, true, self, spells)
-                {
-                    self.interrupt(SpellSlot::Channel, false, spells, stores, owner)?;
-                }
-                if attr(SpellSlot::AutoRepeat, 0x400000, false, self, spells) {
-                    self.interrupt(SpellSlot::AutoRepeat, true, spells, stores, owner)?;
-                }
-            }
-            SpellSlot::Channel => {
-                self.interrupt(SpellSlot::Channel, true, spells, stores, owner)?;
-                if !parallel && !triggered {
-                    // Unit.cpp:4259 reads AUTOREPEAT, not GENERIC. Preserve this quirk.
-                    if self.current(SpellSlot::AutoRepeat).is_some()
-                        && !attr(SpellSlot::AutoRepeat, 0x80, true, self, spells)
-                    {
-                        self.interrupt(SpellSlot::Generic, false, spells, stores, owner)?;
-                    }
-                    if attr(SpellSlot::AutoRepeat, 0x400000, false, self, spells) {
-                        self.interrupt(SpellSlot::AutoRepeat, true, spells, stores, owner)?;
-                    }
-                }
-            }
-            SpellSlot::AutoRepeat => {
-                if cancels_auto {
-                    self.interrupt(SpellSlot::Generic, false, spells, stores, owner)?;
-                    if !parallel {
-                        self.interrupt(SpellSlot::Channel, false, spells, stores, owner)?;
-                    }
-                }
-                owner.reset_auto_repeat()?;
-            }
-            SpellSlot::Melee => {}
-        }
-        if let Some(old) = self.current(slot) {
-            spells
-                .get_mut(&old)
-                .expect("validated current spell")
-                .referenced = false;
-        }
-        self.current[slot.index()] = Some(spell.id);
-        spell.referenced = true;
-        Ok(())
+        set_current_spell(
+            spell,
+            t,
+            stores,
+            &mut SplitSlots {
+                slots: self,
+                spells,
+                stores,
+                owner,
+            },
+        )
     }
     pub fn clear_finished(&mut self, spells: &mut BTreeMap<u64, SourceSpell>) -> Result<()> {
         for slot in &mut self.current {
@@ -600,6 +547,204 @@ impl SourceSpellSlots {
             }
         }
         Ok(())
+    }
+}
+
+impl SourceSpell {
+    pub(crate) fn can_interrupt_current(&self) -> bool {
+        matches!(
+            self.state,
+            SourceSpellState::Created
+                | SourceSpellState::Targeting
+                | SourceSpellState::Casting
+                | SourceSpellState::Delayed
+                | SourceSpellState::Channeling
+        )
+    }
+}
+
+trait SpellSlotUpdate {
+    fn slot(&self, slot: SpellSlot) -> Result<Option<u64>>;
+    fn spell(&self, id: u64) -> Option<&SourceSpell>;
+    fn interrupt_slot(&mut self, slot: SpellSlot, delayed: bool) -> Result<()>;
+    fn reset_auto_repeat(&mut self) -> Result<()>;
+    fn replace_slot(&mut self, slot: SpellSlot, id: u64) -> Result<()>;
+}
+
+struct SplitSlots<'a, O: ?Sized> {
+    slots: &'a mut SourceSpellSlots,
+    spells: &'a mut BTreeMap<u64, SourceSpell>,
+    stores: &'a SourceSpellStores,
+    owner: &'a mut O,
+}
+
+impl<O: SpellExecutionOwner + ?Sized> SpellSlotUpdate for SplitSlots<'_, O> {
+    fn slot(&self, slot: SpellSlot) -> Result<Option<u64>> {
+        Ok(self.slots.current(slot))
+    }
+    fn spell(&self, id: u64) -> Option<&SourceSpell> {
+        self.spells.get(&id)
+    }
+    fn interrupt_slot(&mut self, slot: SpellSlot, delayed: bool) -> Result<()> {
+        self.slots
+            .interrupt(slot, delayed, self.spells, self.stores, self.owner)
+    }
+    fn reset_auto_repeat(&mut self) -> Result<()> {
+        self.owner.reset_auto_repeat()
+    }
+    fn replace_slot(&mut self, slot: SpellSlot, id: u64) -> Result<()> {
+        self.slots.replace_slot(slot, id, self.spells)
+    }
+}
+
+/// Unit.cpp:4221-4299. Reborrow the current slot after each interruption.
+fn set_current_spell<O: SpellSlotUpdate>(
+    spell: &mut SourceSpell,
+    t: &SpellTemplate,
+    stores: &SourceSpellStores,
+    owner: &mut O,
+) -> Result<()> {
+    let slot = SpellSlot::for_spell(t, spell);
+    if owner.slot(slot)? == Some(spell.id) {
+        return Ok(());
+    }
+    let parallel = t.attributesex4 & 0x80 != 0;
+    let triggered = spell.flags.old_triggered();
+    let cancels_auto = t.attributesex3 & 0x400000 != 0;
+    owner.interrupt_slot(slot, false)?;
+    let attr = |slot: SpellSlot, mask: u32, ex4: bool, owner: &O| -> Result<bool> {
+        Ok(owner
+            .slot(slot)?
+            .and_then(|id| owner.spell(id))
+            .and_then(|s| stores.template(s.spell))
+            .is_some_and(|t| {
+                if ex4 {
+                    t.attributesex4 & mask != 0
+                } else {
+                    t.attributesex3 & mask != 0
+                }
+            }))
+    };
+    match slot {
+        SpellSlot::Generic => {
+            if owner.slot(SpellSlot::Channel)?.is_some()
+                && !parallel
+                && !attr(SpellSlot::Channel, 0x80, true, owner)?
+            {
+                owner.interrupt_slot(SpellSlot::Channel, false)?;
+            }
+            if attr(SpellSlot::AutoRepeat, 0x400000, false, owner)? {
+                owner.interrupt_slot(SpellSlot::AutoRepeat, true)?;
+            }
+        }
+        SpellSlot::Channel => {
+            owner.interrupt_slot(SpellSlot::Channel, true)?;
+            if !parallel && !triggered {
+                // Unit.cpp:4259 reads AUTOREPEAT, not GENERIC. Preserve this quirk.
+                if owner.slot(SpellSlot::AutoRepeat)?.is_some()
+                    && !attr(SpellSlot::AutoRepeat, 0x80, true, owner)?
+                {
+                    owner.interrupt_slot(SpellSlot::Generic, false)?;
+                }
+                if attr(SpellSlot::AutoRepeat, 0x400000, false, owner)? {
+                    owner.interrupt_slot(SpellSlot::AutoRepeat, true)?;
+                }
+            }
+        }
+        SpellSlot::AutoRepeat => {
+            if cancels_auto {
+                owner.interrupt_slot(SpellSlot::Generic, false)?;
+                if !parallel {
+                    owner.interrupt_slot(SpellSlot::Channel, false)?;
+                }
+            }
+            owner.reset_auto_repeat()?;
+        }
+        SpellSlot::Melee => {}
+    }
+    owner.replace_slot(slot, spell.id)?;
+    spell.referenced = true;
+    Ok(())
+}
+
+impl SourceUnits {
+    /// Unit.cpp:4221-4299. Keep the registry live during slot replacement.
+    pub fn set_current_spell(
+        &mut self,
+        objects: &SourceObjects,
+        stores: &SourceSpellStores,
+        spell: &mut SourceSpell,
+        t: &SpellTemplate,
+    ) -> Result<()> {
+        let mut live = RegistrySpellSlots {
+            caster: spell.caster,
+            objects,
+            units: self,
+            stores,
+        };
+        set_current_spell(spell, t, stores, &mut live)
+    }
+}
+
+struct RegistrySpellSlots<'a> {
+    caster: ObjectHandle,
+    objects: &'a SourceObjects,
+    units: &'a mut SourceUnits,
+    stores: &'a SourceSpellStores,
+}
+
+impl SpellSlotUpdate for RegistrySpellSlots<'_> {
+    fn slot(&self, slot: SpellSlot) -> Result<Option<u64>> {
+        Ok(self
+            .units
+            .get(self.objects, self.caster)?
+            .spell_slots
+            .current(slot))
+    }
+
+    fn spell(&self, id: u64) -> Option<&SourceSpell> {
+        self.units
+            .get(self.objects, self.caster)
+            .ok()?
+            .spell_starts
+            .spells
+            .get(&id)
+    }
+
+    fn interrupt_slot(&mut self, slot: SpellSlot, delayed: bool) -> Result<()> {
+        let Some(id) = self.slot(slot)? else {
+            return Ok(());
+        };
+        let spell = self
+            .spell(id)
+            .ok_or_else(|| refuse("execution.spells.current_identity"))?;
+        // Unit.cpp:4304-4316 leaves the slot and spell live during cancellation.
+        if !delayed && spell.state == SourceSpellState::Traveling {
+            return Ok(());
+        }
+        if slot == SpellSlot::AutoRepeat
+            && self.objects.get(spell.caster)?.kind == SourceObjectKind::Player
+        {
+            return Err(SpellCall::AutoRepeatCancel.missing_owner());
+        }
+        if !spell.can_interrupt_current() {
+            return Ok(());
+        }
+        self.stores
+            .template(spell.spell)
+            .ok_or_else(|| refuse("execution.spells.missing_template"))?;
+        // Spell.cpp:3109. Cancellation cannot proceed before the modifier lookup.
+        Err(SpellCall::ResetMods.missing_owner())
+    }
+
+    fn reset_auto_repeat(&mut self) -> Result<()> {
+        Err(refuse("execution.spells.Unit_ResetAutoRepeatSpells_owner"))
+    }
+
+    fn replace_slot(&mut self, slot: SpellSlot, id: u64) -> Result<()> {
+        let live = self.units.get_mut(self.objects, self.caster)?;
+        live.spell_slots
+            .replace_slot(slot, id, &mut live.spell_starts.spells)
     }
 }
 

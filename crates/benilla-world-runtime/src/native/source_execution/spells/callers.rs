@@ -19,11 +19,42 @@ impl SourceSpellStarts {
 }
 pub struct SpellStartContext<'a> {
     pub stores: &'a SourceSpellStores,
-    pub starts: &'a mut SourceSpellStarts,
-    pub events: &'a mut SourceUnitEvents,
+    pub storage: SpellStartStorage<'a>,
     pub owner: &'a mut dyn SpellExecutionOwner,
 }
+
+pub enum SpellStartStorage<'a> {
+    Unit,
+    Separate(&'a mut SourceSpellStarts, &'a mut SourceUnitEvents),
+}
 impl SpellStartContext<'_> {
+    pub fn storage(
+        &mut self,
+        caster: ObjectHandle,
+    ) -> Result<(&mut SourceSpellStarts, &mut SourceUnitEvents)> {
+        match &mut self.storage {
+            SpellStartStorage::Unit => self.owner.spell_storage(caster),
+            SpellStartStorage::Separate(starts, events) => Ok((starts, events)),
+        }
+    }
+
+    pub(super) fn start(
+        &mut self,
+        spell: &mut SourceSpell,
+        t: &SpellTemplate,
+        targets: SpellTargets,
+        aura: Option<u32>,
+    ) -> Result<SpellCastResult> {
+        spell.schedule_start(targets, aura, self.storage(spell.caster)?.1)?;
+        let spells = match &mut self.storage {
+            SpellStartStorage::Unit => None,
+            SpellStartStorage::Separate(starts, _) => Some(&mut starts.spells),
+        };
+        spell
+            .start_scheduled(t, spells, self.owner)?
+            .dispatch(|skip| self.owner.cast_scheduled(spell, skip))
+    }
+
     pub fn contains(&self, spell: u32) -> bool {
         self.stores.template(spell).is_some()
     }
@@ -70,7 +101,7 @@ impl SpellStartContext<'_> {
         } else {
             None
         };
-        let id = self.starts.allocate()?;
+        let id = self.storage(caster)?.0.allocate()?;
         let mut value =
             SourceSpell::construct(id, self.stores, spell, caster, None, flags, self.owner)?;
         value.triggered_by_spell_reagent = aura
@@ -89,20 +120,12 @@ impl SpellStartContext<'_> {
         } else if let Some(unit_targets) = value.unit_cast_targets(t, target, self.owner)? {
             targets = unit_targets;
         } else {
-            self.starts.spells.insert(id, value);
+            self.storage(caster)?.0.spells.insert(id, value);
             return Ok(SpellCastResult::BadTargets);
         }
         // Refusals retain the real event and partially executed object; never retry it.
-        let result = (|| {
-            value.schedule_start(targets, aura, self.events)?;
-            value
-                .start_scheduled(t, &mut self.starts.spells, self.owner)?
-                .dispatch(|skip| {
-                    self.owner
-                        .cast_scheduled(&mut value, skip, self.starts, self.events)
-                })
-        })();
-        self.starts.spells.insert(id, value);
+        let result = self.start(&mut value, t, targets, aura);
+        self.storage(caster)?.0.spells.insert(id, value);
         result
     }
     pub fn ai_cast(
@@ -124,9 +147,13 @@ impl SpellStartContext<'_> {
         } else if cast_flags & 0x90 != 0 {
             return Ok(false);
         }
-        let (evade, casting) =
-            self.owner
-                .ai_cast_state(original, caster, self.starts, cast_flags)?;
+        let starts = match &self.storage {
+            SpellStartStorage::Unit => None,
+            SpellStartStorage::Separate(starts, _) => Some(&**starts),
+        };
+        let (evade, casting) = self
+            .owner
+            .ai_cast_state(original, caster, starts, cast_flags)?;
         if evade && cast_flags & 2 == 0 {
             return Ok(false);
         }
@@ -148,7 +175,7 @@ impl SpellStartContext<'_> {
                     return Ok(false);
                 }
             }
-            if is_melee(t) && self.owner.active_auto_spell(caster, self.starts)? == Some(spell) {
+            if is_melee(t) && self.owner.active_auto_spell(caster, starts)? == Some(spell) {
                 return Ok(false);
             }
         }

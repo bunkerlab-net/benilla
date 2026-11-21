@@ -12,7 +12,7 @@ impl SpellStartContext<'_> {
         pet: bool,
     ) -> Result<bool> {
         let flags = SpellTriggerFlags(0x100 | if controlled_opener { 0x80 } else { 0 });
-        let id = self.starts.allocate()?;
+        let id = self.storage(caster)?.0.allocate()?;
         let mut value =
             SourceSpell::construct(id, self.stores, spell, caster, None, flags, self.owner)?;
         let result = (|| {
@@ -34,19 +34,11 @@ impl SpellStartContext<'_> {
                 .stores
                 .template(spell)
                 .ok_or_else(|| refuse("execution.spells.missing_template"))?;
-            value
-                .start(
-                    template,
-                    targets,
-                    None,
-                    self.events,
-                    &mut self.starts.spells,
-                    self.owner,
-                )
+            self.start(&mut value, template, targets, None)
                 .map(|result| result == SpellCastResult::Ok)
         })();
         // A reached missing dependency must not discard the constructed Spell.
-        self.starts.spells.insert(id, value);
+        self.storage(caster)?.0.spells.insert(id, value);
         result
     }
 }

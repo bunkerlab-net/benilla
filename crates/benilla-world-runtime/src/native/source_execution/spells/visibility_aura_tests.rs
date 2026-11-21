@@ -104,8 +104,8 @@ impl Target {
 
 impl SpellExecutionOwner for Target {}
 impl SelfAuraApplicationOwner for Target {
-    fn self_aura_application(&mut self) -> SelfAuraApplication<'_> {
-        SelfAuraApplication {
+    fn self_aura_application(&mut self) -> Result<SelfAuraApplication<'_>> {
+        Ok(SelfAuraApplication {
             unit: operands(
                 self.object,
                 &self.objects,
@@ -127,7 +127,7 @@ impl SelfAuraApplicationOwner for Target {
             power_type: self.unit.power_type.as_mut(),
             vitals: &mut self.unit.vitals,
             form: &mut self.unit.shapeshift_form,
-        }
+        })
     }
 }
 
@@ -152,7 +152,7 @@ fn invisibility_round_trip_across_indices_preserves_saved_unit_bytes() {
     let bytes = serde_json::to_vec(&target.unit).unwrap();
     assert_eq!(target.unit.visibility, SourceUnitVisibility::default());
     let main = target.holder(&unseen, 200);
-    apply_self_aura_holder(&mut target, &stores, &unseen, main, None).unwrap();
+    apply_self_aura_holder(&mut target, &stores, &unseen, main).unwrap();
     assert_eq!(target.unit.visibility.values[0], 200);
     assert_eq!(target.unit.visibility.mask, 0x0000_0001);
     assert_eq!(
@@ -160,7 +160,7 @@ fn invisibility_round_trip_across_indices_preserves_saved_unit_bytes() {
         SourceUnitVisibilityMode::GroupInvisibility
     );
     let extra = target.holder(&other, 45);
-    apply_self_aura_holder(&mut target, &stores, &other, extra, None).unwrap();
+    apply_self_aura_holder(&mut target, &stores, &other, extra).unwrap();
     assert_eq!(target.unit.visibility.values[31], 45);
     assert_eq!(target.unit.visibility.mask, 0x8000_0001);
     assert_eq!(serde_json::to_vec(&target.unit).unwrap(), bytes);
@@ -201,7 +201,7 @@ fn scripted_invisibility_unapply_keeps_live_periodicity() {
         .auras
         .store_aura_holder(t.id, &mut Some(holder))
         .unwrap();
-    apply_self_aura_holder(&mut target, &stores, &t, id, None).unwrap();
+    apply_self_aura_holder(&mut target, &stores, &t, id).unwrap();
     let aura = target.unit.auras.aura_holder_mut(id).unwrap().effects[0]
         .as_mut()
         .unwrap();
@@ -266,7 +266,7 @@ fn invisibility_preserves_gm_off_and_clears_no_detect_only_without_stealth() {
             target.holder(&stealth, 1);
         }
         let holder = target.holder(&t, 200);
-        apply_self_aura_holder(&mut target, &stores, &t, holder, None).unwrap();
+        apply_self_aura_holder(&mut target, &stores, &t, holder).unwrap();
         assert_eq!(target.unit.visibility.mode, mode);
         target.remove(&stores, holder).unwrap();
         assert_eq!(target.unit.visibility.mask, 0);
@@ -297,10 +297,10 @@ fn invisibility_interrupts_matching_holders_even_on_positive_unapply() {
     let removed = target.holder(&canceled, 1);
     let surviving = target.holder(&kept, 1);
     let first = target.holder(&t, 200);
-    apply_self_aura_holder(&mut target, &stores, &t, first, None).unwrap();
+    apply_self_aura_holder(&mut target, &stores, &t, first).unwrap();
     assert!(target.unit.auras.aura_holder(removed).is_none());
     let second = target.holder(&another, 20);
-    apply_self_aura_holder(&mut target, &stores, &another, second, None).unwrap();
+    apply_self_aura_holder(&mut target, &stores, &another, second).unwrap();
     let removed_again = target.holder(&canceled, 1);
     target.remove(&stores, second).unwrap();
     assert_eq!(target.unit.visibility.values[0], 200);
@@ -325,7 +325,7 @@ fn invisibility_refuses_player_glow_after_updating_values() {
     let mut target = Target::new(true, false);
     let holder = target.holder(&t, 200);
     assert_eq!(
-        apply_self_aura_holder(&mut target, &stores, &t, holder, None)
+        apply_self_aura_holder(&mut target, &stores, &t, holder)
             .unwrap_err()
             .id,
         "execution.spells.Aura_2647.GetMover_owner"
@@ -359,7 +359,7 @@ fn invisibility_refuses_world_refresh_after_writing_live_state() {
     let holder = target.holder(&t, 200);
     let refresh = "execution.spells.Aura_2679.UpdateVisibilityAndView_owner";
     assert_eq!(
-        apply_self_aura_holder(&mut target, &stores, &t, holder, None)
+        apply_self_aura_holder(&mut target, &stores, &t, holder)
             .unwrap_err()
             .id,
         refresh
@@ -383,7 +383,7 @@ fn invisibility_refuses_undefined_indices_and_arithmetic_before_write() {
         let mut target = Target::new(false, false);
         let holder = target.holder(&t, 1);
         assert_eq!(
-            apply_self_aura_holder(&mut target, &stores, &t, holder, None)
+            apply_self_aura_holder(&mut target, &stores, &t, holder)
                 .unwrap_err()
                 .id,
             "execution.spells.ObjectVisibility_71.invisibility_index_undefined"
@@ -394,11 +394,11 @@ fn invisibility_refuses_undefined_indices_and_arithmetic_before_write() {
     let b = invisibility(&mut stores, 9004, 0);
     let mut target = Target::new(false, false);
     let max = target.holder(&a, i32::MAX);
-    apply_self_aura_holder(&mut target, &stores, &a, max, None).unwrap();
+    apply_self_aura_holder(&mut target, &stores, &a, max).unwrap();
     let overflow = target.holder(&b, 1);
     let before = target.unit.visibility.clone();
     assert_eq!(
-        apply_self_aura_holder(&mut target, &stores, &b, overflow, None)
+        apply_self_aura_holder(&mut target, &stores, &b, overflow)
             .unwrap_err()
             .id,
         "execution.spells.ObjectVisibility_71.invisibility_addition_undefined"
@@ -406,7 +406,7 @@ fn invisibility_refuses_undefined_indices_and_arithmetic_before_write() {
     assert_eq!(target.unit.visibility, before);
     let mut target = Target::new(false, false);
     let min = target.holder(&a, i32::MIN);
-    apply_self_aura_holder(&mut target, &stores, &a, min, None).unwrap();
+    apply_self_aura_holder(&mut target, &stores, &a, min).unwrap();
     assert_eq!(target.unit.visibility.values[0], i32::MIN);
     assert_eq!(target.unit.visibility.mask, 0);
     assert_eq!(
@@ -440,15 +440,15 @@ fn stealth_last_removal_restores_invisibility_or_on() {
         let saved = serde_json::to_vec(&target.unit).unwrap();
         if prior == GroupInvisibility {
             let holder = target.holder(&unseen, 10);
-            apply_self_aura_holder(&mut target, &stores, &unseen, holder, None).unwrap();
+            apply_self_aura_holder(&mut target, &stores, &unseen, holder).unwrap();
         } else {
             target.unit.visibility.mode = prior;
         }
         let first = target.holder(&hide, -1);
         let second = target.holder(&trap, 10);
         assert_eq!(target.unit.visibility.stealth_strength, [0, 0]);
-        apply_self_aura_holder(&mut target, &stores, &hide, first, None).unwrap();
-        apply_self_aura_holder(&mut target, &stores, &trap, second, None).unwrap();
+        apply_self_aura_holder(&mut target, &stores, &hide, first).unwrap();
+        apply_self_aura_holder(&mut target, &stores, &trap, second).unwrap();
         assert_eq!(target.unit.visibility.stealth_strength, [u32::MAX, 10]);
         assert_eq!(target.unit.auras.vis_flags, 2);
         let during = if prior == Off { Off } else { GroupStealth };
@@ -494,7 +494,7 @@ fn stealth_non_real_apply_interrupts_matching_auras_without_creep() {
     let first = target.holder(&interrupted, 1);
     let keep = target.holder(&kept, 1);
     let second = target.holder(&next, 1);
-    let live = target.self_aura_application();
+    let live = target.self_aura_application().unwrap();
     let mut removal = SelfAuraRemoval {
         unit: live.unit,
         visibility: live.visibility,
@@ -535,7 +535,7 @@ fn stealth_refusals_follow_strength_and_creep_writes() {
         let mut target = Target::new(player, world);
         let holder = target.holder(&t, 11);
         assert_eq!(
-            apply_self_aura_holder(&mut target, &stores, &t, holder, None)
+            apply_self_aura_holder(&mut target, &stores, &t, holder)
                 .unwrap_err()
                 .id,
             applied
@@ -571,7 +571,7 @@ fn stealth_refuses_invalid_indices_and_minimum_removal_before_state_write() {
         let holder = target.holder(&t, 1);
         let refusal = "execution.spells.ObjectVisibility_79.stealth_index_undefined";
         assert_eq!(
-            apply_self_aura_holder(&mut target, &stores, &t, holder, None)
+            apply_self_aura_holder(&mut target, &stores, &t, holder)
                 .unwrap_err()
                 .id,
             refusal
@@ -584,7 +584,7 @@ fn stealth_refuses_invalid_indices_and_minimum_removal_before_state_write() {
         let t = stealth(&mut stores, id, 0);
         let mut target = Target::new(false, false);
         let holder = target.holder(&t, amount);
-        apply_self_aura_holder(&mut target, &stores, &t, holder, None).unwrap();
+        apply_self_aura_holder(&mut target, &stores, &t, holder).unwrap();
         assert_eq!(target.unit.visibility.stealth_strength, [amount as u32, 0]);
         let removal = target.remove(&stores, holder);
         if amount == i32::MIN {
@@ -668,6 +668,7 @@ fn shapeshift_writes_form_then_removes_holders_or_names_their_boundary() {
         let later = refuses.then(|| target.holder(&unported, 1));
         let result = target
             .self_aura_application()
+            .unwrap()
             .apply_shape(&stores, stance, 17);
         assert_eq!(target.unit.shapeshift_form, 17);
         assert!(target.unit.auras.aura_holder(ignored).is_some());
@@ -719,7 +720,7 @@ fn damage_taken_aura_has_no_immediate_apply_or_remove_effect() {
     let mut target = Target::new(false, true);
     let before = serde_json::to_vec(&target.unit).unwrap();
     let holder = target.holder(&t, -10);
-    apply_self_aura_holder(&mut target, &stores, &t, holder, None).unwrap();
+    apply_self_aura_holder(&mut target, &stores, &t, holder).unwrap();
     assert!(target.unit.auras.has_aura_type(87));
     assert!(
         target.unit.auras.aura_holder(holder).unwrap().effects[0]

@@ -13,24 +13,15 @@ pub enum SelfCastCaller {
 pub trait SpellSelfCastOwner: SpellExecutionOwner {
     fn cast_objects(&self) -> &SourceObjects;
     fn cast_mod_owner(&mut self, caster: ObjectHandle) -> Result<Option<ObjectHandle>>;
-    fn cast_chain(&mut self) -> (&mut SourceUnitAuras, u32);
-    fn cast_checked(
-        &mut self,
-        spell: &mut SourceSpell,
-        t: &SpellTemplate,
-        starts: &mut SourceSpellStarts,
-        events: &mut SourceUnitEvents,
-    ) -> Result<()>;
+    fn cast_chain(&mut self) -> Result<(&mut SourceUnitAuras, u32)>;
+    fn cast_checked(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()>;
 }
 
 /// Live continuations of the checked cast in Spell.cpp:3258-3353.
 pub trait SpellCastEffects {
-    fn cast_unit(&self) -> &SpellUnitState;
-    fn cast_auras(&mut self) -> &mut SourceUnitAuras;
-    fn finish_operands<'a>(
-        &'a mut self,
-        starts: Option<&'a SourceSpellStarts>,
-    ) -> Result<SpellFinishOperands<'a>>;
+    fn cast_unit(&mut self) -> Result<SpellUnitState>;
+    fn cast_auras(&mut self) -> Result<&mut SourceUnitAuras>;
+    fn finish_operands(&mut self) -> Result<SpellFinishOperands<'_>>;
     fn duration(&self, t: &SpellTemplate) -> Result<i32>;
     fn fill_self_targets(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()>;
     fn send_cooldown(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()>;
@@ -41,12 +32,7 @@ pub trait SpellCastEffects {
         caster: ObjectHandle,
         flag: u32,
     ) -> Result<()>;
-    fn hit_self(
-        &mut self,
-        spell: &mut SourceSpell,
-        t: &SpellTemplate,
-        nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
-    ) -> Result<()>;
+    fn hit_self(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()>;
     fn proc_cast_end(&mut self, spell: &mut SourceSpell) -> Result<()>;
 }
 
@@ -62,8 +48,6 @@ impl SourceSpell {
         skip: bool,
         caller: SelfCastCaller,
         stores: &SourceSpellStores,
-        starts: &mut SourceSpellStarts,
-        events: &mut SourceUnitEvents,
         owner: &mut impl SpellSelfCastOwner,
     ) -> Result<()> {
         self.executing = true;
@@ -71,7 +55,7 @@ impl SourceSpell {
             owner.cast_mod_owner(self.caster)?.is_none(),
             "execution.spells.Spell_3163.SpellModRAII_owner",
         )?;
-        let (auras, max_casts) = owner.cast_chain();
+        let (auras, max_casts) = owner.cast_chain()?;
         if !auras.try_enter_cast(max_casts) {
             // Spell.cpp:3172,3815-3835. The result precedes finish and skips aura-triggered casts.
             if self.triggered_by_aura.is_none() {
@@ -99,7 +83,7 @@ impl SourceSpell {
                 SelfCastCaller::UnitAi => "execution.spells.Spell_7860.SendInterrupted_owner",
             }));
         }
-        owner.cast_checked(self, t, starts, events)
+        owner.cast_checked(self, t)
     }
 
     /// Spell.cpp:3180,6901-6906. Only the self-target pointer update is bound.
@@ -119,14 +103,13 @@ impl SourceSpell {
     }
 
     /// Spell.cpp:3211-3377,3442-3484,3725-3793. Execute a checked immediate creature cast.
-    pub fn cast_checked(
+    pub fn cast_checked<E: SpellCastEffects>(
         &mut self,
         t: &SpellTemplate,
         stores: &SourceSpellStores,
         base: Option<&SourceUnitAi>,
-        mut nested: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
-        effects: &mut impl SpellCastEffects,
-        finish: impl FnOnce(&mut SourceSpell) -> Result<()>,
+        effects: &mut E,
+        finish: impl FnOnce(&mut E, &mut SourceSpell) -> Result<()>,
     ) -> Result<()> {
         let precast = match t.spellfamilyname {
             0 => matches!(t.mechanic, 16 | 25),
@@ -153,7 +136,7 @@ impl SourceSpell {
             SourceSpellScript::on_duration_calculate(self.aura_script, effects.duration(t)?);
         effects.fill_self_targets(self, t)?;
         effects.send_cooldown(self, t)?;
-        if effects.cast_unit().has_ai && self.flags.notify_ai() {
+        if effects.cast_unit()?.has_ai && self.flags.notify_ai() {
             let base = base.ok_or_else(|| refuse("execution.spells.Spell_3274.active_ai_owner"))?;
             // UnitAI.cpp:956 short-circuits before reading EventAI's main-spell set.
             require(
@@ -167,8 +150,9 @@ impl SourceSpell {
             "execution.spells.Spell_4399.ModifyPower_owner",
         )?;
         // TakeReagents, TakeAmmo and SendCastResult return for a non-player.
+        let unit = effects.cast_unit()?;
         require(
-            !effects.cast_unit().player && !effects.cast_unit().gameobject,
+            !unit.player && !unit.gameobject,
             "execution.spells.Spell_4439.player_cast_owner",
         )?;
         require(
@@ -216,29 +200,20 @@ impl SourceSpell {
         for target in &mut self.unique_targets {
             target.processed_mask = 0;
         }
-        effects.hit_self(
-            self,
-            t,
-            nested
-                .as_mut()
-                .map(|(starts, events)| (&mut **starts, &mut **events)),
-        )?;
+        effects.hit_self(self, t)?;
         require(
-            !effects.cast_auras().has_aura_type(109),
+            !effects.cast_auras()?.has_aura_type(109),
             "execution.spells.Spell_7442.Aura_isAffectedOnSpell_owner",
         )?;
         effects.proc_cast_end(self)?;
         // HandleImmediate revisits processed targets, then finishes the cast.
         self.state = SourceSpellState::Finished;
-        finish(self)?;
+        finish(effects, self)?;
         // Spell.cpp:3748-3764. add_self_unit_target records only immunity; Unit_2927 refuses negative hit rolls.
         self.on_successful_finish(t)?;
         // Spell.cpp:3789-3790. Holy Nova refuses and self procs cannot append a finish trigger.
-        finish_tail(
-            t,
-            effects.finish_operands(nested.map(|(starts, _)| &*starts))?,
-        )?;
-        effects.cast_auras().leave_cast();
+        finish_tail(t, effects.finish_operands()?)?;
+        effects.cast_auras()?.leave_cast();
         self.executing = false;
         Ok(())
     }
@@ -353,16 +328,10 @@ mod tests {
         fn cast_mod_owner(&mut self, _: ObjectHandle) -> Result<Option<ObjectHandle>> {
             Ok(None)
         }
-        fn cast_chain(&mut self) -> (&mut SourceUnitAuras, u32) {
-            (&mut self.auras, 1)
+        fn cast_chain(&mut self) -> Result<(&mut SourceUnitAuras, u32)> {
+            Ok((&mut self.auras, 1))
         }
-        fn cast_checked(
-            &mut self,
-            _: &mut SourceSpell,
-            _: &SpellTemplate,
-            _: &mut SourceSpellStarts,
-            _: &mut SourceUnitEvents,
-        ) -> Result<()> {
+        fn cast_checked(&mut self, _: &mut SourceSpell, _: &SpellTemplate) -> Result<()> {
             panic!("CheckCast failure must stop before effects");
         }
     }
@@ -410,7 +379,7 @@ mod tests {
             spell.state = SourceSpellState::Casting;
             assert_eq!(
                 spell
-                    .cast_self(false, caller, &stores, &mut starts, &mut events, &mut owner)
+                    .cast_self(false, caller, &stores, &mut owner)
                     .unwrap_err()
                     .id,
                 refusal,
@@ -459,14 +428,7 @@ mod tests {
             let mut spell = SourceSpell::new(1, &t, caster, SpellTriggerFlags(flags), 0).unwrap();
             spell.state = SourceSpellState::Casting;
             spell.triggered_by_aura = aura;
-            let result = spell.cast_self(
-                false,
-                SelfCastCaller::UnitAi,
-                &stores,
-                &mut SourceSpellStarts::default(),
-                &mut SourceUnitEvents::default(),
-                &mut owner,
-            );
+            let result = spell.cast_self(false, SelfCastCaller::UnitAi, &stores, &mut owner);
             assert_eq!(owner.auras.cast_counter, 1, "{kind:?}");
             if let Some(id) = refusal {
                 assert_eq!(result.unwrap_err().id, id);
@@ -507,15 +469,14 @@ mod tests {
         live: &'a mut SourceUnitFields,
         stores: &'a SourceSpellStores,
     ) -> CastAttackStop<'a> {
-        let (cast, starts, _) = live.borrow_cast();
         CastAttackStop {
             object,
-            flags: cast.flags,
-            control_guids: cast.control_guids,
-            state: cast.state,
-            victim: cast.victim,
-            slots: cast.spell_slots,
-            starts: Some(starts),
+            flags: &live.flags,
+            control_guids: &live.control_guids,
+            state: &mut live.state,
+            victim: &live.victim,
+            slots: &live.spell_slots,
+            starts: Some(&live.spell_starts),
             stores,
         }
     }

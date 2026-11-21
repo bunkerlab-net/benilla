@@ -95,10 +95,8 @@ fn apply_addon<D: GridDefinitions<Row = SpawnKey>>(
         false,
         context.objects,
         object,
-        live,
+        &mut prefix.units,
         &mut addon_cast::Execution {
-            object,
-            objects: context.objects,
             terrain: context.products,
             stores: prefix.spell_stores,
             targets: &prefix.spell_targets,
@@ -112,7 +110,11 @@ fn apply_addon<D: GridDefinitions<Row = SpawnKey>>(
             max_casts: addon_cast::max_casts(prefix.config)?,
         },
     );
-    fields.power = live.power_type.unwrap();
+    fields.power = prefix
+        .units
+        .get(context.objects, object)?
+        .power_type
+        .unwrap();
     result?;
     prefix.lookups.push("creature_addon_applied");
     prefix.lookups.push("creature_create_return");

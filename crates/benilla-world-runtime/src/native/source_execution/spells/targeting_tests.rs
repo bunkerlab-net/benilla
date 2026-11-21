@@ -267,13 +267,17 @@ fn fill_names_unbound_filters_and_player_pvp_reads_before_add_unit_target() {
 
 #[test]
 fn authored_area_effect_inserts_a_living_target_and_skips_a_dead_target() {
-    struct Hit {
+    struct Hit<'a> {
+        unit: SelfAuraTarget<'a>,
         auras: SourceUnitAuras,
         visibility: SourceUnitVisibility,
         damage: SourceCreatureDamage,
         clocks: Vec<i64>,
     }
-    impl SpellAuraHitOwner for Hit {
+    impl SpellAuraHitOwner for Hit<'_> {
+        fn aura_target(&self, _: ObjectHandle) -> Result<SelfAuraTarget<'_>> {
+            Ok(self.unit)
+        }
         fn aura_holder_seconds(&mut self, _: &SourceSpell) -> Result<i64> {
             self.clocks.push(42);
             Ok(42)
@@ -284,6 +288,8 @@ fn authored_area_effect_inserts_a_living_target_and_skips_a_dead_target() {
         }
         fn aura_hit_target(&mut self, _: ObjectHandle) -> Result<SelfAuraHitTarget<'_>> {
             Ok(SelfAuraHitTarget {
+                unit: self.unit,
+                stand: 0,
                 auras: &mut self.auras,
                 visibility: &mut self.visibility,
                 damage: DamageAuraTarget::unmodified(&mut self.damage),
@@ -293,7 +299,6 @@ fn authored_area_effect_inserts_a_living_target_and_skips_a_dead_target() {
             &mut self,
             _: &SpellTemplate,
             holder: SourceAuraHolderId,
-            _: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
         ) -> Result<()> {
             let effect = self.auras.aura_holder(holder).unwrap().effects[0]
                 .as_ref()
@@ -315,16 +320,9 @@ fn authored_area_effect_inserts_a_living_target_and_skips_a_dead_target() {
             live.fill(s, &t, |_| {})?;
             let caster = s.caster;
             s.script_value = 71;
+            let controls = SourceControlGuids::default();
             let mut hit = Hit {
-                auras: SourceUnitAuras::default(),
-                visibility: SourceUnitVisibility::default(),
-                damage: SourceCreatureDamage::default(),
-                clocks: Vec::new(),
-            };
-            s.hit_self_auras(
-                &t,
-                live.stores,
-                SelfAuraTarget {
+                unit: SelfAuraTarget {
                     target: caster,
                     level: Some(live.level),
                     alive,
@@ -332,12 +330,14 @@ fn authored_area_effect_inserts_a_living_target_and_skips_a_dead_target() {
                     player_group: None,
                     totem: false,
                     objects: live.objects,
-                    control_guids: &SourceControlGuids::default(),
+                    control_guids: &controls,
                 },
-                0,
-                None,
-                &mut hit,
-            )?;
+                auras: SourceUnitAuras::default(),
+                visibility: SourceUnitVisibility::default(),
+                damage: SourceCreatureDamage::default(),
+                clocks: Vec::new(),
+            };
+            s.hit_self_auras(&t, live.stores, &mut hit)?;
             assert!(s.pending_aura.is_none());
             assert_eq!(hit.auras.has_aura_holders(), alive);
             assert_eq!(hit.clocks, if alive { &[42, 43][..] } else { &[42][..] });

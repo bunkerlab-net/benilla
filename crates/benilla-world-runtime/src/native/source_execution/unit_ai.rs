@@ -226,43 +226,6 @@ pub struct SourceUnitFields {
     pub power_type: Option<u8>,
 }
 
-pub struct SourceUnitCastFields<'a> {
-    pub movement: &'a Option<SourceCreatureMovement>,
-    pub spell_slots: &'a mut SourceSpellSlots,
-    pub flags: &'a u32,
-    pub state: &'a mut u32,
-    pub gm: &'a bool,
-    pub mount_display: &'a u32,
-    pub stand_state: &'a u8,
-    pub control_guids: &'a SourceControlGuids,
-    pub unit_class: &'a Option<u32>,
-    pub combo_target: &'a Option<ObjectHandle>,
-    pub has_ai: &'a bool,
-    pub totem: &'a bool,
-    pub auras: &'a mut SourceUnitAuras,
-    pub visibility: &'a mut SourceUnitVisibility,
-    pub resistances: &'a mut SourceUnitResistances,
-    pub creature_damage: &'a mut SourceCreatureDamage,
-    pub loaded_creature: &'a SourceLoadedCreatureFields,
-    pub can_modify_stats: &'a bool,
-    pub immunities: &'a CreatureImmunityState,
-    pub threat_modifier: &'a mut [f32; 7],
-    pub vitals: &'a mut Option<SourceUnitVitals>,
-    pub power_fields: &'a mut Option<SourceUnitPowerFields>,
-    pub power_cost_modifier: &'a [i32; 7],
-    pub power_type: &'a mut Option<u8>,
-    pub power_cost_multiplier: &'a [u32; 7],
-    pub shapeshift_form: &'a mut u32,
-    pub target: &'a mut Option<ObjectHandle>,
-    pub victim: &'a Option<ObjectHandle>,
-    pub cooldowns: &'a mut SourceSpellCooldowns,
-    pub combat_reach: &'a Option<u32>,
-    pub bounding_radius: &'a Option<u32>,
-    pub cast_speed: &'a u32,
-    pub entry: &'a u32,
-    pub spell_list: &'a Option<CreatureSpellList>,
-}
-
 impl SourceUnitFields {
     /// Unit.h:1447-1448 reads the live display field.
     pub fn is_mounted(&self) -> bool {
@@ -386,56 +349,6 @@ impl SourceUnitFields {
                 ),
             },
             flag,
-        )
-    }
-
-    /// Spell.cpp:3007-3020. Borrow the live caster, Spell store, and event queue separately.
-    pub fn borrow_cast(
-        &mut self,
-    ) -> (
-        SourceUnitCastFields<'_>,
-        &mut SourceSpellStarts,
-        &mut SourceUnitEvents,
-    ) {
-        (
-            SourceUnitCastFields {
-                movement: &self.movement,
-                spell_slots: &mut self.spell_slots,
-                flags: &self.flags,
-                state: &mut self.state,
-                gm: &self.gm,
-                mount_display: &self.mount_display,
-                stand_state: &self.stand_state,
-                control_guids: &self.control_guids,
-                unit_class: &self.unit_class,
-                combo_target: &self.combo_target,
-                has_ai: &self.has_ai,
-                totem: &self.totem,
-                auras: &mut self.auras,
-                visibility: &mut self.visibility,
-                resistances: &mut self.resistances,
-                creature_damage: &mut self.creature_damage,
-                loaded_creature: &self.loaded_creature,
-                can_modify_stats: &self.loaded_creature.can_modify_stats,
-                immunities: &self.immunities,
-                threat_modifier: &mut self.threat_modifier,
-                vitals: &mut self.vitals,
-                power_fields: &mut self.power_fields,
-                power_type: &mut self.power_type,
-                power_cost_modifier: &self.power_cost_modifier,
-                power_cost_multiplier: &self.power_cost_multiplier,
-                shapeshift_form: &mut self.shapeshift_form,
-                target: &mut self.target,
-                victim: &self.victim,
-                cooldowns: &mut self.cooldowns,
-                combat_reach: &self.combat_reach,
-                bounding_radius: &self.bounding_radius,
-                cast_speed: &self.cast_speed,
-                entry: &self.entry,
-                spell_list: &self.spell_list,
-            },
-            &mut self.spell_starts,
-            &mut self.unit_events,
         )
     }
 

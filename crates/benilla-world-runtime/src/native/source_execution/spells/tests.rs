@@ -122,7 +122,7 @@ impl SpellExecutionOwner for Fixture {
         &mut self,
         s: &mut SourceSpell,
         _: &SpellTemplate,
-        _: &mut BTreeMap<u64, SourceSpell>,
+        _: Option<&mut BTreeMap<u64, SourceSpell>>,
     ) -> Result<()> {
         s.referenced = true;
         self.trace.push("SetCurrentCastedSpell".into());
@@ -153,7 +153,7 @@ impl SpellExecutionOwner for Fixture {
         &mut self,
         _: ObjectHandle,
         _: ObjectHandle,
-        _: &SourceSpellStarts,
+        _: Option<&SourceSpellStarts>,
         _: u32,
     ) -> Result<(bool, bool)> {
         Ok((false, false))
@@ -842,16 +842,15 @@ fn direct_and_ai_callers_reach_the_same_start_owner() {
     };
     let mut context = SpellStartContext {
         stores: &stores,
-        starts: &mut starts,
-        events: &mut q,
+        storage: SpellStartStorage::Separate(&mut starts, &mut q),
         owner: &mut f,
     };
     assert_eq!(
         context.ai_cast(unit(), None, 7, 0).unwrap_err().id,
         "execution.terrain.live_vmap_area_owner"
     );
-    assert_eq!(context.starts.spells[&1].state, SourceSpellState::Targeting);
-    assert_eq!(context.events.inventory().queued.len(), 1);
+    assert_eq!(starts.spells[&1].state, SourceSpellState::Targeting);
+    assert_eq!(q.inventory().queued.len(), 1);
 }
 
 #[test]
@@ -873,8 +872,7 @@ fn triggered_start_retains_the_queued_spell_and_inherits_the_aura_reagent() {
     };
     let mut context = SpellStartContext {
         stores: &stores,
-        starts: &mut starts,
-        events: &mut events,
+        storage: SpellStartStorage::Separate(&mut starts, &mut events),
         owner: &mut owner,
     };
     assert_eq!(
@@ -884,12 +882,10 @@ fn triggered_start_retains_the_queued_spell_and_inherits_the_aura_reagent() {
             .id,
         "execution.spells.f5_10_Spell_cast_owner"
     );
-    let spell = &context.starts.spells[&1];
+    let spell = &starts.spells[&1];
     assert_eq!(spell.triggered_by_aura, Some(42));
     assert_eq!(spell.triggered_by_spell_reagent, Some(123));
-    assert!(context
-        .events
-        .owns_spell_event(spell.event.unwrap(), spell.id));
+    assert!(events.owns_spell_event(spell.event.unwrap(), spell.id));
 }
 
 #[test]
@@ -909,8 +905,7 @@ fn constructor_refuses_loaded_targeting_map_before_start_and_event_creation() {
     let mut owner = Constructor;
     let mut context = SpellStartContext {
         stores: &stores,
-        starts: &mut starts,
-        events: &mut events,
+        storage: SpellStartStorage::Separate(&mut starts, &mut events),
         owner: &mut owner,
     };
     assert_eq!(
@@ -1046,8 +1041,7 @@ fn eventai_cast_reaches_spellstart_and_keeps_its_event_on_geometry_refusal() {
         fn spell_context(&mut self) -> Result<SpellStartContext<'_>> {
             Ok(SpellStartContext {
                 stores: self.stores,
-                starts: self.starts,
-                events: self.events,
+                storage: SpellStartStorage::Separate(self.starts, self.events),
                 owner: self.owner,
             })
         }
@@ -1111,8 +1105,7 @@ fn db_cast_bridge_uses_the_same_constructor_and_start() {
     };
     let mut context = SpellStartContext {
         stores: &stores,
-        starts: &mut starts,
-        events: &mut events,
+        storage: SpellStartStorage::Separate(&mut starts, &mut events),
         owner: &mut f,
     };
     assert_eq!(
@@ -1122,9 +1115,9 @@ fn db_cast_bridge_uses_the_same_constructor_and_start() {
             .id,
         "execution.terrain.live_vmap_area_owner"
     );
-    assert_eq!(context.starts.spells[&1].flags, SpellTriggerFlags(0x40));
-    assert_eq!(context.starts.spells[&1].state, SourceSpellState::Targeting);
-    assert_eq!(context.events.inventory().queued.len(), 1);
+    assert_eq!(starts.spells[&1].flags, SpellTriggerFlags(0x40));
+    assert_eq!(starts.spells[&1].state, SourceSpellState::Targeting);
+    assert_eq!(events.inventory().queued.len(), 1);
 }
 
 #[test]
@@ -1246,7 +1239,7 @@ fn aura_removal_precedes_live_ai_presence_query() {
             &mut self,
             _: &mut SourceSpell,
             _: &SpellTemplate,
-            _: &mut BTreeMap<u64, SourceSpell>,
+            _: Option<&mut BTreeMap<u64, SourceSpell>>,
         ) -> Result<()> {
             Ok(())
         }
@@ -1282,8 +1275,7 @@ fn xyz_null_target_refuses_before_constructor_dependencies() {
     let mut events = SourceUnitEvents::default();
     let mut context = SpellStartContext {
         stores: &stores,
-        starts: &mut starts,
-        events: &mut events,
+        storage: SpellStartStorage::Separate(&mut starts, &mut events),
         owner: &mut Unbound,
     };
     assert_eq!(
@@ -1293,8 +1285,14 @@ fn xyz_null_target_refuses_before_constructor_dependencies() {
             .id,
         "execution.spells.UnitAI_CAST_ONLY_XYZ_null_target_undefined"
     );
-    assert!(context.starts.spells.is_empty());
-    assert!(context.events.inventory().queued.is_empty());
+    assert!(context.storage(unit()).unwrap().0.spells.is_empty());
+    assert!(context
+        .storage(unit())
+        .unwrap()
+        .1
+        .inventory()
+        .queued
+        .is_empty());
     // A non-null target reaches the position owner instead of undefined behavior.
     assert_eq!(
         context
@@ -1318,8 +1316,7 @@ fn db_custom_constructor_precedes_pose_while_normal_db_pose_precedes_constructor
     let target = objects.construct(1, SourceObjectKind::Creature).unwrap();
     let mut context = SpellStartContext {
         stores: &stores,
-        starts: &mut starts,
-        events: &mut events,
+        storage: SpellStartStorage::Separate(&mut starts, &mut events),
         owner: &mut Unbound,
     };
     assert_eq!(
@@ -1336,7 +1333,7 @@ fn db_custom_constructor_precedes_pose_while_normal_db_pose_precedes_constructor
             .id,
         "execution.spells.Unit_check_operands_owner"
     );
-    assert!(context.events.inventory().queued.is_empty());
+    assert!(events.inventory().queued.is_empty());
 }
 
 #[test]
@@ -1404,7 +1401,7 @@ mod pet_ai_caller_tests {
             &mut self,
             s: &mut SourceSpell,
             t: &SpellTemplate,
-            spells: &mut BTreeMap<u64, SourceSpell>,
+            spells: Option<&mut BTreeMap<u64, SourceSpell>>,
         ) -> Result<()> {
             self.inner.set_current(s, t, spells)
         }
@@ -1461,8 +1458,7 @@ mod pet_ai_caller_tests {
             assert_eq!(
                 SpellStartContext {
                     stores: &stores,
-                    starts: &mut starts,
-                    events: &mut events,
+                    storage: SpellStartStorage::Separate(&mut starts, &mut events),
                     owner: &mut owner
                 }
                 .pet_cast(unit(), 7, Some(unit()), true, true)
@@ -1505,8 +1501,7 @@ mod pet_ai_caller_tests {
             };
             assert!(SpellStartContext {
                 stores: &stores,
-                starts: &mut starts,
-                events: &mut events,
+                storage: SpellStartStorage::Separate(&mut starts, &mut events),
                 owner: &mut owner
             }
             .pet_cast(unit(), 7, Some(unit()), opener, pet)
@@ -1552,8 +1547,7 @@ mod pet_ai_caller_tests {
         let mut owner = PetFixture::default();
         assert!(SpellStartContext {
             stores: &stores,
-            starts: &mut starts,
-            events: &mut events,
+            storage: SpellStartStorage::Separate(&mut starts, &mut events),
             owner: &mut owner
         }
         .pet_cast(unit(), 10, None, false, false)
@@ -1572,8 +1566,7 @@ mod pet_ai_caller_tests {
         owner.inner.fail = Some((SpellCheck::IsSpellReady, R::NotReady));
         assert!(!SpellStartContext {
             stores: &stores,
-            starts: &mut starts,
-            events: &mut events,
+            storage: SpellStartStorage::Separate(&mut starts, &mut events),
             owner: &mut owner
         }
         .pet_cast(unit(), 7, None, false, false)

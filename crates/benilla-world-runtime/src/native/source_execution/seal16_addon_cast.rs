@@ -8,8 +8,6 @@ mod effects;
 use crate::native::source_execution::visibility::SourceBroadcast;
 pub(super) use effects::spell_start_packet;
 pub(super) struct Execution<'a> {
-    pub object: ObjectHandle,
-    pub objects: &'a SourceObjects,
     pub terrain: &'a mut SourceTerrainManager,
     pub stores: &'a SourceSpellStores,
     pub targets: &'a SourceSpellTargetMgr,
@@ -47,13 +45,16 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
     fn cast_spell(
         &mut self,
         state: &mut CreatureAddonState,
-        live: &mut SourceUnitFields,
+        units: &mut SourceUnits,
+        object: ObjectHandle,
+        objects: &SourceObjects,
         spell: u32,
     ) -> Result<()> {
-        let invisibility = self.object.thread == 6 && spell == 4986 && live.entry == 3094;
+        let live = units.get(objects, object)?;
+        let invisibility = object.thread == 6 && spell == 4986 && live.entry == 3094;
         let before = (invisibility || matches!(spell, 9036 | 1032))
-            .then(|| serde_json::to_vec(&*live).unwrap());
-        if self.object.thread == 7 && self.objects.get(self.object)?.database_guid == 27677 {
+            .then(|| serde_json::to_vec(live).unwrap());
+        if object.thread == 7 && objects.get(object)?.database_guid == 27677 {
             // Catalog04 template11577/ordinal6753 and spawnTemplate0 leave every flag clear.
             assert_eq!(live.flags, 0);
             assert_eq!(live.faction, 91);
@@ -61,64 +62,40 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             assert_eq!(live.persuaded, None);
             assert_eq!(live.control_guids, SourceControlGuids::default());
         }
-        let (cast, starts, events) = live.borrow_cast();
         let mut owner = Owner {
-            object: self.object,
-            objects: self.objects,
+            object,
+            objects,
+            units,
             terrain: self.terrain,
             stores: self.stores,
             targets: self.targets,
-            flags: cast.flags,
-            control_guids: cast.control_guids,
-            state: cast.state,
-            victim: cast.victim,
-            slots: cast.spell_slots,
-            immunities: cast.immunities,
-            auras: cast.auras,
-            visibility: cast.visibility,
-            resistances: cast.resistances,
-            creature_damage: cast.creature_damage,
-            loaded_creature: cast.loaded_creature,
-            can_modify_stats: cast.can_modify_stats,
-            threat_modifier: cast.threat_modifier,
-            power_fields: cast.power_fields,
-            power_type: cast.power_type.as_mut(),
-            vitals: cast.vitals,
-            form: cast.shapeshift_form,
-            cooldowns: cast.cooldowns,
-            creature_spell_list: cast.spell_list.as_ref(),
-            entry: cast.entry,
             random: self.random,
             creature_spells: self.creature_spells,
-            stand: *cast.stand_state,
-            mount_display: cast.mount_display,
             unit: self.unit,
             level: self.level,
-            cast_speed: cast.cast_speed,
             clocks: self.clocks,
             world_clock: self.world_clock,
             max_casts: self.max_casts,
             broadcast: None,
-            bounding_radius: *cast.bounding_radius,
         };
         // Creature.cpp:2343 ignores the cast result. A refusal still stops here.
         SpellStartContext {
             stores: self.stores,
-            starts,
-            events,
+            storage: SpellStartStorage::Unit,
             owner: &mut owner,
         }
-        .cast_triggered(self.object, Some(self.object), spell, None)?;
+        .cast_triggered(object, Some(object), spell, None)?;
+        let live = units.get(objects, object)?;
         if let Some(before) = before {
             assert_eq!(
                 before,
-                serde_json::to_vec(&*live).unwrap(),
+                serde_json::to_vec(live).unwrap(),
                 "applying {spell} must not change saved SourceUnitFields bytes"
             );
         }
         if invisibility {
             // SQL :433653,:841741; Creature.cpp:932,1738,2343.
-            assert!(!self.objects.get(self.object)?.in_world);
+            assert!(!objects.get(object)?.in_world);
             assert_eq!(
                 live.visibility.mode,
                 SourceUnitVisibilityMode::GroupInvisibility
@@ -134,7 +111,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
                 (18, 0, 200, true)
             );
         }
-        if self.object.thread == 6 && self.objects.get(self.object)?.database_guid == 40520 {
+        if object.thread == 6 && objects.get(object)?.database_guid == 40520 {
             assert_eq!(self.raw, 27080);
             assert!(state.duplicate_aura_errors.is_empty());
             let id = if spell == 9036 { 1 } else { 2 };
@@ -147,7 +124,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             let target = &value.unique_targets[0];
             assert_eq!(
                 (target.unit, target.effect_mask, target.hit_mask),
-                (self.object, 1, 1)
+                (object, 1, 1)
             );
             assert!(target.processed && !target.missed);
             assert_eq!((target.processed_mask, target.duration), (0, -1));
@@ -170,7 +147,7 @@ impl CreatureAddonExecutionOwner for Execution<'_> {
             );
             let aura = live.auras.first_aura_holder(spell).unwrap();
             assert!(aura.permanent && aura.ready && aura.skip_update && !aura.deleted);
-            assert_eq!((aura.caster, aura.target), (self.object, self.object));
+            assert_eq!((aura.caster, aura.target), (object, object));
             assert_eq!(
                 (aura.duration, aura.max_duration, aura.charges, aura.stack),
                 (-1, -1, 0, 1)
@@ -236,75 +213,80 @@ pub(super) struct Owner<'a> {
     pub terrain: &'a mut SourceTerrainManager,
     pub stores: &'a SourceSpellStores,
     pub targets: &'a SourceSpellTargetMgr,
-    pub flags: &'a u32,
-    pub control_guids: &'a SourceControlGuids,
-    pub state: &'a mut u32,
-    pub victim: &'a Option<ObjectHandle>,
-    pub slots: &'a SourceSpellSlots,
-    pub immunities: &'a CreatureImmunityState,
-    pub auras: &'a mut SourceUnitAuras,
-    pub visibility: &'a mut SourceUnitVisibility,
-    pub resistances: &'a mut SourceUnitResistances,
-    pub creature_damage: &'a mut SourceCreatureDamage,
-    pub loaded_creature: &'a SourceLoadedCreatureFields,
-    pub can_modify_stats: &'a bool,
-    pub threat_modifier: &'a mut [f32; 7],
-    pub power_fields: &'a mut Option<SourceUnitPowerFields>,
-    pub power_type: Option<&'a mut u8>,
-    pub vitals: &'a mut Option<SourceUnitVitals>,
-    pub form: &'a mut u32,
-    pub cooldowns: &'a mut SourceSpellCooldowns,
-    pub stand: u8,
-    pub mount_display: &'a u32,
+    pub units: &'a mut SourceUnits,
     pub unit: SpellUnitState,
     pub level: u32,
-    pub cast_speed: &'a u32,
-    pub creature_spell_list: Option<&'a CreatureSpellList>,
-    pub entry: &'a u32,
     pub random: &'a mut dyn CreatureRandom,
     pub creature_spells: Option<&'a CreatureSpellMapData>,
     pub clocks: &'a mut ActiveClocks,
     pub world_clock: &'a SourceWorldClock,
     pub max_casts: u32,
     pub broadcast: Option<(&'a SourceCells, u32)>,
-    pub bounding_radius: Option<u32>,
 }
 
-impl<'a> Owner<'a> {
-    pub(super) fn aura_target(&self) -> SelfAuraTarget<'a> {
-        SelfAuraTarget {
-            target: self.object,
-            level: Some(self.level),
-            alive: self.unit.alive,
-            player: self.unit.player,
+impl Owner<'_> {
+    pub(super) fn live(&self) -> Result<&SourceUnitFields> {
+        self.units.get(self.objects, self.object)
+    }
+
+    fn aura_operands<'a>(
+        objects: &'a SourceObjects,
+        object: ObjectHandle,
+        level: u32,
+        totem: bool,
+        control_guids: &'a SourceControlGuids,
+    ) -> Result<SelfAuraTarget<'a>> {
+        let live = objects.get(object)?;
+        Ok(SelfAuraTarget {
+            target: object,
+            level: Some(level),
+            alive: live.alive,
+            player: live.kind == SourceObjectKind::Player,
             player_group: None,
-            totem: self.unit.totem,
-            objects: self.objects,
-            control_guids: self.control_guids,
-        }
+            totem,
+            objects,
+            control_guids,
+        })
     }
 }
 
 impl SelfAuraApplicationOwner for Owner<'_> {
-    fn self_aura_application(&mut self) -> SelfAuraApplication<'_> {
-        SelfAuraApplication {
-            unit: self.aura_target(),
-            auras: self.auras,
-            visibility: self.visibility,
-            resistances: self.resistances,
+    fn self_aura_application(&mut self) -> Result<SelfAuraApplication<'_>> {
+        let live = self.units.get_mut(self.objects, self.object)?;
+        Ok(SelfAuraApplication {
+            unit: Self::aura_operands(
+                self.objects,
+                self.object,
+                self.level,
+                live.totem,
+                &live.control_guids,
+            )?,
+            auras: &mut live.auras,
+            visibility: &mut live.visibility,
+            resistances: &mut live.resistances,
             damage: DamageAuraTarget::new(
-                self.creature_damage,
-                self.loaded_creature,
-                *self.flags,
-                *self.form,
+                &mut live.creature_damage,
+                &live.loaded_creature,
+                live.flags,
+                live.shapeshift_form,
             ),
-            can_modify_stats: *self.can_modify_stats,
-            threat_modifier: self.threat_modifier,
-            power_fields: self.power_fields,
-            power_type: self.power_type.as_deref_mut(),
-            vitals: self.vitals,
-            form: self.form,
+            can_modify_stats: live.loaded_creature.can_modify_stats,
+            threat_modifier: &mut live.threat_modifier,
+            power_fields: &mut live.power_fields,
+            power_type: live.power_type.as_mut(),
+            vitals: &mut live.vitals,
+            form: &mut live.shapeshift_form,
+        })
+    }
+
+    fn cast_aura_boost(&mut self, caster: ObjectHandle, spell: u32, aura: u32) -> Result<()> {
+        SpellStartContext {
+            stores: self.stores,
+            storage: SpellStartStorage::Unit,
+            owner: self,
         }
+        .cast_triggered(caster, None, spell, Some(aura))?;
+        Ok(())
     }
 }
 
@@ -324,17 +306,24 @@ pub(super) fn broadcast(
 
 impl SpellLocationOwner for Owner<'_> {}
 impl SpellExecutionOwner for Owner<'_> {
+    fn spell_storage(
+        &mut self,
+        caster: ObjectHandle,
+    ) -> Result<(&mut SourceSpellStarts, &mut SourceUnitEvents)> {
+        let live = self.units.get_mut(self.objects, caster)?;
+        Ok((&mut live.spell_starts, &mut live.unit_events))
+    }
     fn unit(&mut self, unit: ObjectHandle) -> Result<SpellUnitState> {
         require(
             unit == self.object,
             "execution.creature_addon.other_unit_fields_owner",
         )?;
-        self.objects.get(unit)?;
+        let live = self.live()?;
         let mut value = self.unit;
-        value.standing = self.stand == 0;
-        value.mounted = *self.mount_display != 0;
-        value.form = *self.form;
-        value.stealth = self.auras.has_aura_type(16);
+        value.standing = live.stand_state == 0;
+        value.mounted = live.is_mounted();
+        value.form = live.shapeshift_form;
+        value.stealth = live.auras.has_aura_type(16);
         Ok(value)
     }
     fn map_time(&mut self, caster: ObjectHandle) -> Result<u32> {
@@ -370,11 +359,12 @@ impl SpellExecutionOwner for Owner<'_> {
         use SpellCastResult as R;
         match check {
             SpellCheck::TargetFilter(index) => {
+                let live = self.live()?;
                 let relations = SourceCasterRelations {
                     caster: self.object,
                     objects: self.objects,
-                    flags: self.flags,
-                    control_guids: self.control_guids,
+                    flags: &live.flags,
+                    control_guids: &live.control_guids,
                 };
                 let result =
                     spell.check_target_filter(t, usize::from(index), self.objects, &relations)?;
@@ -388,25 +378,26 @@ impl SpellExecutionOwner for Owner<'_> {
                         (spell.caster, spell.original_caster),
                         (self.object, self.object)
                     );
-                    assert_eq!(*self.flags, 0);
+                    assert_eq!(live.flags, 0);
                     assert_eq!(unit_reaction_to(self.object, self.object, &relations)?, 4);
                     println!("F6_RELATIONS guid=27677 flags=0 identity_exit=Relations.cpp:204 assist_exit=Relations.cpp:504 raw={} relation_words=0 relation_sql=0 relation_clock=0", self.random.creature_raw_position()?);
                 }
                 Ok(result)
             }
             SpellCheck::PositiveImmunity(mask) => {
+                let live = self.live()?;
                 // Spell.cpp:4926 evaluates IsPositiveSpell even for an empty mask.
                 let positive =
                     positive_unit_spell(self.stores, t, 7, Some((spell.caster, self.object)))?;
                 Ok(
                     if positive
                         && mask != 0
-                        && self.immunities.immune_to_self_spell(
+                        && live.immunities.immune_to_self_spell(
                             self.stores,
                             t,
                             mask,
                             self.object,
-                            self.auras,
+                            &live.auras,
                         )?
                     {
                         R::TargetAuraState
@@ -416,16 +407,19 @@ impl SpellExecutionOwner for Owner<'_> {
                 )
             }
             SpellCheck::SpiritOfRedemption => Ok(
-                if self.auras.has_aura_type(176) && t.attributesex3 & 0x0010_0000 == 0 {
+                if self.live()?.auras.has_aura_type(176) && t.attributesex3 & 0x0010_0000 == 0 {
                     R::BadTargets
                 } else {
                     R::Ok
                 },
             ),
-            SpellCheck::StrongerAura(_) if !self.auras.has_aura_holders() => Ok(R::Ok),
+            SpellCheck::StrongerAura(_) if !self.live()?.auras.has_aura_holders() => Ok(R::Ok),
             SpellCheck::AllowedInLocation(location) => {
-                let player =
-                    spell_beneficiary_from_guids(self.objects, self.object, *self.control_guids)?;
+                let player = spell_beneficiary_from_guids(
+                    self.objects,
+                    self.object,
+                    self.live()?.control_guids,
+                )?;
                 let map = self
                     .objects
                     .get(self.object)?
@@ -452,25 +446,12 @@ impl SpellExecutionOwner for Owner<'_> {
             self.stores,
             mod_owner,
             || Ok(self.level),
-            || Ok(*self.cast_speed),
+            || Ok(self.live()?.cast_speed),
         )
     }
-    fn cast_scheduled(
-        &mut self,
-        spell: &mut SourceSpell,
-        skip: bool,
-        starts: &mut SourceSpellStarts,
-        events: &mut SourceUnitEvents,
-    ) -> Result<()> {
+    fn cast_scheduled(&mut self, spell: &mut SourceSpell, skip: bool) -> Result<()> {
         self.assert_cast_entry(spell)?;
-        spell.cast_self(
-            skip,
-            SelfCastCaller::TriggeredUnit,
-            self.stores,
-            starts,
-            events,
-            self,
-        )
+        spell.cast_self(skip, SelfCastCaller::TriggeredUnit, self.stores, self)
     }
 }
 
@@ -542,15 +523,16 @@ impl CreatureCooldownOwner for CooldownBinding<'_> {
 
 impl Owner<'_> {
     fn send_spell_cooldown(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
-        self.cooldowns.send_spell_cooldown(
+        let live = self.units.get_mut(self.objects, self.object)?;
+        live.cooldowns.send_spell_cooldown(
             t,
             spell.flags.channel_only(),
             &mut CooldownBinding {
                 object: self.object,
                 objects: self.objects,
-                control_guids: self.control_guids,
-                entry: *self.entry,
-                list: self.creature_spell_list,
+                control_guids: &live.control_guids,
+                entry: live.entry,
+                list: live.spell_list.as_ref(),
                 definitions: self.creature_spells,
                 stores: self.stores,
                 random: self.random,

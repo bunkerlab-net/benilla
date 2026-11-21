@@ -373,13 +373,15 @@ fn client_update_creature_addon_marks_the_changed_byte_words_and_emote() {
             unit.sheath_state = 2;
             unit.npc_emote_state = 7;
         }
+        let mut units = SourceUnits::default();
+        units.register(&objects, object, unit).unwrap();
         CreatureAddonState::default()
             .load(
                 Some(&addon),
                 true,
                 &objects,
                 object,
-                &mut unit,
+                &mut units,
                 &mut NoSpellExecution,
             )
             .unwrap();
@@ -414,16 +416,19 @@ fn addon_application_guid_template_and_absent_preserve_conditional_writes() {
     unit.stand_state = 8;
     unit.sheath_state = 1;
     unit.npc_emote_state = 9;
+    let mut units = SourceUnits::default();
+    units.register(&objects, object, unit).unwrap();
     assert!(state
         .load(
             loaded.get(HighGuid::Creature, 7, 1),
             false,
             &objects,
             object,
-            &mut unit,
+            &mut units,
             &mut NoSpellExecution
         )
         .unwrap());
+    let unit = units.get(&objects, object).unwrap();
     assert_eq!(
         (unit.stand_state, unit.sheath_state, unit.npc_emote_state),
         (8, 0, 9)
@@ -434,10 +439,11 @@ fn addon_application_guid_template_and_absent_preserve_conditional_writes() {
             false,
             &objects,
             object,
-            &mut unit,
+            &mut units,
             &mut NoSpellExecution
         )
         .unwrap());
+    let unit = units.get(&objects, object).unwrap();
     assert_eq!(
         (unit.stand_state, unit.sheath_state, unit.npc_emote_state),
         (3, 2, 9)
@@ -448,10 +454,11 @@ fn addon_application_guid_template_and_absent_preserve_conditional_writes() {
             false,
             &objects,
             object,
-            &mut unit,
+            &mut units,
             &mut NoSpellExecution
         )
         .unwrap());
+    let unit = units.get(&objects, object).unwrap();
     assert_eq!(
         (unit.stand_state, unit.sheath_state, unit.npc_emote_state),
         (3, 2, 9)
@@ -462,10 +469,11 @@ fn addon_application_guid_template_and_absent_preserve_conditional_writes() {
             false,
             &objects,
             object,
-            &mut unit,
+            &mut units,
             &mut NoSpellExecution
         )
         .unwrap());
+    let unit = units.get(&objects, object).unwrap();
     assert_eq!(unit.sheath_state, 2);
 }
 
@@ -503,6 +511,8 @@ fn addon_application_aura_membership_reload_and_cast_refusal_keep_source_order()
         unit.auras
             .store_aura_holder(10, &mut Some(holder()))
             .unwrap();
+        let mut units = SourceUnits::default();
+        units.register(&objects, object, unit).unwrap();
         assert_eq!(
             state
                 .load(
@@ -510,13 +520,14 @@ fn addon_application_aura_membership_reload_and_cast_refusal_keep_source_order()
                     reload,
                     &objects,
                     object,
-                    &mut unit,
+                    &mut units,
                     &mut NoSpellExecution
                 )
                 .unwrap_err()
                 .id,
             "execution.creature_addon.Creature_2343.CastSpell_owner"
         );
+        let unit = units.get(&objects, object).unwrap();
         assert_eq!(
             (unit.stand_state, unit.sheath_state, unit.npc_emote_state),
             (3, 2, 7)
@@ -533,13 +544,15 @@ fn addon_application_aura_membership_reload_and_cast_refusal_keep_source_order()
     unit.auras
         .store_aura_holder(10, &mut Some(holder()))
         .unwrap();
+    let mut units = SourceUnits::default();
+    units.register(&objects, object, unit).unwrap();
     assert!(state
         .load(
             Some(&addon),
             true,
             &objects,
             object,
-            &mut unit,
+            &mut units,
             &mut NoSpellExecution
         )
         .unwrap());
@@ -559,7 +572,9 @@ fn addon_application_mount_refuses_before_later_field_writes() {
     };
     let mut state = CreatureAddonState::default();
     let (objects, object, _) = addon_subject(false);
-    let mut unit = addon_unit();
+    let unit = addon_unit();
+    let mut units = SourceUnits::default();
+    units.register(&objects, object, unit).unwrap();
     assert_eq!(
         state
             .load(
@@ -567,13 +582,14 @@ fn addon_application_mount_refuses_before_later_field_writes() {
                 false,
                 &objects,
                 object,
-                &mut unit,
+                &mut units,
                 &mut NoSpellExecution
             )
             .unwrap_err()
             .id,
         "execution.creature_addon.Creature_2313.Mount_owner"
     );
+    let unit = units.get(&objects, object).unwrap();
     assert_eq!(state, CreatureAddonState::default());
     assert_eq!(unit.mount_display(), 0);
     assert!(!objects
@@ -592,10 +608,11 @@ fn addon_application_mount_refuses_before_later_field_writes() {
             false,
             &objects,
             object,
-            &mut unit,
+            &mut units,
             &mut NoSpellExecution
         )
         .unwrap());
+    let unit = units.get(&objects, object).unwrap();
     assert_eq!(
         (unit.stand_state, unit.sheath_state, unit.npc_emote_state),
         (3, 2, 7)
@@ -615,7 +632,9 @@ fn addon_application_checks_both_sides_of_aura_terminator_boundary() {
     };
     let mut state = CreatureAddonState::default();
     let (objects, object, _) = addon_subject(false);
-    let mut unit = addon_unit();
+    let unit = addon_unit();
+    let mut units = SourceUnits::default();
+    units.register(&objects, object, unit).unwrap();
     assert_eq!(
         state
             .load(
@@ -623,13 +642,14 @@ fn addon_application_checks_both_sides_of_aura_terminator_boundary() {
                 false,
                 &objects,
                 object,
-                &mut unit,
+                &mut units,
                 &mut NoSpellExecution
             )
             .unwrap_err()
             .id,
         "execution.creature_addon.Creature_2333.aura_terminator_out_of_bounds_undefined"
     );
+    let unit = units.get(&objects, object).unwrap();
     assert_eq!(
         (unit.stand_state, unit.sheath_state, unit.npc_emote_state),
         (3, 2, 7)
@@ -641,7 +661,7 @@ fn addon_application_checks_both_sides_of_aura_terminator_boundary() {
             false,
             &objects,
             object,
-            &mut unit,
+            &mut units,
             &mut NoSpellExecution
         )
         .unwrap());

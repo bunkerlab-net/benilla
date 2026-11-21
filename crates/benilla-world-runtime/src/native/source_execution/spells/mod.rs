@@ -218,6 +218,14 @@ impl SpellCall {
 }
 /// External state queries are fallible. An unbound query never becomes false/OK.
 pub trait SpellExecutionOwner {
+    fn spell_storage(
+        &mut self,
+        _caster: ObjectHandle,
+    ) -> Result<(&mut SourceSpellStarts, &mut SourceUnitEvents)> {
+        Err(refuse(
+            "execution.spells.Spell_3009.spell_event_storage_owner",
+        ))
+    }
     fn pet_has_in_arc(&mut self, _caster: ObjectHandle, _target: ObjectHandle) -> Result<bool> {
         Err(refuse("execution.pet_ai.WorldObject_HasInArc_owner"))
     }
@@ -441,13 +449,7 @@ pub trait SpellExecutionOwner {
         Err(call.missing_owner())
     }
     /// Spell.cpp:3083,3094. The synchronous cast can reborrow its own event queue.
-    fn cast_scheduled(
-        &mut self,
-        spell: &mut SourceSpell,
-        skip: bool,
-        _starts: &mut SourceSpellStarts,
-        _events: &mut SourceUnitEvents,
-    ) -> Result<()> {
+    fn cast_scheduled(&mut self, spell: &mut SourceSpell, skip: bool) -> Result<()> {
         self.call(spell, SpellCall::Cast(skip))
     }
     /// Spell.cpp:5098. This must bind the F6 live-object query, never map-only area.
@@ -479,7 +481,7 @@ pub trait SpellExecutionOwner {
         &mut self,
         _spell: &mut SourceSpell,
         _t: &SpellTemplate,
-        _spells: &mut BTreeMap<u64, SourceSpell>,
+        _spells: Option<&mut BTreeMap<u64, SourceSpell>>,
     ) -> Result<()> {
         Err(refuse("execution.spells.Unit_SetCurrentCastedSpell_owner"))
     }
@@ -518,7 +520,7 @@ pub trait SpellExecutionOwner {
         &mut self,
         _original: ObjectHandle,
         _caster: ObjectHandle,
-        _starts: &SourceSpellStarts,
+        _starts: Option<&SourceSpellStarts>,
         _cast_flags: u32,
     ) -> Result<(bool, bool)> {
         Err(refuse("execution.spells.UnitAI_order_current_cast_owner"))
@@ -536,7 +538,7 @@ pub trait SpellExecutionOwner {
     fn active_auto_spell(
         &mut self,
         _unit: ObjectHandle,
-        _starts: &SourceSpellStarts,
+        _starts: Option<&SourceSpellStarts>,
     ) -> Result<Option<u32>> {
         Err(refuse(
             "execution.spells.Unit_GetCurrentSpell_autorepeat_owner",

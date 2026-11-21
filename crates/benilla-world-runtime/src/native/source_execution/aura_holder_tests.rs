@@ -148,8 +148,8 @@ fn aura_holder_ordinal_wrap_preserves_pending_holder_and_type_lists() {
     assert_eq!(auras.last_holder_ordinal, u64::MAX);
 }
 
-#[derive(Default)]
-struct HitOwner {
+struct HitOwner<'a> {
+    live: SelfAuraTarget<'a>,
     auras: SourceUnitAuras,
     visibility: SourceUnitVisibility,
     damage: SourceCreatureDamage,
@@ -157,7 +157,23 @@ struct HitOwner {
     reentrant: Option<SourceAuraHolderId>,
 }
 
-impl SpellAuraHitOwner for HitOwner {
+impl<'a> HitOwner<'a> {
+    fn new(live: SelfAuraTarget<'a>) -> Self {
+        Self {
+            live,
+            auras: SourceUnitAuras::default(),
+            visibility: SourceUnitVisibility::default(),
+            damage: SourceCreatureDamage::default(),
+            applied: None,
+            reentrant: None,
+        }
+    }
+}
+impl SpellAuraHitOwner for HitOwner<'_> {
+    fn aura_target(&self, _: ObjectHandle) -> Result<SelfAuraTarget<'_>> {
+        Ok(self.live)
+    }
+
     fn aura_holder_seconds(&mut self, _: &SourceSpell) -> Result<i64> {
         Ok(17)
     }
@@ -169,6 +185,8 @@ impl SpellAuraHitOwner for HitOwner {
     fn aura_hit_target(&mut self, target: ObjectHandle) -> Result<SelfAuraHitTarget<'_>> {
         assert_eq!(target, unit(1));
         Ok(SelfAuraHitTarget {
+            unit: self.live,
+            stand: 0,
             auras: &mut self.auras,
             visibility: &mut self.visibility,
             damage: DamageAuraTarget::unmodified(&mut self.damage),
@@ -179,7 +197,6 @@ impl SpellAuraHitOwner for HitOwner {
         &mut self,
         t: &SpellTemplate,
         holder: SourceAuraHolderId,
-        _: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
     ) -> Result<()> {
         self.applied = Some(holder);
         // Supply a second holder during the unported modifier continuation.
@@ -211,7 +228,9 @@ fn hit(t: &SpellTemplate, hit_mask: u8) -> SourceSpell {
 
 #[test]
 fn aura_hit_without_an_insert_leaves_the_incumbent_unready() {
-    let mut owner = HitOwner::default();
+    let (objects, _) = update_subject(false);
+    let controls = SourceControlGuids::default();
+    let mut owner = HitOwner::new(aura_target(&objects, &controls));
     let t = SpellTemplate {
         id: 90,
         effect1: 6,
@@ -222,17 +241,8 @@ fn aura_hit_without_an_insert_leaves_the_incumbent_unready() {
         .auras
         .store_aura_holder(t.id, &mut Some(authored_effect_holder(&t, unit(1), 95)))
         .unwrap();
-    let (objects, _) = update_subject(false);
-    let controls = SourceControlGuids::default();
     hit(&t, 0)
-        .hit_self_auras(
-            &t,
-            &SourceSpellStores::default(),
-            aura_target(&objects, &controls),
-            0,
-            None,
-            &mut owner,
-        )
+        .hit_self_auras(&t, &SourceSpellStores::default(), &mut owner)
         .unwrap();
     assert_eq!(owner.applied, None);
     assert!(!owner.auras.aura_holder(old).unwrap().ready);
@@ -249,18 +259,11 @@ fn aura_hit_marks_only_its_inserted_holder_ready_outside_procs() {
         ..Default::default()
     };
     for proccing in [false, true] {
-        let mut owner = HitOwner::default();
-        owner.auras.spell_procs_happening = proccing;
         let (objects, _) = update_subject(false);
         let controls = SourceControlGuids::default();
-        let result = hit(&t, 1).hit_self_auras(
-            &t,
-            &stores,
-            aura_target(&objects, &controls),
-            0,
-            None,
-            &mut owner,
-        );
+        let mut owner = HitOwner::new(aura_target(&objects, &controls));
+        owner.auras.spell_procs_happening = proccing;
+        let result = hit(&t, 1).hit_self_auras(&t, &stores, &mut owner);
         if proccing {
             assert_eq!(
                 result.unwrap_err().id,
@@ -292,6 +295,9 @@ fn client_update_nested_aura_hit_marks_before_each_modifier_callback() {
     }
 
     impl SpellAuraHitOwner for Nested<'_> {
+        fn aura_target(&self, _: ObjectHandle) -> Result<SelfAuraTarget<'_>> {
+            Ok(self.live)
+        }
         fn aura_holder_seconds(&mut self, _: &SourceSpell) -> Result<i64> {
             Ok(17)
         }
@@ -301,6 +307,8 @@ fn client_update_nested_aura_hit_marks_before_each_modifier_callback() {
         fn aura_hit_target(&mut self, target: ObjectHandle) -> Result<SelfAuraHitTarget<'_>> {
             assert_eq!(target, self.live.target);
             Ok(SelfAuraHitTarget {
+                unit: self.live,
+                stand: 0,
                 auras: &mut self.auras,
                 visibility: &mut self.visibility,
                 damage: DamageAuraTarget::unmodified(&mut self.damage),
@@ -310,7 +318,6 @@ fn client_update_nested_aura_hit_marks_before_each_modifier_callback() {
             &mut self,
             t: &SpellTemplate,
             holder: SourceAuraHolderId,
-            _: Option<(&mut SourceSpellStarts, &mut SourceUnitEvents)>,
         ) -> Result<()> {
             let object = self.live.objects.get(self.live.target)?;
             assert_eq!(
@@ -326,7 +333,7 @@ fn client_update_nested_aura_hit_marks_before_each_modifier_callback() {
                 assert!(!object.field_changed(UNIT_FIELD_AURA + 1)?);
                 let mut nested = hit(self.inner, 1);
                 nested.triggered_by_aura = Some(t.id);
-                nested.hit_self_auras(self.inner, self.stores, self.live, 0, None, self)?;
+                nested.hit_self_auras(self.inner, self.stores, self)?;
             } else {
                 assert_eq!(slot, 1);
             }
@@ -369,7 +376,7 @@ fn client_update_nested_aura_hit_marks_before_each_modifier_callback() {
             in_world,
         };
         hit(&outer, 1)
-            .hit_self_auras(&outer, &stores, live, 0, None, &mut owner)
+            .hit_self_auras(&outer, &stores, &mut owner)
             .unwrap();
         assert_eq!(owner.auras.aura_fields.spells[..2], [90, 91]);
         let object = objects.get(live.target).unwrap();
@@ -633,7 +640,6 @@ fn replacement_slot_refuses_player_duration_packet_after_slot_write() {
     };
     let mut stores = SourceSpellStores::default();
     stores.bind_empty_duration_fixture();
-    let mut owner = HitOwner::default();
     let (objects, _) = update_subject(false);
     let controls = SourceControlGuids::default();
     let live = SelfAuraTarget {
@@ -641,10 +647,11 @@ fn replacement_slot_refuses_player_duration_packet_after_slot_write() {
         player_group: Some(false),
         ..aura_target(&objects, &controls)
     };
+    let mut owner = HitOwner::new(live);
     let mut spell = hit(&t, 1);
     assert_eq!(
         spell
-            .hit_self_auras(&t, &stores, live, 0, None, &mut owner)
+            .hit_self_auras(&t, &stores, &mut owner)
             .unwrap_err()
             .id,
         "execution.spells.SpellAuraHolder_5986.aura_duration_session_owner"

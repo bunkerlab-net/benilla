@@ -51,10 +51,7 @@ impl UnitAiExecutionOwner for LiveOwner<'_> {
             spell,
             spells,
             self.binding.stores,
-            &mut main_spell::UnitPowerOwner {
-                objects,
-                units: main_spell::UnitPowerSource::Units(units),
-            },
+            &mut main_spell::UnitPowerOwner { objects, units },
         )
     }
     fn with_unit_spell_context<T>(

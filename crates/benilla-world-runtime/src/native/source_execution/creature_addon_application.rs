@@ -62,7 +62,9 @@ pub trait CreatureAddonExecutionOwner {
     fn cast_spell(
         &mut self,
         _state: &mut CreatureAddonState,
-        _unit: &mut SourceUnitFields,
+        _units: &mut SourceUnits,
+        _object: ObjectHandle,
+        _objects: &SourceObjects,
         _spell: u32,
     ) -> Result<()> {
         Err(refuse(
@@ -245,10 +247,11 @@ impl CreatureAddonState {
         reload: bool,
         objects: &SourceObjects,
         object: ObjectHandle,
-        unit: &mut SourceUnitFields,
+        units: &mut SourceUnits,
         owner: &mut impl CreatureAddonExecutionOwner,
     ) -> Result<bool> {
         let Some(addon) = addon else { return Ok(false) };
+        let unit = units.get_mut(objects, object)?;
         if addon.mount != 0 {
             owner.mount(unit, object, objects, addon.mount)?;
         }
@@ -286,14 +289,14 @@ impl CreatureAddonState {
                     if spell == 0 {
                         return Ok(true);
                     }
-                    if unit.auras.has_aura(spell) {
+                    if units.get(objects, object)?.auras.has_aura(spell) {
                         if !reload {
                             self.duplicate_aura_errors.push(spell);
                         }
                         continue;
                     }
                     // CastSpell owns all aura insertion and spell effects, not this caller.
-                    owner.cast_spell(self, unit, spell)?;
+                    owner.cast_spell(self, units, object, objects, spell)?;
                 }
                 return Err(refuse(
                     "execution.creature_addon.Creature_2333.aura_terminator_out_of_bounds_undefined",

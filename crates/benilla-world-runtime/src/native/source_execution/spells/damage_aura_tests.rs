@@ -99,7 +99,7 @@ impl Target {
             .auras
             .store_aura_holder(spell.id, &mut Some(holder))
             .unwrap();
-        apply_self_aura_holder(self, stores, spell, id, None)?;
+        apply_self_aura_holder(self, stores, spell, id)?;
         Ok(id)
     }
 
@@ -165,9 +165,9 @@ fn operands<'a>(
 impl SpellExecutionOwner for Target {}
 
 impl SelfAuraApplicationOwner for Target {
-    fn self_aura_application(&mut self) -> SelfAuraApplication<'_> {
+    fn self_aura_application(&mut self) -> Result<SelfAuraApplication<'_>> {
         let live = &mut self.live;
-        SelfAuraApplication {
+        Ok(SelfAuraApplication {
             unit: operands(&self.objects, self.object, &live.control_guids),
             auras: &mut live.auras,
             visibility: &mut live.visibility,
@@ -184,7 +184,7 @@ impl SelfAuraApplicationOwner for Target {
             power_type: live.power_type.as_mut(),
             vitals: &mut live.vitals,
             form: &mut live.shapeshift_form,
-        }
+        })
     }
 }
 

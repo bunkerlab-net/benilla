@@ -77,12 +77,11 @@ fn caster_relations_helpful_filter_accepts_self_and_refuses_other_unit_flags() {
     let mut spell = f.spell(&t);
     let live = f.units.get_mut(&f.objects, f.caster).unwrap();
     live.flags = 0;
-    let (cast, _, _) = live.borrow_cast();
     let relations = SourceCasterRelations {
         caster: f.caster,
         objects: &f.objects,
-        flags: cast.flags,
-        control_guids: cast.control_guids,
+        flags: &live.flags,
+        control_guids: &live.control_guids,
     };
     // Relations.cpp:203-204 returns before the unbound faction read.
     assert_eq!(unit_reaction_to(f.caster, f.caster, &relations).unwrap(), 4);
@@ -128,12 +127,11 @@ fn caster_relations_resolves_live_creator_and_refuses_other_unit_master() {
     }
     let live = f.units.get_mut(&f.objects, f.caster).unwrap();
     live.control_guids.creator = creator_guid;
-    let (cast, _, _) = live.borrow_cast();
     let relations = SourceCasterRelations {
         caster: f.caster,
         objects: &f.objects,
-        flags: cast.flags,
-        control_guids: cast.control_guids,
+        flags: &live.flags,
+        control_guids: &live.control_guids,
     };
     assert_eq!(relations.relation_master(f.caster).unwrap(), Some(creator));
     assert_eq!(
