@@ -36,6 +36,16 @@ pub struct StartupItemPrototype {
     pub max_durability: u32,
     pub duration: u32,
     pub spell_charges: [i32; 5],
+    pub item_set: u32,
+    pub stat_values: [i32; 10],
+    pub armor: u32,
+    pub block: u32,
+    pub resistances: [u32; 6],
+    pub first_damage: [u32; 3], // min/max binary32 bits, school
+    pub second_damage_max: u32,
+    pub delay: u32,
+    pub spell_ids: [u32; 5],
+    pub spell_triggers: [u32; 5],
 }
 
 impl StartupItemPrototype {

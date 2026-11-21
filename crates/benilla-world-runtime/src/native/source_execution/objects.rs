@@ -405,7 +405,7 @@ impl SourceObjects {
         Ok(())
     }
 
-    fn write_update_fields(
+    pub(super) fn write_update_fields(
         &self,
         handle: ObjectHandle,
         fields: RangeInclusive<usize>,

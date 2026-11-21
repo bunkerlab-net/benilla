@@ -54,6 +54,7 @@ fn fixture(proto: StartupItemPrototype, run: impl FnOnce(&mut SourcePlayer, &mut
             templates: &templates,
             items: &mut items,
             guids: &mut guids,
+            observe: &mut |_| {},
             class: 8,
             logging_out: false,
         },
@@ -94,6 +95,7 @@ fn factory_guards_preserve_construction_and_guid_order() {
                     entry,
                     count,
                     live.templates,
+                    live.observe,
                 )
             };
             assert!(make(0, 0).unwrap().is_none());
@@ -318,5 +320,110 @@ fn probe_checks_template_and_live_equip_refusals_before_placement() {
             player.can_equip_new_item(live, 0).unwrap_err().id,
             "execution.player.Player_9474.non_melee_cast"
         );
+    });
+}
+
+#[test]
+fn equip_refuses_the_unreached_item_callbacks_after_placement() {
+    let mut cases = vec![
+        (
+            StartupItemPrototype {
+                item_set: 1,
+                ..shirt()
+            },
+            "execution.player.Player_10085.item_set_owner",
+        ),
+        (
+            StartupItemPrototype {
+                stat_values: [1; 10],
+                ..shirt()
+            },
+            "execution.player.Player_7063.item_stat_owner",
+        ),
+        (
+            StartupItemPrototype {
+                block: 1,
+                ..shirt()
+            },
+            "execution.player.Player_7098.item_block_owner",
+        ),
+    ];
+    for (i, owner) in [
+        "execution.player.Player_7101.item_holy_resistance_owner",
+        "execution.player.Player_7104.item_fire_resistance_owner",
+        "execution.player.Player_7107.item_nature_resistance_owner",
+        "execution.player.Player_7110.item_frost_resistance_owner",
+        "execution.player.Player_7113.item_shadow_resistance_owner",
+        "execution.player.Player_7116.item_arcane_resistance_owner",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut proto = shirt();
+        proto.resistances[i] = 1;
+        cases.push((proto, owner));
+    }
+    for (proto, expected) in cases {
+        fixture(proto, |player, live| {
+            let slot = player.can_equip_new_item(live, 1).unwrap().unwrap();
+            assert_eq!(
+                player.equip_new_item(live, 1, slot).unwrap_err().id,
+                expected
+            );
+            let handle = player.items[slot].unwrap();
+            assert_eq!(live.items.get(handle).unwrap().owner.raw(), 1);
+            assert_eq!(player.item_update_queue, [handle]);
+        });
+    }
+}
+
+fn staff() -> StartupItemPrototype {
+    StartupItemPrototype {
+        class: 2,
+        subclass: 10,
+        inventory_type: 17,
+        first_damage: [3.0f32.to_bits(), 5.0f32.to_bits(), 0],
+        delay: 2900,
+        ..shirt()
+    }
+}
+
+#[test]
+fn staff_refuses_unbound_damage_or_speed_paths_at_their_source_writes() {
+    fixture(
+        StartupItemPrototype {
+            first_damage: [3.0f32.to_bits(), 5.0f32.to_bits(), 2],
+            ..staff()
+        },
+        |player, live| {
+            assert_eq!(
+                player.equip_new_item(live, 1, 15).unwrap_err().id,
+                "execution.player.Player_7152.weapon_damage_school_owner"
+            );
+            assert_eq!(live.unit.creature_damage.mainhand_base_weapon(), [3.0, 5.0]);
+            assert_eq!(player.attack_times[0], 0.0);
+        },
+    );
+    fixture(
+        StartupItemPrototype {
+            second_damage_max: 4.0f32.to_bits(),
+            ..staff()
+        },
+        |player, live| {
+            assert_eq!(
+                player.equip_new_item(live, 1, 15).unwrap_err().id,
+                "execution.player.Player_7147.extra_weapon_damage_line_owner"
+            );
+            assert_eq!(live.unit.creature_damage.mainhand_base_weapon(), [3.0, 5.0]);
+            assert_eq!(player.attack_times[0], 0.0);
+        },
+    );
+    fixture(staff(), |player, live| {
+        live.unit.loaded_creature.can_modify_stats = true;
+        assert_eq!(
+            player.equip_new_item(live, 1, 15).unwrap_err().id,
+            "execution.player.Player_7172.weapon_damage_update_owner"
+        );
+        assert_eq!(player.attack_times[0], 2900.0);
     });
 }

@@ -26,7 +26,7 @@ pub use player_cast::{SourcePlayerAuraClock, SourcePlayerCastInputs};
 mod player_defense;
 #[path = "player_items.rs"]
 mod player_items;
-pub use player_items::{SourceItem, SourceItems, SourcePlayerItemInputs};
+pub use player_items::{ItemLifetimeObservation, SourceItem, SourceItems, SourcePlayerItemInputs};
 
 // UpdateFields.h:27,77-88,114-120,133,140-151,180-186,215,218,228,243,263.
 const OBJECT_FIELD_TYPE: usize = 0x02;
@@ -99,6 +99,8 @@ pub struct SourcePlayer {
     pub last_tick: i64,
     pub played_time: [u32; 2],
     pub items: [Option<ObjectHandle>; 118],
+    // Item.cpp:712-739 queues each placed item once.
+    item_update_queue: Vec<ObjectHandle>,
     pub race: u8,
     pub gender: u8,
     pub team: u32,
@@ -192,6 +194,7 @@ impl SourcePlayer {
                 last_tick: login_time,
                 played_time: [0; 2],
                 items: [None; 118], // Player.cpp:521; Player.h:550-553.
+                item_update_queue: Vec::new(),
                 race: 0,
                 gender: 0,
                 team: 0,
@@ -418,7 +421,13 @@ impl SourcePlayer {
         objects: &mut SourceObjects,
         units: &mut SourceUnits,
         cells: &mut SourceCells,
+        items: &mut SourceItems,
+        observe: &mut dyn FnMut(ItemLifetimeObservation),
     ) -> Result<()> {
+        // Player.cpp:659-662 deletes every item still in a slot.
+        for handle in self.items.into_iter().flatten() {
+            items.destroy(objects, handle, observe)?;
+        }
         objects.destroy(self.object, cells)?;
         units.discard_construction(self.object);
         Ok(())

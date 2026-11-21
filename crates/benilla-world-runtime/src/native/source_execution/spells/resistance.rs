@@ -162,6 +162,33 @@ impl SourceUnitResistances {
         self.groups[0].base_value = value;
     }
 
+    // Player.cpp:7094-7095 writes BASE_VALUE through Unit::HandleStatModifier.
+    pub(in crate::native::source_execution) fn apply_player_item_armor(
+        &mut self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        amount: f32,
+        can_modify: bool,
+    ) -> Result<()> {
+        StatModifierUnit {
+            objects,
+            unit,
+            can_modify,
+            player: true,
+            totem: false,
+        }
+        .handle_stat_modifier(
+            UnitMod::Resistance(self, 0),
+            ResistanceModifier::BaseValue,
+            amount,
+            true,
+        )
+    }
+
+    #[cfg(test)]
+    pub(in crate::native::source_execution) fn base_armor(&self) -> f32 {
+        self.groups[0].base_value
+    }
     pub(in crate::native::source_execution) fn agility(&self) -> u32 {
         self.agility
     }

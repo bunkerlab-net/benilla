@@ -13,10 +13,17 @@ const DESTROYS: [usize; 8] = [
     68_134_606, 68_134_614, 68_134_625, 68_134_636, 68_134_647, 68_134_655, 68_134_666, 68_134_683,
 ];
 
-fn item_identities(trace: &Path) -> Vec<SourceGuid> {
+struct TraceItemEvent {
+    guid: SourceGuid,
+    destroyed: bool,
+    line: usize,
+}
+
+fn item_identities(trace: &Path) -> (Vec<SourceGuid>, Vec<TraceItemEvent>) {
     let mut file = BufReader::new(std::fs::File::open(trace).unwrap());
     file.seek(SeekFrom::Start(ITEM_TRACE_START)).unwrap();
     let mut out = Vec::new();
+    let mut events = Vec::new();
     let mut dead = 0;
     let mut last_probe = None;
     let mut last_birth = None;
@@ -62,6 +69,11 @@ fn item_identities(trace: &Path) -> Vec<SourceGuid> {
                 out.push(SourceGuid::from_raw(
                     0x4000_0000_0000_0000 | u64::from(counter),
                 ));
+                events.push(TraceItemEvent {
+                    guid: out[counter as usize - 1],
+                    destroyed: false,
+                    line,
+                });
                 if counter % 2 == 1 {
                     last_probe = Some((born, id));
                 }
@@ -72,6 +84,11 @@ fn item_identities(trace: &Path) -> Vec<SourceGuid> {
                 };
                 assert_eq!(line, DESTROYS[dead]);
                 assert_eq!(last_probe.as_ref().unwrap().0, *pointer);
+                events.push(TraceItemEvent {
+                    guid: *out.last().unwrap(),
+                    destroyed: true,
+                    line,
+                });
             }
             "logical_death" => {
                 let [logical] = args.as_slice() else {
@@ -85,7 +102,7 @@ fn item_identities(trace: &Path) -> Vec<SourceGuid> {
         }
     }
     assert_eq!((out.len(), dead), (16, 8));
-    out
+    (out, events)
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -206,13 +223,31 @@ pub(super) fn assert_item_prefix(
     player: &SourcePlayer,
     items: &SourceItems,
     first: u64,
-    created: usize,
-    probes: usize,
+    (created, probes): (usize, usize),
+    actual: &[ItemLifetimeObservation],
 ) {
-    let traced = item_identities(trace);
+    let (traced, events) = item_identities(trace);
     let login = login_items(trace);
     assert_eq!((login[0].entry, login[0].slot, login[0].count), (56, 4, 1));
     assert_eq!(login[0].guid, traced[1].raw());
+    assert_eq!(actual.len(), created + 2 * probes);
+    for (
+        &TraceItemEvent {
+            guid,
+            destroyed,
+            line,
+        },
+        &actual,
+    ) in events.iter().zip(actual)
+    {
+        let expected = if destroyed {
+            ItemLifetimeObservation::Destroyed { guid }
+        } else {
+            let entry = login[(guid.counter() as usize - 1) / 2].entry;
+            ItemLifetimeObservation::Assigned { guid, entry }
+        };
+        assert_eq!(actual, expected, "trace.tsv:{line}");
+    }
     assert_eq!(
         objects.construction_count(12),
         first + (created + probes) as u64 - 1

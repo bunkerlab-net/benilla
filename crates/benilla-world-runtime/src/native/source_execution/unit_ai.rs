@@ -178,6 +178,9 @@ pub struct SourceUnitFields {
     pub(super) stat_modifiers: [StatModifierGroup; 5],
     #[serde(skip)]
     pub creature_damage: SourceCreatureDamage,
+    // Unit.cpp:389-391 initializes the three weapon hit modifiers.
+    #[serde(skip)]
+    pub(super) mod_weapon_hit_chance: [f32; 3],
     /// Unit.cpp:398-400 initializes the unadjusted modifiers to zero.
     #[serde(skip)]
     pub mod_dodge_chance: f32,
@@ -529,6 +532,7 @@ impl SourceUnitFields {
             resistances: SourceUnitResistances::default(),
             stat_modifiers: [StatModifierGroup::default(); 5],
             creature_damage: SourceCreatureDamage::default(),
+            mod_weapon_hit_chance: [0.0; 3],
             mod_dodge_chance: 0.0,
             mod_parry_chance: 0.0,
             mod_block_chance: 0.0,

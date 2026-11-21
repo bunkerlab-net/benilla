@@ -638,7 +638,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     session.set_in_char_selection();
     let mut objects = SourceObjects::default();
     let mut units = SourceUnits::default();
-    let cells = SourceCells::new(MAP).unwrap();
+    let mut cells = SourceCells::new(MAP).unwrap();
     let trace = std::env::var_os("BENILLA_NORTHSHIRE_A_TRACE").unwrap();
     let (mut engine, aura_clocks) = northshire_creation_trace(Path::new(&trace));
     let mut draws = DrawCursor::default();
@@ -680,6 +680,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     let mut live_items = SourceItems::default();
     let mut item_guids = item_recording::guid_allocators();
     let first_item = objects.construction_count(12) + 1;
+    let mut item_events = Vec::new();
     let error = player
         .create(
             &mut objects,
@@ -707,22 +708,26 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             Some(SourcePlayerItemInputs {
                 items: &mut live_items,
                 guids: &mut item_guids,
+                observe: &mut |event| item_events.push(event),
                 logging_out: false, // WorldSession.cpp:105; the recording never sent logout in char selection.
             }),
             || Ok(107),
         )
         .unwrap_err();
-    assert_eq!(error.id, "execution.player.Player_964.equip_new_item_owner");
+    assert_eq!(
+        error.id,
+        "execution.player.Player_975.store_new_item_check_owner"
+    );
     item_recording::assert_item_prefix(
         Path::new(&trace),
         &objects,
         &player,
         &live_items,
         first_item,
-        0,
-        1,
+        (5, 6),
+        &item_events,
     );
-    assert_eq!(item_guids.allocate(HighGuid::Item).unwrap().counter, 2);
+    assert_eq!(item_guids.allocate(HighGuid::Item).unwrap().counter, 12);
     // Northshire-01 A trace :68133905-68133908,68133982-68133993,
     // :68134067-68134073,68134169-68134198.
     assert_eq!(clock_reads, 10);
@@ -941,6 +946,12 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     assert_eq!(unit.power_type, Some(0));
     assert_eq!(player.create_stats, [20, 20, 20, 23, 22]);
     assert_eq!(unit.creature_damage.attack_power_words(), [10, 10]);
+    // Player.cpp:7094-7095,7150-7152,7166. Stats cannot recompute during Create.
+    assert_eq!(unit.resistances.base_armor(), 5.0);
+    assert_eq!(unit.resistances.armor(), 40);
+    assert_eq!(unit.creature_damage.mainhand_base_weapon(), [3.0, 5.0]);
+    assert_eq!(player.attack_times[0], 2900.0);
+    assert_eq!(unit.mod_weapon_hit_chance[0], 0.0);
     // Northshire-01 A client-packets.jsonl:26 and trace :68539472.
     let packet_spells = [
         81, 133, 168, 203, 204, 227, 522, 668, 2382, 2479, 3050, 3365, 5009, 5019, 6233, 6246,
@@ -987,6 +998,23 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         packet_actions
     );
     assert!(rows.items(1, 8).is_empty());
+    let placed = player.item_update_queue.clone();
+    let handle = player.object();
+    player
+        .discard(
+            &mut objects,
+            &mut units,
+            &mut cells,
+            &mut live_items,
+            &mut |_| {},
+        )
+        .unwrap();
+    assert!(objects.get(handle).is_err());
+    assert_eq!(placed.len(), 5);
+    for item in placed {
+        assert!(objects.get(item).is_err());
+        assert!(live_items.get(item).is_err());
+    }
 
     // A second live player tests rank/talent branches outside the creation route.
     let mut rank_objects = SourceObjects::default();

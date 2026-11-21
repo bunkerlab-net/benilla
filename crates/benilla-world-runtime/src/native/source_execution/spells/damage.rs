@@ -138,6 +138,18 @@ impl SourceCreatureDamage {
         &mut self.groups[attack as usize]
     }
 
+    // Player.cpp:7150-7151 and Unit.h:2034 write the live first damage line.
+    pub(in crate::native::source_execution) fn set_mainhand_base_weapon(
+        &mut self,
+        value: [f32; 2],
+    ) {
+        self.weapon[0] = value;
+    }
+
+    #[cfg(test)]
+    pub(in crate::native::source_execution) fn mainhand_base_weapon(&self) -> [f32; 2] {
+        self.weapon[0]
+    }
     pub(in crate::native::source_execution) fn load_level_operands(
         &mut self,
         stats: &benilla_sim::creature_init::SourceLevelStats,
