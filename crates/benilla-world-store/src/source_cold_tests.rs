@@ -398,3 +398,6 @@ fn format_91_fixture_and_source_files_are_independent() {
         Err(Error::Corrupt)
     ));
 }
+
+#[path = "source_cold/rows_tests.rs"]
+mod batch;

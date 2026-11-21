@@ -5,13 +5,16 @@ use crate::{durability, hash, storage::Storage, Durability, Error};
 use benilla_world_runtime::{
     native::source_execution::source_rows::{
         ActionRow, AuraRow, CharacterRow, CooldownRow, DragonStateRow, EnteredInstanceRow,
-        HomebindRow, InventoryRow, ItemInstanceRow, QuestRow, RepRow, RespawnRow, SkillRow,
-        SpellRow, TutorialRow,
+        HomebindRow, InventoryRow, ItemInstanceRow, QuestRow, RepRow, RespawnRow, RowOperation,
+        SkillRow, SpellRow, TutorialRow,
     },
     Digest, PlayerId, WorldId,
 };
 use serde::{Deserialize, Serialize};
 use std::{io::ErrorKind, path::Path};
+
+mod rows;
+pub use rows::OperationCount;
 
 const DIRECTORY: &str = "source-cold";
 const MAGIC: &[u8; 8] = b"BNSRCDB\0";
@@ -76,27 +79,6 @@ impl Rows {
         self.character.as_deref()
     }
 
-    fn validate(&self, selected: &Identity) -> Result<(), Error> {
-        if !self.inventory.is_empty()
-            || !self.items.is_empty()
-            || !self.skills.is_empty()
-            || !self.actions.is_empty()
-            || !self.spells.is_empty()
-            || !self.quests.is_empty()
-            || !self.reputation.is_empty()
-            || self.tutorial.is_some()
-            || self.homebind.is_some()
-            || !self.respawns.is_empty()
-            || self.dragons.is_some()
-            || !self.cooldowns.is_empty()
-            || !self.auras.is_empty()
-            || !self.entered_instances.is_empty()
-        {
-            return Err(Error::Invalid("unsupported nonempty source table"));
-        }
-        self.validate_character(selected)
-    }
-
     fn validate_character(&self, selected: &Identity) -> Result<(), Error> {
         let Some(row) = self.character() else {
             return Ok(());
@@ -137,6 +119,7 @@ impl Rows {
 pub struct Receipt {
     generation: u64,
     digest: Digest,
+    operations: Vec<OperationCount>,
 }
 
 impl Receipt {
@@ -151,12 +134,17 @@ impl Receipt {
     pub fn durability(&self) -> Durability {
         durability()
     }
+
+    pub fn operation_counts(&self) -> &[OperationCount] {
+        &self.operations
+    }
 }
 
 pub struct Prepared {
     generation: u64,
     parent: Digest,
     bytes: Vec<u8>,
+    operations: Vec<OperationCount>,
 }
 
 /// Holds the source directory lock. Only publication metadata stays resident.
@@ -196,6 +184,7 @@ impl SourceColdStore {
             Receipt {
                 generation: initial.generation,
                 digest,
+                operations: Vec::new(),
             },
         ))
     }
@@ -273,7 +262,26 @@ impl SourceColdStore {
         }
     }
 
-    pub fn prepare_rows(&self, rows: &Rows) -> Result<Prepared, Error> {
+    /// Apply statements in source order and stage the checked private image.
+    pub fn prepare(
+        &mut self,
+        operations: impl IntoIterator<Item = RowOperation>,
+    ) -> Result<Prepared, Error> {
+        const MAX_OPERATIONS: usize = 131_072;
+        let mut rows = self.read_rows()?;
+        let mut counts = Vec::new();
+        for operation in operations {
+            if counts.len() == MAX_OPERATIONS {
+                return Err(Error::Invalid("source batch limit exceeded"));
+            }
+            counts.push(rows.apply(&self.identity, operation)?);
+        }
+        let mut prepared = self.prepare_rows(&rows)?;
+        prepared.operations = counts;
+        Ok(prepared)
+    }
+
+    fn prepare_rows(&self, rows: &Rows) -> Result<Prepared, Error> {
         self.ensure_open()?;
         rows.validate(&self.identity)?;
         let generation = self
@@ -286,6 +294,7 @@ impl SourceColdStore {
             generation,
             parent,
             bytes,
+            operations: Vec::new(),
         })
     }
 
@@ -311,6 +320,7 @@ impl SourceColdStore {
         Ok(Receipt {
             generation: self.generation,
             digest: self.digest,
+            operations: prepared.operations,
         })
     }
 }
