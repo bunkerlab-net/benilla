@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
-//! Spell.cpp:533-784,1773-2697. Target fill for the immediate creature self-cast.
+//! Spell.cpp:533-784,1773-2697. Target fill for the immediate self-cast.
+use super::player::{spell_mod_player, SourcePlayer, MOD_JUMP_TARGETS, MOD_RADIUS};
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,6 +23,8 @@ pub struct SelfSpellTargeting<'a> {
     pub level: u32,
     pub immunities: &'a CreatureImmunityState,
     pub auras: &'a SourceUnitAuras,
+    pub control_guids: &'a SourceControlGuids,
+    pub mod_player: Option<&'a SourcePlayer>,
     pub relations: &'a dyn SourceRelationOwner,
 }
 
@@ -107,7 +110,7 @@ impl SelfSpellTargeting<'_> {
                     continue;
                 }
             }
-            candidates[side] = self.set_target_map(s, t, effect, mode)?;
+            candidates[side] = self.set_target_map(s, t, effect, mode, side == 1)?;
             dispatched[side] = true;
         }
         let caster_default = implicit_type == SpecialUnit && !had_single;
@@ -134,24 +137,42 @@ impl SelfSpellTargeting<'_> {
         t: &SpellTemplate,
         effect: usize,
         mode: u32,
+        target_b: bool,
     ) -> Result<Option<ObjectHandle>> {
         // Spell.cpp:1779-1780,7495-7591. The bound single-unit modes don't use
         // radius, cone, or chain count. Preserve the lookups and callback gates.
-        let radius = [
+        let radius_index = [
             t.effectradiusindex1,
             t.effectradiusindex2,
             t.effectradiusindex3,
         ][effect];
-        if radius != 0 {
-            self.stores.dbc("SpellRadius.dbc", radius)?;
+        let radius = if radius_index != 0 {
+            f32::from_bits(self.stores.spell_radius_bits(radius_index)?)
         } else {
-            self.stores.range_entry(t.rangeindex)?;
-        }
+            self.stores
+                .range_entry(t.rangeindex)?
+                .map_or(0.0, |range| f32::from_bits(range.maximum.0))
+        };
+        // Spell.cpp:7547-7555. Only target A can adjust the chain count.
         if let Some(caster) = s.affective_caster {
-            require(
-                world_object_spell_mod_owner(self.objects, caster, self.unit.totem)?.is_none(),
-                "execution.spells.Spell_7551.ApplySpellMod_radius_owner",
-            )?;
+            if let Some(owner) =
+                world_object_spell_mod_owner(self.objects, caster, self.unit.totem)?
+            {
+                let player = spell_mod_player(
+                    self.mod_player,
+                    owner,
+                    "execution.spells.Spell_7551.ApplySpellMod_radius_owner",
+                )?;
+                player.apply_spell_mod(self.stores, t, MOD_RADIUS, radius)?;
+                if !target_b {
+                    player.apply_spell_mod(
+                        self.stores,
+                        t,
+                        MOD_JUMP_TARGETS,
+                        effect_chain_targets(t)[effect],
+                    )?;
+                }
+            }
         }
         require(
             t.spellfamilyname != 0 || t.id != 28241,
@@ -213,10 +234,18 @@ impl SelfSpellTargeting<'_> {
                         ),
                         "execution.spells.Spell_749.FilterTargetMap_owner",
                     )?;
-                    require(
-                        !self.unit.player,
-                        "execution.spells.Spell_756.GetBeneficiaryPlayer_owner",
-                    )?;
+                    // Spell.cpp:751-757. The same beneficiary cannot activate PvP.
+                    if self.unit.player {
+                        let beneficiary = spell_beneficiary_from_guids(
+                            self.objects,
+                            candidate,
+                            *self.control_guids,
+                        )?;
+                        require(
+                            beneficiary.is_none_or(|player| player == s.caster),
+                            "execution.spells.Spell_757.beneficiary_pvp_owner",
+                        )?;
+                    }
                 }
             }
             if unit.is_none()
@@ -311,10 +340,21 @@ impl SelfSpellTargeting<'_> {
             s.caster,
             self.auras,
         )?;
-        require(
-            !self.unit.player_controlled && !matches!(t.id, 36924 | 31480),
-            "execution.spells.Spell_1027.diminishing_owner",
-        )?;
+        if !missed && (self.unit.player_controlled || matches!(t.id, 36924 | 31480)) {
+            // Spell.cpp:1027-1033; SpellMgr.cpp:2680-2683; Unit.cpp:8838,8865.
+            // Generic racial auras (stock SQL :853804-853806,854031) have no
+            // mechanic. Group NONE leaves level 1 and does not change duration.
+            require(
+                t.spellfamilyname == 0
+                    && [
+                        t.mechanic,
+                        t.effectmechanic1,
+                        t.effectmechanic2,
+                        t.effectmechanic3,
+                    ] == [0; 4],
+                "execution.spells.Spell_1027.diminishing_owner",
+            )?;
+        }
         s.unique_targets.push(SourceSpellTarget {
             unit: s.caster,
             effect_mask: mask,
@@ -326,6 +366,15 @@ impl SelfSpellTargeting<'_> {
         });
         Ok(())
     }
+}
+
+// Spell.cpp:550,1667. Both phases start with the template chain count.
+pub(super) fn effect_chain_targets(t: &SpellTemplate) -> [u32; 3] {
+    [
+        t.effectchaintarget1,
+        t.effectchaintarget2,
+        t.effectchaintarget3,
+    ]
 }
 
 // Spell.cpp:571-572 appends. The bound one-unit slot cannot represent a second entry.

@@ -21,6 +21,7 @@ pub use player_spellbook::{
 #[path = "player_cast.rs"]
 mod player_cast;
 pub use player_cast::SourcePlayerCastInputs;
+pub(super) use player_cast::{spell_mod_player, MOD_JUMP_TARGETS, MOD_RADIUS};
 #[path = "player_defense.rs"]
 mod player_defense;
 
@@ -131,6 +132,8 @@ pub struct SourcePlayer {
     // Player.h:2377,2379; Player.cpp:471. Both maps default to empty.
     spells: BTreeMap<u32, SourcePlayerSpell>,
     action_buttons: BTreeMap<u8, SourcePlayerAction>,
+    // Player.h:2385. Default construction leaves every operation's list empty.
+    spell_mods: BTreeMap<u32, Vec<player_cast::PlayerSpellModifier>>,
     // Player.h:2556-2557; Player.cpp:640-641. One identity names the in-flight Spell and its charges.
     active_mod_spell: Option<u64>,
 }
@@ -215,6 +218,7 @@ impl SourcePlayer {
                 skills: Vec::new(),
                 spells: BTreeMap::new(),
                 action_buttons: BTreeMap::new(),
+                spell_mods: BTreeMap::new(),
                 active_mod_spell: None,
             })
         })();

@@ -161,6 +161,8 @@ impl SpellCastEffects for Owner<'_> {
             level: self.level,
             immunities: &live.immunities,
             auras: &live.auras,
+            control_guids: &live.control_guids,
+            mod_player: None,
             relations: &SourceCasterRelations {
                 caster: self.object,
                 objects: self.objects,

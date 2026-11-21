@@ -14,7 +14,63 @@ pub struct SourcePlayerCastInputs<'a> {
     pub indoor_policy: bool,
 }
 
+// SpellDefines.h:397,402,406,410,413.
+pub(in crate::native::source_execution) const MOD_RADIUS: u32 = 6;
+pub(in crate::native::source_execution) const MOD_JUMP_TARGETS: u32 = 17;
+const MOD_DURATION: u32 = 1;
+const MOD_CASTING_TIME: u32 = 10;
+const MOD_COST: u32 = 14;
+
+// PlayerDefines.h:64,66-67. The writer stops at SpellAuras.cpp:937.
+pub(super) struct PlayerSpellModifier {
+    spell: u32,
+    mask: u64,
+    charges: i16,
+}
+
+pub(in crate::native::source_execution) fn spell_mod_player<'a>(
+    player: Option<&'a SourcePlayer>,
+    owner: ObjectHandle,
+    refusal: &str,
+) -> Result<&'a SourcePlayer> {
+    player
+        .filter(|p| p.object == owner)
+        .ok_or_else(|| refuse(refusal))
+}
+
 impl SourcePlayer {
+    // Player.h:2577-2631. The loaded template is the successful LookupEntry.
+    pub(in crate::native::source_execution) fn apply_spell_mod<T: Default + PartialOrd>(
+        &self,
+        stores: &SourceSpellStores,
+        t: &SpellTemplate,
+        op: u32,
+        base: T,
+    ) -> Result<T> {
+        if t.spellfamilyname != self.spell_family || t.attributesex3 & 0x2000_0000 != 0 {
+            return Ok(base);
+        }
+        for modifier in self.spell_mods.get(&op).into_iter().flatten() {
+            if matches!(op, MOD_CASTING_TIME | MOD_COST) && base <= T::default() {
+                break;
+            }
+            // Player.cpp:16828-16838,350-356. Active casts may retain an expired mod.
+            require(
+                modifier.charges != -1 || self.active_mod_spell.is_none(),
+                "execution.spells.Player_16833.consumed_spell_mods_owner",
+            )?;
+            if stores.template(modifier.spell).is_some_and(|affect| {
+                affect.spellfamilyname == t.spellfamilyname
+                    && t.spellfamilyflags & modifier.mask != 0
+            }) {
+                return Err(refuse(
+                    "execution.spells.Player_2592.spell_modifier_value_owner",
+                ));
+            }
+        }
+        Ok(base)
+    }
+
     // Player.cpp:3400; Unit.cpp:1469-1512. The spellbook row is already live.
     pub(super) fn cast_granted_passive(
         &mut self,
@@ -100,13 +156,6 @@ impl PlayerCast<'_, '_> {
             .as_ref()
             .map(|power| power.level)
             .ok_or_else(|| refuse("execution.spells.Unit_getLevel_owner"))
-    }
-    fn no_family_mod(&self, t: &SpellTemplate, refusal: &str) -> Result<()> {
-        // Player.h:2580 returns before consulting the modifier list.
-        require(
-            t.spellfamilyname != self.player.spell_family || t.attributesex3 & 0x2000_0000 != 0,
-            refusal,
-        )
     }
 }
 
@@ -263,8 +312,8 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
                 t,
                 || live.player.spell_rank(live.skills, t),
                 |time| {
-                    live.no_family_mod(t, "execution.spells.SpellMgr_154.ApplySpellMod_owner")?;
-                    Ok(time)
+                    live.player
+                        .apply_spell_mod(live.stores, t, MOD_CASTING_TIME, time)
                 },
                 || Ok(live.live()?.cast_speed),
             )?;
@@ -312,11 +361,27 @@ impl SpellCastEffects for PlayerCast<'_, '_> {
         ))
     }
 
+    fn damage_multiplier_jump_targets(
+        &self,
+        player: ObjectHandle,
+        t: &SpellTemplate,
+        count: u32,
+    ) -> Result<u32> {
+        spell_mod_player(
+            Some(self.player),
+            player,
+            "execution.spells.Spell_1670.ApplySpellMod_jump_owner",
+        )?
+        .apply_spell_mod(self.stores, t, MOD_JUMP_TARGETS, count)
+    }
+
     fn duration(&self, t: &SpellTemplate) -> Result<i32> {
         // SpellMgr.cpp:84-85. Unit.cpp:432 starts the detached player's combo count at zero.
         let duration = creature_self_aura_duration(self.stores, t)?;
         if duration != -1 && t.attributesex3 & 0x2000_0000 == 0 {
-            self.no_family_mod(t, "execution.spells.SpellMgr_92.ApplySpellMod_owner")?;
+            return self
+                .player
+                .apply_spell_mod(self.stores, t, MOD_DURATION, duration);
         }
         Ok(duration)
     }
@@ -332,6 +397,8 @@ impl SpellCastEffects for PlayerCast<'_, '_> {
             level: Self::level(live)?,
             immunities: &live.immunities,
             auras: &live.auras,
+            control_guids: &live.control_guids,
+            mod_player: Some(self.player),
             relations: &SourceCasterRelations {
                 caster: spell.caster,
                 objects: self.objects,
@@ -458,7 +525,7 @@ fn detached_proficiency_ors_new_bits_and_builds_the_packet() {
 }
 
 #[test]
-fn detached_cast_refuses_unbound_duration_cooldown_and_delivery() {
+fn detached_cast_binds_empty_duration_mods_and_refuses_cooldown_and_delivery() {
     let mut objects = SourceObjects::default();
     let mut units = SourceUnits::default();
     let mut player = SourcePlayer::construct(
@@ -495,10 +562,8 @@ fn detached_cast_refuses_unbound_duration_cooldown_and_delivery() {
     };
     let t = SpellTemplate::default();
     let mut spell = SourceSpell::new(1, &t, caster, SpellTriggerFlags(0), 0).unwrap();
-    assert_eq!(
-        cast.duration(&t).unwrap_err().id,
-        "execution.spells.SpellMgr_92.ApplySpellMod_owner"
-    );
+    // SpellMgr.cpp:92 reaches Player.h:2584 for this matching family.
+    assert_eq!(cast.duration(&t).unwrap(), 0);
     assert_eq!(
         cast.send_cooldown(&mut spell, &t).unwrap_err().id,
         "execution.spells.Player_20196.AddCooldown_owner"
@@ -511,4 +576,59 @@ fn detached_cast_refuses_unbound_duration_cooldown_and_delivery() {
         cast.remove_cast_auras(&t, caster, 0x10000).unwrap_err().id,
         "execution.spells.Spell_3288.RemoveAurasOnCast_owner"
     );
+}
+
+#[test]
+fn apply_spell_mod_checks_the_client_gate_and_the_selected_operation() {
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let mut player = super::tests::construct(&mut objects, &mut units);
+    player.spell_family = 3;
+    let t = SpellTemplate {
+        id: 17,
+        spellfamilyname: 3,
+        spellfamilyflags: 1,
+        ..Default::default()
+    };
+    let mut stores = SourceSpellStores::default();
+    stores.insert_template(t.clone()).unwrap();
+    let radius = |player: &SourcePlayer, t: &SpellTemplate| {
+        player.apply_spell_mod(&stores, t, MOD_RADIUS, 12.5)
+    };
+    assert_eq!(radius(&player, &t).unwrap(), 12.5);
+    for op in [MOD_RADIUS, MOD_CASTING_TIME, MOD_COST] {
+        player.spell_mods.insert(
+            op,
+            vec![PlayerSpellModifier {
+                spell: t.id,
+                mask: 1,
+                charges: 0,
+            }],
+        );
+    }
+    assert_eq!(
+        player
+            .apply_spell_mod(&stores, &t, MOD_JUMP_TARGETS, 2)
+            .unwrap(),
+        2
+    );
+    for op in [MOD_CASTING_TIME, MOD_COST] {
+        assert_eq!(player.apply_spell_mod(&stores, &t, op, 0).unwrap(), 0);
+    }
+    assert_eq!(
+        radius(&player, &t).unwrap_err().id,
+        "execution.spells.Player_2592.spell_modifier_value_owner"
+    );
+    for t in [
+        SpellTemplate {
+            spellfamilyname: 0,
+            ..t.clone()
+        },
+        SpellTemplate {
+            attributesex3: 0x2000_0000,
+            ..t
+        },
+    ] {
+        assert_eq!(radius(&player, &t).unwrap(), 12.5);
+    }
 }

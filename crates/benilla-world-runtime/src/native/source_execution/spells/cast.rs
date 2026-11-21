@@ -24,6 +24,17 @@ pub trait SpellCastEffects: SpellAuraHitOwner + SpellExecutionOwner {
     fn finish_operands(&mut self) -> Result<SpellFinishOperands<'_>>;
     fn duration(&self, t: &SpellTemplate) -> Result<i32>;
     fn fill_self_targets(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()>;
+    // Spell.cpp:1667-1670. Called only after resolving a Player spell mod owner.
+    fn damage_multiplier_jump_targets(
+        &self,
+        _player: ObjectHandle,
+        _t: &SpellTemplate,
+        _count: u32,
+    ) -> Result<u32> {
+        Err(refuse(
+            "execution.spells.Spell_1670.ApplySpellMod_jump_owner",
+        ))
+    }
     fn send_cooldown(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()>;
     fn send_spell_go(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()>;
     fn remove_cast_auras(
@@ -192,7 +203,7 @@ impl SourceSpell {
     }
 
     /// Spell.cpp:3211-3377,3442-3484,3725-3793. Execute a checked immediate creature cast.
-    pub fn cast_checked<E: SpellCastEffects>(
+    pub fn cast_checked<E: SpellCastEffects + SpellSelfCastOwner>(
         &mut self,
         t: &SpellTemplate,
         stores: &SourceSpellStores,
@@ -248,10 +259,23 @@ impl SourceSpell {
         {
             effects.send_spell_go(self, t)?;
         }
+        // Spell.cpp:3283,1660-1675. Read the jump modifier before each multiplier.
+        let chain_targets = super::targeting::effect_chain_targets(t);
         for (i, effect) in t.effects().iter().enumerate() {
-            if effect.effect != 0 {
-                self.damage_multipliers[i] = 1f32.to_bits();
+            if effect.effect == 0 {
+                continue;
             }
+            let mut count = chain_targets[i];
+            if let Some(caster) = self.affective_caster {
+                if let Some(player) = effects.cast_mod_owner(caster)? {
+                    count = effects.damage_multiplier_jump_targets(player, t, count)?;
+                }
+            }
+            self.damage_multipliers[i] = 1f32.to_bits();
+            require(
+                !matches!(effect.target_a, 6 | 45) || count <= 1,
+                "execution.spells.Spell_1674.chain_multiplier_owner",
+            )?;
         }
         require(
             self.spell_script.is_none(),

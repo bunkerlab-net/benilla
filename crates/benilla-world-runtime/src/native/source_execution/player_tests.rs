@@ -554,10 +554,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             || Ok(107),
         )
         .unwrap_err();
-    assert_eq!(
-        error.id,
-        "execution.spells.Spell_7551.ApplySpellMod_radius_owner"
-    );
+    assert_eq!(error.id, "execution.spells.SpellAuraHolder_5174.time_owner");
     // Northshire-01 A trace:68133282,68133496. Diplomacy adds no draw.
     assert_eq!(raw, [(0, 132_753_960), (1, 40_231_698)]);
     assert_eq!(draws.raw, 2);
@@ -565,7 +562,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     let queue = unit.unit_events.inventory();
     // SkillLineAbility keys 490, 689, 1424, 1236, 700, 2927 and 11728.
     // Northshire-01 A trace:68133335,68133417,68133506,68133583,
-    // :68133667,68133743,68133825. The seventh cast reaches radius modifiers.
+    // :68133667,68133743,68133825. The seventh reaches the holder clock at :68133905.
     let casts = [204, 81, 522, 203, 227, 5009, 20599];
     assert_eq!(queue.queued.len(), casts.len());
     assert_eq!(queue.clock_ms, 0);
@@ -583,8 +580,19 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         let cast = &unit.spell_starts.spells[&spell];
         assert_eq!((cast.spell, cast.event), (id, Some(event.event_id)));
         if id == 20599 {
-            // Stock SQL :853806 targets self. FillTargetMap precedes the hit.
-            assert_eq!(cast.state, SourceSpellState::Casting);
+            // Stock SQL :853806 and SpellDuration.dbc key 21 give a permanent self aura.
+            assert_eq!(cast.state, SourceSpellState::Landing);
+            assert_eq!(cast.duration, -1);
+            assert_eq!(cast.damage_multipliers, [1f32.to_bits(), 0, 0]);
+            let [target] = cast.unique_targets.as_slice() else {
+                panic!("Diplomacy must select one self target");
+            };
+            assert_eq!(target.unit, player.object());
+            assert_eq!(
+                (target.effect_mask, target.hit_mask, target.duration),
+                (1, 1, -1)
+            );
+            assert!(!target.missed && target.processed && cast.pending_aura.is_none());
             assert!(cast.executing);
             assert_eq!(player.active_mod_spell, Some(spell));
         } else {

@@ -1006,6 +1006,9 @@ impl SourceUnitAuras {
             Some(SelfAuraApplyHandler::Ghost) => {
                 self.handle_aura_ghost(live.unit.objects, live.unit.target, false, live.unit.player)
             }
+            Some(SelfAuraApplyHandler::SpellModifier) => {
+                handle_add_spell_modifier(live.unit.player, aura.misc)
+            }
             Some(SelfAuraApplyHandler::ProcTrigger | SelfAuraApplyHandler::NoImmediateEffect) => {
                 Ok(())
             }
@@ -1344,6 +1347,7 @@ pub(crate) enum SelfAuraApplyHandler {
     Shapeshift,
     ProcTrigger,
     DamagePercent,
+    SpellModifier,
     NoImmediateEffect,
     Ghost,
 }
@@ -1367,10 +1371,20 @@ impl SelfAuraApplyHandler {
             79 => Self::DamagePercent,
             87 => Self::NoImmediateEffect, // SpellAuras.cpp:148.
             95 => Self::Ghost,
+            // SpellAuras.cpp:168-169.
+            107 | 108 => Self::SpellModifier,
             126 => Self::NoImmediateEffect, // SpellAuras.cpp:187.
             _ => return None,
         })
     }
+}
+
+// SpellAuras.cpp:901-937. Both callers dispatch real modifier changes.
+fn handle_add_spell_modifier(player: bool, operation: i32) -> Result<()> {
+    require(
+        !player || operation >= 32,
+        "execution.spells.SpellAuras_937.AddSpellMod_owner",
+    )
 }
 
 /// Unit.cpp:4855-4865; SpellAuras.cpp:5224-5228. Use the inserted holder for
@@ -1401,6 +1415,9 @@ pub fn apply_self_aura_holder(
             Some(SelfAuraApplyHandler::Null) => {} // SpellAuras.cpp:61 dispatches type 0 to HandleNULL.
             // SpellAuras.h:283-286. Later damage calculations inspect the aura list.
             Some(SelfAuraApplyHandler::NoImmediateEffect) => {}
+            Some(SelfAuraApplyHandler::SpellModifier) => {
+                handle_add_spell_modifier(unit.player, aura.misc)?;
+            }
             Some(SelfAuraApplyHandler::Stealth) => {
                 let (misc, amount) = (aura.misc, aura.amount);
                 live.auras.handle_stealth(

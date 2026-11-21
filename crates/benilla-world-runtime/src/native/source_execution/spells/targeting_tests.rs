@@ -70,6 +70,8 @@ fn with_fixture<T>(
         level: 40,
         immunities: &CreatureImmunityState::default(),
         auras: &SourceUnitAuras::default(),
+        control_guids: &SourceControlGuids::default(),
+        mod_player: None,
         relations: &Relations(flags),
     };
     run(&live, &mut s)
@@ -293,7 +295,7 @@ fn fallback_does_not_skip_the_creature_type_or_required_empty_target_read() {
 }
 
 #[test]
-fn fill_names_unbound_filters_and_player_pvp_reads_before_add_unit_target() {
+fn fill_names_unbound_filters_and_checks_the_self_beneficiary() {
     let t = area_spell(1, 0);
     with_fixture(&t, 0, SourceObjectKind::Creature, |live, s| {
         let mut data = SpellTargetingData::default();
@@ -304,21 +306,22 @@ fn fill_names_unbound_filters_and_player_pvp_reads_before_add_unit_target() {
                 .id,
             "execution.spells.Spell_749.FilterTargetMap_owner"
         );
+        assert!(s.unique_targets.is_empty());
+        Ok(())
+    })
+    .unwrap();
+    with_fixture(&t, 0, SourceObjectKind::Player, |live, s| {
+        let mut data = SpellTargetingData::default();
         data.filtering_scheme[0][0] = SpellTargetFilterScheme::Random;
         let mut unit = *live.unit;
         unit.player = true;
+        unit.player_controlled = true;
         let player = SelfSpellTargeting {
             unit: &unit,
             ..*live
         };
-        assert_eq!(
-            player
-                .fill_unit_targets(s, &t, 0, &data, [Some(s.caster), None])
-                .unwrap_err()
-                .id,
-            "execution.spells.Spell_756.GetBeneficiaryPlayer_owner"
-        );
-        assert!(s.unique_targets.is_empty());
+        player.fill_unit_targets(s, &t, 0, &data, [Some(s.caster), None])?;
+        assert_eq!(s.unique_targets[0].unit, s.caster);
         Ok(())
     })
     .unwrap();
