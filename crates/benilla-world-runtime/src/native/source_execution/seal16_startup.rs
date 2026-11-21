@@ -37,6 +37,8 @@ mod spell_lists;
 pub(super) mod templates;
 #[path = "seal16_waypoints.rs"]
 mod waypoints;
+#[path = "seal16_world_tail_weekly.rs"]
+mod weekly_tail;
 #[path = "seal16_world_tail.rs"]
 mod world_tail;
 
@@ -1278,6 +1280,7 @@ pub(super) struct Inputs {
     loot: loot_evidence::Evidence,
     battlegrounds: battleground_evidence::Evidence,
     bans: world_tail::BansEvidence,
+    weekly: weekly_tail::WeeklyEvidence,
     event_initialize_line: Option<u64>,
     event_status_writes: Vec<(u64, String)>,
     graveyard_query_line: Option<u64>,
@@ -1329,6 +1332,11 @@ impl Inputs {
         }
         if thread == 1 && (61722084..=61722110).contains(&line) {
             self.bans.observe(line, kind, p);
+        }
+        if thread == 1
+            && (matches!(line, 6100 | 10035 | 10074) || (61722127..=61722185).contains(&line))
+        {
+            self.weekly.observe_trace(line, kind, p);
         }
         if thread == 1 && (46233402..=46233818).contains(&line) {
             self.transport_sql.observe(line, kind, p);
@@ -7256,7 +7264,12 @@ pub(super) fn continue_startup(
         551
     );
     observed.bans.assert_matches(recording);
-    let refusal = ready.initialize_world_tail().unwrap_err();
+    let (mut world, weekly_config) = observed.weekly.bind_config();
+    let refusal = ready
+        .initialize_world_tail(&mut world, weekly_config, &mut observed.weekly)
+        .unwrap_err();
+    observed.weekly.assert_consumed();
+    assert_eq!(world.next_weekly_quest_reset(), 1794376800); // Trace :61722159.
     assert_eq!(refusal.id, active_init::STARTUP_NEXT_OWNER);
     let next_owner = refusal.id;
     let next_source = active_init::STARTUP_NEXT_SOURCE;

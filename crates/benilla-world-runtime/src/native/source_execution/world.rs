@@ -4,6 +4,13 @@ use super::*;
 use benilla_sim::source_time::IntervalTimer;
 use std::collections::BTreeMap;
 
+#[path = "world_startup.rs"]
+mod startup;
+pub use startup::{
+    WeeklyQuestResetConfig, WorldStartupClockSite, WorldStartupObservation, WorldStartupSql,
+    WorldStartupWork,
+};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorldPhase {
     ClockSnapshot,
@@ -206,6 +213,7 @@ pub struct SourceWorld {
     pub scheduler: SourceScheduler,
     thread: u64,
     corpse_timer: IntervalTimer,
+    saved_variables: startup::SourceSavedVariables,
     stopped: bool,
 }
 impl SourceWorld {
@@ -218,11 +226,24 @@ impl SourceWorld {
             scheduler: SourceScheduler::default(),
             thread,
             corpse_timer,
+            saved_variables: startup::SourceSavedVariables::default(),
             stopped: false,
         })
     }
     pub fn corpse_timer_current(&self) -> i64 {
         self.corpse_timer.get_current()
+    }
+
+    pub fn next_weekly_quest_reset(&self) -> i64 {
+        self.saved_variables.next_weekly_reset()
+    }
+
+    pub(super) fn init_weekly_quest_reset_time(
+        &mut self,
+        config: WeeklyQuestResetConfig,
+        work: &mut impl WorldStartupWork,
+    ) -> Result<()> {
+        self.saved_variables.init_weekly_reset(config, work)
     }
     // A failed owner ends the accepted prefix before later phases; World.cpp:1542-1702.
     pub fn update<W: WorldWork>(&mut self, diff: u32, work: &mut W) -> Result<()> {

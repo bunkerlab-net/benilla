@@ -718,6 +718,11 @@ mbx run --locked -p benilla-world-runtime --example source_execution -- ORIGINAL
 An absent default private prefix prints `SKIP`; an explicit missing or changed
 file refuses. Neither that skip nor matching RNG families seals F1.
 
+The world owns the live `saved_variables` row for startup timers. Weekly quest
+reset uses the recorded wall clock and the configured weekday and hour.
+Checkpoint format 91 does not persist saved variables. The cold-save adapter
+in PathBPlan slice 23 owns that work.
+
 ### Loaded creature AI registry
 
 The seal16 loaded-creature prefix uses the F5.01 `SourceAiRegistry` factories
