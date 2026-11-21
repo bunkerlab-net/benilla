@@ -348,15 +348,15 @@ impl SourceUnitAuras {
     }
 
     /// Spell.cpp:1190-1206,1321-1331. Bound successful, non-damaging self hit.
-    pub fn proc_creature_self_hit(
+    pub(in crate::native::source_execution) fn proc_bound_self_hit(
         &mut self,
         stores: &SourceSpellStores,
         spell: &SourceSpell,
         alive: bool,
-        objects: &SourceObjects,
-        stand: u8,
+        unit: (&SourceObjects, u8, bool),
         observe: impl FnMut(u32, ProcTriggerExit),
     ) -> Result<()> {
+        let (objects, stand, player) = unit;
         let t = stores
             .template(spell.spell)
             .ok_or_else(|| refuse("execution.spells.missing_template"))?;
@@ -398,7 +398,7 @@ impl SourceUnitAuras {
             ProcUnit {
                 objects,
                 stand,
-                player: false,
+                player,
                 victim: false,
             },
             observe,

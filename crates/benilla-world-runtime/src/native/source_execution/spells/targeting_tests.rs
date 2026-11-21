@@ -344,6 +344,9 @@ fn authored_area_effect_inserts_a_living_target_and_skips_a_dead_target() {
             self.clocks.push(42);
             Ok(42)
         }
+        fn aura_holder_map_ms(&mut self, _: &SourceSpell) -> Result<u32> {
+            Ok(0)
+        }
         fn aura_effect_seconds(&mut self, _: &SourceSpell) -> Result<i64> {
             self.clocks.push(43);
             Ok(43)

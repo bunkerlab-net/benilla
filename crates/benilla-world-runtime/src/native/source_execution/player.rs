@@ -20,8 +20,8 @@ pub use player_spellbook::{
 };
 #[path = "player_cast.rs"]
 mod player_cast;
-pub use player_cast::SourcePlayerCastInputs;
 pub(super) use player_cast::{spell_mod_player, MOD_JUMP_TARGETS, MOD_RADIUS};
+pub use player_cast::{SourcePlayerAuraClock, SourcePlayerCastInputs};
 #[path = "player_defense.rs"]
 mod player_defense;
 

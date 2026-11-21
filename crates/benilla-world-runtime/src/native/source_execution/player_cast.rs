@@ -7,6 +7,8 @@ pub struct SourcePlayerCastInputs<'a> {
     pub targets: &'a SourceSpellTargetMgr,
     pub terrain: &'a mut SourceTerrainManager,
     pub map_time: &'a dyn Fn(MapIdentity) -> Result<u32>,
+    /// SpellAuras.cpp:5174,270 read wall seconds independently.
+    pub aura_seconds: &'a mut dyn FnMut(SourcePlayerAuraClock) -> Result<i64>,
     /// Object.cpp:2955-2957 draws from the same thread as the Player constructor.
     pub irand: &'a mut dyn FnMut(i32, i32) -> Result<i32>,
     pub session: &'a SourceWorldSession,
@@ -14,10 +16,17 @@ pub struct SourcePlayerCastInputs<'a> {
     pub indoor_policy: bool,
 }
 
-// SpellDefines.h:397,402,406,410,413.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourcePlayerAuraClock {
+    Holder,
+    Effect,
+}
+
+// SpellDefines.h:397,400,402,406,410,413.
 pub(in crate::native::source_execution) const MOD_RADIUS: u32 = 6;
 pub(in crate::native::source_execution) const MOD_JUMP_TARGETS: u32 = 17;
 const MOD_DURATION: u32 = 1;
+const MOD_CHARGES: u32 = 4;
 const MOD_CASTING_TIME: u32 = 10;
 const MOD_COST: u32 = 14;
 
@@ -156,6 +165,25 @@ impl PlayerCast<'_, '_> {
             .as_ref()
             .map(|power| power.level)
             .ok_or_else(|| refuse("execution.spells.Unit_getLevel_owner"))
+    }
+
+    fn aura_operands<'a>(
+        objects: &'a SourceObjects,
+        target: ObjectHandle,
+        level: u32,
+        totem: bool,
+        control_guids: &'a SourceControlGuids,
+    ) -> SelfAuraTarget<'a> {
+        SelfAuraTarget {
+            target,
+            level: Some(level),
+            alive: true,
+            player: true,
+            player_group: Some(false),
+            totem,
+            objects,
+            control_guids,
+        }
     }
 }
 
@@ -472,17 +500,121 @@ impl SpellAuraHitOwner for PlayerCast<'_, '_> {
         )
     }
 
+    fn aura_holder_seconds(&mut self, _: &SourceSpell) -> Result<i64> {
+        (self.inputs.aura_seconds)(SourcePlayerAuraClock::Holder)
+    }
+
+    fn aura_holder_map_ms(&mut self, spell: &SourceSpell) -> Result<u32> {
+        self.map_time(spell.caster)
+    }
+
+    fn aura_effect_seconds(&mut self, _: &SourceSpell) -> Result<i64> {
+        (self.inputs.aura_seconds)(SourcePlayerAuraClock::Effect)
+    }
+
+    fn aura_holder_charges(
+        &self,
+        player: ObjectHandle,
+        t: &SpellTemplate,
+        charges: u32,
+    ) -> Result<u32> {
+        spell_mod_player(
+            Some(self.player),
+            player,
+            "execution.spells.SpellAuraHolder_5193.ApplySpellMod_charges_owner",
+        )?
+        .apply_spell_mod(self.stores, t, MOD_CHARGES, charges)
+    }
+
     fn aura_target(&self, target: ObjectHandle) -> Result<SelfAuraTarget<'_>> {
+        require(
+            target == self.player.object,
+            "execution.spells.Spell_1445.aura_target_owner",
+        )?;
         let live = self.live()?;
-        Ok(SelfAuraTarget {
+        Ok(Self::aura_operands(
+            self.objects,
             target,
-            level: Some(Self::level(live)?),
-            alive: true,
-            player: true,
-            player_group: Some(false),
-            totem: live.totem,
-            objects: self.objects,
-            control_guids: &live.control_guids,
+            Self::level(live)?,
+            live.totem,
+            &live.control_guids,
+        ))
+    }
+
+    fn aura_hit_target(&mut self, target: ObjectHandle) -> Result<SelfAuraHitTarget<'_>> {
+        require(
+            target == self.player.object,
+            "execution.spells.Spell_1490.AddSpellAuraHolder_target_owner",
+        )?;
+        let live = self.units.get_mut(self.objects, target)?;
+        Ok(SelfAuraHitTarget {
+            unit: Self::aura_operands(
+                self.objects,
+                target,
+                Self::level(live)?,
+                live.totem,
+                &live.control_guids,
+            ),
+            stand: live.stand_state,
+            auras: &mut live.auras,
+            visibility: &mut live.visibility,
+            damage: DamageAuraTarget::new(
+                &mut live.creature_damage,
+                &live.loaded_creature,
+                live.flags,
+                live.shapeshift_form,
+            ),
+        })
+    }
+
+    fn apply_inserted_aura_holder(
+        &mut self,
+        t: &SpellTemplate,
+        holder: SourceAuraHolderId,
+    ) -> Result<()> {
+        let stores = self.stores;
+        apply_self_aura_holder(self, stores, t, holder)
+    }
+
+    fn proc_aura_hit(&mut self, spell: &mut SourceSpell) -> Result<()> {
+        let live = self.units.get_mut(self.objects, spell.caster)?;
+        live.auras.proc_bound_self_hit(
+            self.stores,
+            spell,
+            true,
+            (self.objects, live.stand_state, true),
+            |_, _| {},
+        )
+    }
+}
+
+impl SelfAuraApplicationOwner for PlayerCast<'_, '_> {
+    fn self_aura_application(&mut self) -> Result<SelfAuraApplication<'_>> {
+        let target = self.player.object;
+        let live = self.units.get_mut(self.objects, target)?;
+        Ok(SelfAuraApplication {
+            unit: Self::aura_operands(
+                self.objects,
+                target,
+                Self::level(live)?,
+                live.totem,
+                &live.control_guids,
+            ),
+            auras: &mut live.auras,
+            visibility: &mut live.visibility,
+            resistances: &mut live.resistances,
+            damage: DamageAuraTarget::new(
+                &mut live.creature_damage,
+                &live.loaded_creature,
+                live.flags,
+                live.shapeshift_form,
+            ),
+            can_modify_stats: live.loaded_creature.can_modify_stats,
+            threat_modifier: &mut live.threat_modifier,
+            power_fields: &mut live.power_fields,
+            power_type: live.power_type.as_mut(),
+            vitals: &mut live.vitals,
+            form: &mut live.shapeshift_form,
         })
     }
 }
@@ -547,6 +679,7 @@ fn detached_cast_binds_empty_duration_mods_and_refuses_cooldown_and_delivery() {
         targets: &targets,
         terrain: &mut terrain,
         map_time: &|_| Ok(0),
+        aura_seconds: &mut |_| panic!("owner guard does not read aura clocks"),
         irand: &mut |_, _| panic!("owner guard does not draw dice"),
         session: &session,
         max_casts: 20,

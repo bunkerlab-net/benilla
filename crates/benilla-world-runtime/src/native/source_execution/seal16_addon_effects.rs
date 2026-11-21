@@ -234,6 +234,10 @@ impl SpellAuraHitOwner for Owner<'_> {
         Ok(clock.seconds)
     }
 
+    fn aura_holder_map_ms(&mut self, s: &SourceSpell) -> Result<u32> {
+        self.map_time(s.caster)
+    }
+
     fn aura_effect_seconds(&mut self, s: &SourceSpell) -> Result<i64> {
         let raw = self.random.creature_raw_position()?;
         let clock = self.clocks.aura(self.object.thread, raw)?;
@@ -293,12 +297,11 @@ impl SpellAuraHitOwner for Owner<'_> {
         let mut lookups = 0;
         let alive = self.objects.get(self.object)?.alive;
         let live = self.units.get_mut(self.objects, self.object)?;
-        live.auras.proc_creature_self_hit(
+        live.auras.proc_bound_self_hit(
             self.stores,
             s,
             alive,
-            self.objects,
-            live.stand_state,
+            (self.objects, live.stand_state, false),
             |_, _| lookups += 1,
         )?;
         assert_eq!(self.random.creature_raw_position()?, raw);

@@ -178,6 +178,10 @@ impl SpellAuraHitOwner for HitOwner<'_> {
         Ok(17)
     }
 
+    fn aura_holder_map_ms(&mut self, _: &SourceSpell) -> Result<u32> {
+        Ok(0)
+    }
+
     fn aura_effect_seconds(&mut self, _: &SourceSpell) -> Result<i64> {
         Ok(20)
     }
@@ -300,6 +304,9 @@ fn client_update_nested_aura_hit_marks_before_each_modifier_callback() {
         }
         fn aura_holder_seconds(&mut self, _: &SourceSpell) -> Result<i64> {
             Ok(17)
+        }
+        fn aura_holder_map_ms(&mut self, _: &SourceSpell) -> Result<u32> {
+            Ok(0)
         }
         fn aura_effect_seconds(&mut self, _: &SourceSpell) -> Result<i64> {
             Ok(20)

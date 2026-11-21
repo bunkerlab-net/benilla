@@ -63,26 +63,30 @@ impl SourceAuraHolder {
         t: &SpellTemplate,
         target: ObjectHandle,
         triggered_by: Option<u32>,
-        seconds: impl FnOnce() -> Result<i64>,
+        timing: impl FnOnce() -> Result<(i64, u32)>,
     ) -> Result<Self> {
-        // SpellAuras.cpp:5164,5174,5185,5211. The script read precedes the clock.
+        // SpellAuras.cpp:5164,5174-5175,5185. The script read precedes the clocks.
         let script = stores.typed_script(
             SpellScriptKind::Aura,
             t.id,
             "execution.spells.SpellAuras_5164.script_binding_owner",
         )?;
-        let time = seconds()?;
+        let (time, ms) = timing()?;
         let duration = SourceSpellScript::on_duration_calculate(
             script,
             creature_self_aura_duration(stores, t)?,
         );
-        let mut holder = Self::new(t, target, time, 0, duration)?;
+        let mut holder = Self::new(t, target, time, ms, duration)?;
         holder.triggered_by = triggered_by;
         holder.script = script;
-        if let Some(script) = script {
-            script.on_holder_init(&mut holder);
-        }
         Ok(holder)
+    }
+
+    // SpellAuras.cpp:5211 follows the charges modifier.
+    pub(super) fn initialize(&mut self) {
+        if let Some(script) = self.script {
+            script.on_holder_init(self);
+        }
     }
 
     pub fn new(
@@ -373,6 +377,25 @@ pub trait SpellAuraHitOwner {
         Err(refuse("execution.spells.SpellAuraHolder_5174.time_owner"))
     }
 
+    // SpellAuras.cpp:5175 reads the map millisecond value after the wall clock.
+    fn aura_holder_map_ms(&mut self, _spell: &SourceSpell) -> Result<u32> {
+        Err(refuse(
+            "execution.spells.SpellAuraHolder_5175.map_time_owner",
+        ))
+    }
+
+    // SpellAuras.cpp:5193. The caller has resolved a Player spell mod owner.
+    fn aura_holder_charges(
+        &self,
+        _player: ObjectHandle,
+        _t: &SpellTemplate,
+        _charges: u32,
+    ) -> Result<u32> {
+        Err(refuse(
+            "execution.spells.SpellAuraHolder_5193.ApplySpellMod_charges_owner",
+        ))
+    }
+
     fn aura_effect_seconds(&mut self, _spell: &SourceSpell) -> Result<i64> {
         Err(refuse("execution.spells.Aura_270.time_owner"))
     }
@@ -572,13 +595,26 @@ impl SourceSpell {
             .enumerate()
             .any(|(i, effect)| mask & (1 << i) != 0 && matches!(effect.effect, 6 | 27 | 35 | 119))
         {
-            self.pending_aura = Some(SourceAuraHolder::for_self_spell(
+            let mut holder = SourceAuraHolder::for_self_spell(
                 stores,
                 t,
                 target_unit,
                 self.triggered_by_aura,
-                || owner.aura_holder_seconds(self),
-            )?);
+                || {
+                    Ok((
+                        owner.aura_holder_seconds(self)?,
+                        owner.aura_holder_map_ms(self)?,
+                    ))
+                },
+            )?;
+            let live = owner.aura_target(target_unit)?;
+            if let Some(player) =
+                world_object_spell_mod_owner(live.objects, self.caster, live.totem)?
+            {
+                holder.charges = owner.aura_holder_charges(player, t, holder.charges)?;
+            }
+            holder.initialize();
+            self.pending_aura = Some(holder);
         }
         for (i, effect) in t.effects().iter().enumerate() {
             if mask & (1 << i) == 0 {
@@ -615,6 +651,10 @@ impl SourceSpell {
                 amount,
                 holder.stack,
                 time,
+            )?;
+            require(
+                !player || aura.periodic_time == 0,
+                "execution.spells.Aura_286.ApplySpellMod_activation_time_owner",
             )?;
             if let Some(kind) = area {
                 let live = owner.aura_target(target_unit)?;
@@ -1373,7 +1413,7 @@ impl SelfAuraApplyHandler {
             95 => Self::Ghost,
             // SpellAuras.cpp:168-169.
             107 | 108 => Self::SpellModifier,
-            126 => Self::NoImmediateEffect, // SpellAuras.cpp:187.
+            126 | 156 => Self::NoImmediateEffect, // SpellAuras.cpp:187,217.
             _ => return None,
         })
     }

@@ -194,7 +194,8 @@ fn scripted_invisibility_unapply_keeps_live_periodicity() {
     let mut target = Target::new(false, false);
     let saved = serde_json::to_vec(&target.unit).unwrap();
     let mut holder =
-        SourceAuraHolder::for_self_spell(&stores, &t, target.object, None, || Ok(0)).unwrap();
+        SourceAuraHolder::for_self_spell(&stores, &t, target.object, None, || Ok((0, 0))).unwrap();
+    holder.initialize();
     holder.effects[0] = Some(SourceAura::self_spell_effect(&t, 0, 18, 0, 300, 1, 0).unwrap());
     let id = target
         .unit

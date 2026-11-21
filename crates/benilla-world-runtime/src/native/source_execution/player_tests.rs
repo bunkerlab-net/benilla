@@ -424,7 +424,7 @@ fn legal_pair_without_playercreateinfo_refuses() {
     assert_eq!(objects.get(player.object()).unwrap().pose, None);
 }
 
-fn northshire_creation_rng(path: &Path) -> Mt19937 {
+fn northshire_creation_trace(path: &Path) -> (Mt19937, [(SourcePlayerAuraClock, i64); 10]) {
     use std::fs::File;
     use std::io::{BufRead, BufReader, Seek, SeekFrom};
 
@@ -450,7 +450,63 @@ fn northshire_creation_rng(path: &Path) -> Mt19937 {
     }
     assert_eq!(Some(state.index), data.next().map(|v| v.parse().unwrap()));
     assert_eq!(data.next(), None);
-    rng
+    (rng, read_northshire_aura_clocks(&mut trace))
+}
+
+fn read_northshire_aura_clocks(
+    trace: &mut impl std::io::BufRead,
+) -> [(SourcePlayerAuraClock, i64); 10] {
+    use SourcePlayerAuraClock::{Effect, Holder};
+    let mut at = 68_133_281;
+    let mut line = String::new();
+    [
+        (68_133_905, Holder),
+        (68_133_907, Effect),
+        (68_133_982, Holder),
+        (68_133_990, Effect),
+        (68_133_992, Effect),
+        (68_134_067, Holder),
+        (68_134_072, Effect),
+        (68_134_169, Holder),
+        (68_134_189, Effect),
+        (68_134_197, Effect),
+    ]
+    .map(|(callsite, kind)| {
+        while at < callsite {
+            line.clear();
+            assert_ne!(trace.read_line(&mut line).unwrap(), 0);
+            at += 1;
+        }
+        let mut row = line.trim_end().split('\t');
+        assert_eq!(row.next(), Some("12"));
+        let sequence = row.next().unwrap().parse::<u64>().unwrap();
+        assert_eq!(row.next(), Some("clock_callsite"));
+        let mut payload = row.next().unwrap().split_ascii_whitespace();
+        assert_eq!(
+            payload.nth(2),
+            Some(match kind {
+                Holder => "8250845",
+                Effect => "8249833",
+            })
+        );
+        line.clear();
+        assert_ne!(trace.read_line(&mut line).unwrap(), 0);
+        at += 1;
+        let mut row = line.trim_end().split('\t');
+        assert_eq!(row.next(), Some("12"));
+        assert_eq!(row.next().unwrap().parse::<u64>().unwrap(), sequence + 1);
+        assert_eq!(row.next(), Some("clock_time"));
+        let seconds = row
+            .next()
+            .unwrap()
+            .split_ascii_whitespace()
+            .next()
+            .unwrap()
+            .parse::<i64>()
+            .unwrap();
+        assert_eq!(seconds, 1_795_246_040);
+        (kind, seconds)
+    })
 }
 
 #[test]
@@ -498,7 +554,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     let mut units = SourceUnits::default();
     let cells = SourceCells::new(MAP).unwrap();
     let trace = std::env::var_os("BENILLA_NORTHSHIRE_A_TRACE").unwrap();
-    let mut engine = northshire_creation_rng(Path::new(&trace));
+    let (mut engine, aura_clocks) = northshire_creation_trace(Path::new(&trace));
     let mut draws = DrawCursor::default();
     let mut raw = Vec::new();
     let mut observe = |event: benilla_sim::source_rng::TraceEvent| {
@@ -528,6 +584,13 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         assert_eq!(result, 0); // Trace :68133497.
         Ok(result)
     };
+    let mut clock_reads = 0;
+    let mut aura_seconds = |kind| {
+        let (expected, seconds) = aura_clocks[clock_reads];
+        assert_eq!(kind, expected);
+        clock_reads += 1;
+        Ok(seconds)
+    };
     let error = player
         .create(
             &mut objects,
@@ -546,6 +609,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
                     assert_eq!(map, MAP);
                     Ok(100)
                 },
+                aura_seconds: &mut aura_seconds,
                 irand: &mut irand,
                 session: &session,
                 max_casts: 20,
@@ -554,16 +618,18 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             || Ok(107),
         )
         .unwrap_err();
-    assert_eq!(error.id, "execution.spells.SpellAuraHolder_5174.time_owner");
-    // Northshire-01 A trace:68133282,68133496. Diplomacy adds no draw.
+    assert_eq!(error.id, "execution.spells.AuraHandler.type_98_owner");
+    // Northshire-01 A trace :68133905-68133908,68133982-68133993.
+    assert_eq!(clock_reads, 5);
+    // Trace :68133282,68133496. The racial auras add no draw.
     assert_eq!(raw, [(0, 132_753_960), (1, 40_231_698)]);
     assert_eq!(draws.raw, 2);
     let unit = units.get(&objects, player.object()).unwrap();
     let queue = unit.unit_events.inventory();
     // SkillLineAbility keys 490, 689, 1424, 1236, 700, 2927 and 11728.
     // Northshire-01 A trace:68133335,68133417,68133506,68133583,
-    // :68133667,68133743,68133825. The seventh reaches the holder clock at :68133905.
-    let casts = [204, 81, 522, 203, 227, 5009, 20599];
+    // :68133667,68133743,68133825,68133911. Sword Specialization reaches type 98.
+    let casts = [204, 81, 522, 203, 227, 5009, 20599, 20597];
     assert_eq!(queue.queued.len(), casts.len());
     assert_eq!(queue.clock_ms, 0);
     for (index, (event, id)) in queue.queued.iter().zip(casts).enumerate() {
@@ -581,7 +647,6 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         assert_eq!((cast.spell, cast.event), (id, Some(event.event_id)));
         if id == 20599 {
             // Stock SQL :853806 and SpellDuration.dbc key 21 give a permanent self aura.
-            assert_eq!(cast.state, SourceSpellState::Landing);
             assert_eq!(cast.duration, -1);
             assert_eq!(cast.damage_multipliers, [1f32.to_bits(), 0, 0]);
             let [target] = cast.unique_targets.as_slice() else {
@@ -593,6 +658,9 @@ fn private_catalog_human_mage_matches_seal16_packets() {
                 (1, 1, -1)
             );
             assert!(!target.missed && target.processed && cast.pending_aura.is_none());
+        }
+        if id == 20597 {
+            assert_eq!(cast.state, SourceSpellState::Landing);
             assert!(cast.executing);
             assert_eq!(player.active_mod_spell, Some(spell));
         } else {
@@ -602,11 +670,41 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         if insertion <= 3 {
             assert_eq!(cast.creation_time, 100);
         }
-        // Stock SQL :837915,837867,838040,837914,837917,841758. Trace :68133497 draws 0.
-        assert_eq!(cast.damage_per_effect, [0, 0, 0]);
+        // Stock SQL :853806 and :853804 use fixed effect values.
+        assert_eq!(
+            cast.damage_per_effect,
+            match id {
+                20599 => [10, 0, 0],
+                20597 => [5, 5, 0],
+                _ => [0; 3],
+            }
+        );
     }
-    // Spell.cpp:3170 and trace :68133825. The seventh cast has not returned.
+    // Spell.cpp:3170 and trace :68133911. The eighth cast has not returned.
     assert_eq!(unit.auras.cast_counter, 1);
+    let diplomacy = unit.auras.first_aura_holder(20599).unwrap();
+    assert!(diplomacy.ready && diplomacy.passive && diplomacy.permanent);
+    assert!(diplomacy.skip_update);
+    assert_eq!((diplomacy.duration, diplomacy.slot), (-1, 255));
+    assert_eq!(diplomacy.apply_time, 1_795_246_040);
+    assert_eq!(diplomacy.apply_ms, 100); // The authored map-time input above.
+    let aura = diplomacy.effects[0].as_ref().unwrap();
+    assert_eq!(
+        (aura.kind, aura.amount, aura.apply_time),
+        (156, 10, 1_795_246_040)
+    );
+    assert!(aura.applied);
+    let sword = unit.auras.first_aura_holder(20597).unwrap();
+    assert!(!sword.ready && sword.effects[2].is_none());
+    assert_eq!(sword.apply_time, 1_795_246_040);
+    for aura in &sword.effects[..2] {
+        let aura = aura.as_ref().unwrap();
+        assert_eq!(
+            (aura.kind, aura.amount, aura.apply_time),
+            (98, 5, 1_795_246_040)
+        );
+        assert!(!aura.applied);
+    }
     // SQL :837917 and :841758 add the Staves and Wands masks. The session
     // drops both packets before the Create response at trace :68135391-68135392.
     assert_eq!(player.weapon_proficiency, 0x0008_0400);
@@ -638,7 +736,9 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             (522, learned),
             (5009, learned),
             (5019, learned),
+            (20597, learned),
             (20599, learned),
+            (20600, learned), // SkillLineAbility keys 11728-11730 grant it before Sword.
         ])
     );
     assert!(player.action_buttons().is_empty());
