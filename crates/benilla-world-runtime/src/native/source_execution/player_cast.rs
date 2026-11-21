@@ -64,6 +64,12 @@ impl PlayerCast<'_, '_> {
             .map
             .ok_or_else(|| refuse("execution.spells.WorldObject_GetMap_owner"))
     }
+    fn level(live: &SourceUnitFields) -> Result<u32> {
+        live.power_fields
+            .as_ref()
+            .map(|power| power.level)
+            .ok_or_else(|| refuse("execution.spells.Unit_getLevel_owner"))
+    }
     fn no_family_mod(&self, t: &SpellTemplate, refusal: &str) -> Result<()> {
         // Player.h:2580 returns before consulting the modifier list.
         require(
@@ -252,9 +258,173 @@ impl SpellSelfCastOwner for PlayerCast<'_, '_> {
         Ok((&mut self.live_mut()?.auras, max))
     }
     fn cast_checked(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
-        spell.checked_cast_prefix(t)?;
-        Err(refuse(
-            "execution.spells.Spell_3258.CalculateSpellDuration_owner",
+        spell.cast_checked(t, self.stores, None, self, |_, _| Ok(()))
+    }
+}
+
+impl SpellCastEffects for PlayerCast<'_, '_> {
+    fn cast_unit(&mut self) -> Result<SpellUnitState> {
+        self.unit(self.player.object)
+    }
+
+    fn cast_auras(&mut self) -> Result<&mut SourceUnitAuras> {
+        Ok(&mut self.live_mut()?.auras)
+    }
+
+    fn finish_operands(&mut self) -> Result<SpellFinishOperands<'_>> {
+        Ok(SpellFinishOperands::new(
+            self.player.object,
+            self.objects,
+            self.units,
+            self.stores,
+            self.inputs.terrain.pathfinder_map_types.as_ref(),
         ))
     }
+
+    fn duration(&self, t: &SpellTemplate) -> Result<i32> {
+        // SpellMgr.cpp:84-85. Unit.cpp:432 starts the detached player's combo count at zero.
+        let duration = creature_self_aura_duration(self.stores, t)?;
+        if duration != -1 && t.attributesex3 & 0x2000_0000 == 0 {
+            self.no_family_mod(t, "execution.spells.SpellMgr_92.ApplySpellMod_owner")?;
+        }
+        Ok(duration)
+    }
+
+    fn fill_self_targets(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
+        let unit = self.cast_unit()?;
+        let live = self.live()?;
+        SelfSpellTargeting {
+            stores: self.stores,
+            targets: self.inputs.targets,
+            objects: self.objects,
+            unit: &unit,
+            level: Self::level(live)?,
+            immunities: &live.immunities,
+            auras: &live.auras,
+            relations: &SourceCasterRelations {
+                caster: spell.caster,
+                objects: self.objects,
+                flags: &live.flags,
+                control_guids: &live.control_guids,
+            },
+        }
+        .fill(spell, t, |_| {})
+    }
+
+    fn send_cooldown(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
+        require(
+            skips_spell_cooldown(t, spell.flags.channel_only()),
+            "execution.spells.Player_20196.AddCooldown_owner",
+        )
+    }
+
+    fn send_spell_go(&mut self, _: &mut SourceSpell, _: &SpellTemplate) -> Result<()> {
+        Err(refuse(
+            "execution.spells.Spell_3983.detached_spell_go_owner",
+        ))
+    }
+
+    fn remove_cast_auras(&mut self, _: &SpellTemplate, _: ObjectHandle, _: u32) -> Result<()> {
+        Err(refuse(
+            "execution.spells.Spell_3288.RemoveAurasOnCast_owner",
+        ))
+    }
+
+    fn hit_self(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
+        spell.hit_self_auras(t, self.stores, self)
+    }
+
+    fn proc_cast_end(&mut self, spell: &mut SourceSpell) -> Result<()> {
+        let live = self.units.get_mut(self.objects, self.player.object)?;
+        live.auras.proc_bound_cast_end(
+            self.stores,
+            spell,
+            self.objects,
+            live.stand_state,
+            true,
+            |_, _| {},
+        )
+    }
+}
+
+impl SpellAuraHitOwner for PlayerCast<'_, '_> {
+    fn targetless_proc(&mut self, spell: &SourceSpell, t: &SpellTemplate, mask: u8) -> Result<()> {
+        let live = self.units.get_mut(self.objects, self.player.object)?;
+        live.auras.proc_bound_targetless(
+            self.stores,
+            spell,
+            t,
+            (self.objects, live.stand_state, true),
+            mask,
+        )
+    }
+
+    fn aura_target(&self, target: ObjectHandle) -> Result<SelfAuraTarget<'_>> {
+        let live = self.live()?;
+        Ok(SelfAuraTarget {
+            target,
+            level: Some(Self::level(live)?),
+            alive: true,
+            player: true,
+            player_group: Some(false),
+            totem: live.totem,
+            objects: self.objects,
+            control_guids: &live.control_guids,
+        })
+    }
+}
+
+#[test]
+fn detached_cast_refuses_unbound_duration_cooldown_and_delivery() {
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let mut player = SourcePlayer::construct(
+        &mut objects,
+        &mut units,
+        12,
+        900_000,
+        |_, _| Ok(477_818),
+        || Ok(0),
+    )
+    .unwrap();
+    let caster = player.object;
+    let mut stores = SourceSpellStores::default();
+    stores.bind_test_dbc("SpellDuration.dbc", []);
+    let targets = SourceSpellTargetMgr::initialize(&stores);
+    let mut terrain = SourceTerrainManager::new(Default::default(), Default::default());
+    let session = SourceWorldSession::construct(true);
+    let mut inputs = SourcePlayerCastInputs {
+        targets: &targets,
+        terrain: &mut terrain,
+        map_time: &|_| Ok(0),
+        session: &session,
+        max_casts: 20,
+        indoor_policy: false,
+    };
+    let mut cast = PlayerCast {
+        player: &mut player,
+        objects: &objects,
+        units: &mut units,
+        stores: &stores,
+        skills: &Default::default(),
+        inputs: &mut inputs,
+    };
+    let t = SpellTemplate::default();
+    let mut spell = SourceSpell::new(1, &t, caster, SpellTriggerFlags(0), 0).unwrap();
+    assert_eq!(
+        cast.duration(&t).unwrap_err().id,
+        "execution.spells.SpellMgr_92.ApplySpellMod_owner"
+    );
+    assert_eq!(
+        cast.send_cooldown(&mut spell, &t).unwrap_err().id,
+        "execution.spells.Player_20196.AddCooldown_owner"
+    );
+    assert_eq!(
+        cast.send_spell_go(&mut spell, &t).unwrap_err().id,
+        "execution.spells.Spell_3983.detached_spell_go_owner"
+    );
+    assert_eq!(
+        cast.remove_cast_auras(&t, caster, 0x10000).unwrap_err().id,
+        "execution.spells.Spell_3288.RemoveAurasOnCast_owner"
+    );
 }

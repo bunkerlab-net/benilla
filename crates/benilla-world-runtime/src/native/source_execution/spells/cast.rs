@@ -18,7 +18,7 @@ pub trait SpellSelfCastOwner: SpellExecutionOwner {
 }
 
 /// Live continuations of the checked cast in Spell.cpp:3258-3353.
-pub trait SpellCastEffects {
+pub trait SpellCastEffects: SpellAuraHitOwner + SpellExecutionOwner {
     fn cast_unit(&mut self) -> Result<SpellUnitState>;
     fn cast_auras(&mut self) -> Result<&mut SourceUnitAuras>;
     fn finish_operands(&mut self) -> Result<SpellFinishOperands<'_>>;
@@ -205,6 +205,7 @@ impl SourceSpell {
         self.duration =
             SourceSpellScript::on_duration_calculate(self.aura_script, effects.duration(t)?);
         effects.fill_self_targets(self, t)?;
+        // Spell.cpp:3269 marks the modifier scope successful. A named refusal keeps it live.
         effects.send_cooldown(self, t)?;
         if effects.cast_unit()?.has_ai && self.flags.notify_ai() {
             let base = base.ok_or_else(|| refuse("execution.spells.Spell_3274.active_ai_owner"))?;
@@ -219,12 +220,23 @@ impl SourceSpell {
             self.power_cost == 0 && t.powertype < 5,
             "execution.spells.Spell_4399.ModifyPower_owner",
         )?;
-        // TakeReagents, TakeAmmo and SendCastResult return for a non-player.
+        // Spell.cpp:4437-4446,4406-4415. Bound player casts have no reagent or ammo cost.
         let unit = effects.cast_unit()?;
         require(
-            !unit.player && !unit.gameobject,
-            "execution.spells.Spell_4439.player_cast_owner",
+            !unit.gameobject,
+            "execution.spells.Spell_4439.unit_cast_owner",
         )?;
+        if unit.player {
+            require(
+                self.ignore_item_requirements(t)?,
+                "execution.spells.Spell_4446.CanNoReagentCast_owner",
+            )?;
+            require(
+                self.attack_type != 2,
+                "execution.spells.Spell_4411.GetWeaponForAttack_owner",
+            )?;
+            effects.call(self, SpellCall::SendResult(SpellCastResult::Ok))?;
+        }
         require(
             t.attributesex & 0x44 == 0,
             "execution.spells.Spell_3942.channel_spell_go_owner",
@@ -261,6 +273,11 @@ impl SourceSpell {
                 "execution.spells.Spell_4497.HandleThreatSpells_owner",
             )?;
         }
+        // Spell.cpp:3460-3463. Targetless effects run before the first self hit.
+        if self.targetless_mask != 0 {
+            let level = effects.aura_target(self.caster)?.level;
+            self.hit_targetless(t, effects, level, unit.player)?;
+        }
         // Spell.cpp:3462 is the first delayed-spell read in this immediate phase.
         require(
             f32::from_bits(t.speed.0).partial_cmp(&0.) != Some(std::cmp::Ordering::Greater),
@@ -281,6 +298,11 @@ impl SourceSpell {
         finish(effects, self)?;
         // Spell.cpp:3748-3764. add_self_unit_target records only immunity; Unit_2927 refuses negative hit rolls.
         self.on_successful_finish(t)?;
+        // Spell.cpp:3769-3785; SpellMgr.h:1439-1441.
+        require(
+            !unit.player || t.attributesex & 0x0050_0000 == 0,
+            "execution.spells.Spell_3785.ClearComboPoints_owner",
+        )?;
         // Spell.cpp:3789-3790. Holy Nova refuses and self procs cannot append a finish trigger.
         finish_tail(t, effects.finish_operands()?)?;
         effects.cast_auras()?.leave_cast();

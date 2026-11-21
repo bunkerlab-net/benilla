@@ -209,6 +209,17 @@ impl SpellCastEffects for Owner<'_> {
 }
 
 impl SpellAuraHitOwner for Owner<'_> {
+    fn targetless_proc(&mut self, spell: &SourceSpell, t: &SpellTemplate, mask: u8) -> Result<()> {
+        let live = self.units.get_mut(self.objects, spell.caster)?;
+        live.auras.proc_bound_targetless(
+            self.stores,
+            spell,
+            t,
+            (self.objects, live.stand_state, false),
+            mask,
+        )
+    }
+
     fn aura_holder_seconds(&mut self, s: &SourceSpell) -> Result<i64> {
         let raw = self.random.creature_raw_position()?;
         let clock = self.clocks.aura_holder(self.object.thread, raw)?;

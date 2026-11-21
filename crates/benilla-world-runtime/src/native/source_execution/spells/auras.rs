@@ -345,8 +345,14 @@ pub struct SelfAuraHitTarget<'a> {
     pub damage: DamageAuraTarget<'a>,
 }
 
-/// Operands and continuations of the immediate creature self-aura hit.
+/// Operands and continuations of an immediate self cast's effects.
 pub trait SpellAuraHitOwner {
+    fn targetless_proc(&mut self, _: &SourceSpell, _: &SpellTemplate, _: u8) -> Result<()> {
+        Err(refuse(
+            "execution.spells.Spell_1551.ProcDamageAndSpell_owner",
+        ))
+    }
+
     fn aura_holder_seconds(&mut self, _spell: &SourceSpell) -> Result<i64> {
         Err(refuse("execution.spells.SpellAuraHolder_5174.time_owner"))
     }
@@ -393,7 +399,127 @@ pub(crate) fn self_aura_effect(effect: u32) -> Result<Option<SourceAreaAuraKind>
     )))
 }
 
+#[test]
+fn targetless_empty_effects_calculate_value_before_procs() {
+    struct Procs(u8);
+    impl SpellAuraHitOwner for Procs {
+        fn targetless_proc(
+            &mut self,
+            spell: &SourceSpell,
+            _: &SpellTemplate,
+            mask: u8,
+        ) -> Result<()> {
+            assert_eq!((mask, spell.damage_per_effect[0]), (1, 15));
+            self.0 += 1;
+            Ok(())
+        }
+    }
+    let caster = ObjectHandle {
+        thread: 12,
+        construction: 1,
+    };
+    let mut procs = Procs(0);
+    for (effect, class, player, refusal) in [
+        (20, -1, true, None),
+        (25, -1, true, None),
+        (26, -1, true, None),
+        (37, -1, true, None),
+        (39, -1, true, None),
+        (60, 2, false, None),
+        (60, -1, true, None),
+        (
+            60,
+            2,
+            true,
+            Some("execution.spells.SpellEffects_2319.proficiency_owner"),
+        ),
+        (
+            60,
+            4,
+            true,
+            Some("execution.spells.SpellEffects_2324.proficiency_owner"),
+        ),
+        (
+            21,
+            -1,
+            true,
+            Some("execution.spells.Spell_1527.targetless_effect_owner"),
+        ),
+    ] {
+        let t = SpellTemplate {
+            effect1: effect,
+            equippeditemclass: class,
+            effectbasepoints1: 14,
+            effectbasedice1: 1,
+            ..SpellTemplate::default()
+        };
+        let mut spell = SourceSpell::new(1, &t, caster, SpellTriggerFlags(1), 0).unwrap();
+        spell.targetless_mask = 1;
+        let result = spell.hit_targetless(&t, &mut procs, Some(1), player);
+        if let Some(id) = refusal {
+            assert_eq!(result.unwrap_err().id, id);
+            assert_eq!(spell.damage_per_effect[0], 15);
+        } else {
+            result.unwrap();
+        }
+    }
+    assert_eq!(procs.0, 7);
+}
+
 impl SourceSpell {
+    /// Spell.cpp:1504-1528,1544-1552. Destination targeting is unbound.
+    pub(super) fn hit_targetless(
+        &mut self,
+        t: &SpellTemplate,
+        owner: &mut impl SpellAuraHitOwner,
+        level: Option<u32>,
+        player: bool,
+    ) -> Result<()> {
+        let mask = self.targetless_mask;
+        for i in 0..3 {
+            if mask & (1 << i) != 0 {
+                require(
+                    self.handle_bound_effect(t, i, level, player)?,
+                    "execution.spells.Spell_1527.targetless_effect_owner",
+                )?;
+            }
+        }
+        if mask != 0 {
+            owner.targetless_proc(self, t, mask)?;
+        }
+        Ok(())
+    }
+
+    // Spell.cpp:4593-4612. Calculate the value before the shared dispatch table.
+    fn handle_bound_effect(
+        &mut self,
+        t: &SpellTemplate,
+        index: usize,
+        level: Option<u32>,
+        player: bool,
+    ) -> Result<bool> {
+        let amount =
+            super::effect_value::effect_value(t, index, self.base_points[index], level, player)?;
+        require(
+            self.spell_script.is_none(),
+            "execution.spells.Spell_4610.OnEffectExecute_owner",
+        )?;
+        self.damage_per_effect[index] = amount;
+        // SpellEffects.cpp:78,83-84,95,97,190-193. Empty effects write nothing.
+        match t.effects()[index].effect {
+            20 | 25 | 26 | 37 | 39 => Ok(true),
+            // SpellEffects.cpp:2313-2327. Only player weapon or armor can reach the masks.
+            60 if player && t.equippeditemclass == 2 => Err(refuse(
+                "execution.spells.SpellEffects_2319.proficiency_owner",
+            )),
+            60 if player && t.equippeditemclass == 4 => Err(refuse(
+                "execution.spells.SpellEffects_2324.proficiency_owner",
+            )),
+            60 => Ok(true),
+            _ => Ok(false),
+        }
+    }
+
     /// Spell.cpp:1163-1184,1445-1494. Apply the immediate creature self hit.
     pub fn hit_self_auras(
         &mut self,
@@ -434,22 +560,18 @@ impl SourceSpell {
             if mask & (1 << i) == 0 {
                 continue;
             }
-            let live = owner.aura_target(target_unit)?;
-            // Spell.cpp:4593-4612. Calculate damage before dispatching the effect.
-            let amount = super::effect_value::effect_value(
-                t,
-                i,
-                self.base_points[i],
-                live.level,
-                live.player,
-            )?;
-            require(
-                self.spell_script.is_none(),
-                "execution.spells.Spell_4610.OnEffectExecute_owner",
-            )?;
-            self.damage_per_effect[i] = amount;
+            let SelfAuraTarget {
+                level,
+                player,
+                alive,
+                ..
+            } = owner.aura_target(target_unit)?;
+            if self.handle_bound_effect(t, i, level, player)? {
+                continue;
+            }
+            let amount = self.damage_per_effect[i];
             let area = self_aura_effect(effect.effect)?;
-            if area.is_some() && !live.alive {
+            if area.is_some() && !alive {
                 continue; // SpellEffects.cpp:2333-2334.
             }
             // SpellEffects.cpp:1731-1748; SpellAuras.cpp:266-290 binds effect time separately.

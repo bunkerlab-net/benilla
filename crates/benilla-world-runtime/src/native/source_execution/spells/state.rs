@@ -211,6 +211,8 @@ pub struct SourceSpell {
     pub trigger_data: Option<SpellTriggerData>,
     pub duration: i32,
     pub unique_targets: Vec<SourceSpellTarget>,
+    // Spell.h:893; Spell.cpp:496 initializes m_targetlessMask to zero.
+    pub(super) targetless_mask: u8,
     // Spell.h:640; Spell.cpp:387. Starts empty and orders by spell ID (PlayerDefines.h:87-90).
     pub(super) used_aura_charges: BTreeMap<u32, u64>,
     pub damage_multipliers: [u32; 3],
@@ -310,6 +312,7 @@ impl SourceSpell {
             trigger_data: None,
             duration: 0,
             unique_targets: Vec::new(),
+            targetless_mask: 0,
             used_aura_charges: Default::default(),
             damage_multipliers: [0; 3],
             damage_per_effect: [0; 3],

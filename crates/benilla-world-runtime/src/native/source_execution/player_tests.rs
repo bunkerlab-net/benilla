@@ -311,44 +311,54 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             || Ok(107),
         )
         .unwrap_err();
+    // Northshire-01 A trace:68133495-68133497. The next read is irand(0, 6).
     assert_eq!(
         error.id,
-        "execution.spells.Spell_3258.CalculateSpellDuration_owner"
+        "execution.spells.Object_2955.effect_dice_rng_owner"
     );
     let unit = units.get(&objects, player.object()).unwrap();
     let queue = unit.unit_events.inventory();
-    let [event] = queue.queued.as_slice() else {
-        panic!("Defense must schedule exactly one spell event");
+    let [defense, dodge] = queue.queued.as_slice() else {
+        panic!("Defense training must schedule Defense and Dodge");
     };
-    let SourceUnitEvent::Spell { spell } = event.kind else {
-        panic!("Defense must schedule a spell event");
-    };
-    // Northshire-01 A trace:68133333-68133335. The empty processor schedules at 0 + 1.
-    assert_eq!(
-        (queue.clock_ms, event.add_time_ms, event.exec_time_ms),
-        (0, 0, 1)
-    );
-    let schedule = event.queue.as_ref().unwrap();
-    assert_eq!((schedule.deadline_ms, schedule.insertion_id), (1, 1));
-    let cast = &unit.spell_starts.spells[&spell];
-    assert_eq!((cast.spell, cast.event), (204, Some(event.event_id)));
-    assert_eq!(cast.state, SourceSpellState::Casting);
-    assert!(cast.executing);
+    // Player.cpp:5650-5694; SkillLineAbility keys 490 and 689 grant 204 and 81.
+    // Northshire-01 A trace:68133333-68133335,68133415-68133417.
+    assert_eq!(queue.clock_ms, 0);
+    for (event, (id, insertion, state, executing)) in [defense, dodge].into_iter().zip([
+        (204, 1, SourceSpellState::Finished, false),
+        (81, 2, SourceSpellState::Landing, true),
+    ]) {
+        let SourceUnitEvent::Spell { spell } = event.kind else {
+            panic!("Defense training must schedule a spell event");
+        };
+        assert_eq!((event.add_time_ms, event.exec_time_ms), (0, 1));
+        let schedule = event.queue.as_ref().unwrap();
+        assert_eq!(
+            (schedule.deadline_ms, schedule.insertion_id),
+            (1, insertion)
+        );
+        let cast = &unit.spell_starts.spells[&spell];
+        assert_eq!((cast.spell, cast.event), (id, Some(event.event_id)));
+        assert_eq!((cast.state, cast.executing), (state, executing));
+        assert_eq!(cast.creation_time, 100);
+        if id == 204 {
+            // Stock SQL :837915; Spell.cpp:4600,4610-4612.
+            assert_eq!(cast.damage_per_effect, [0, 0, 0]);
+        }
+    }
     assert_eq!(unit.auras.cast_counter, 1);
-    assert_eq!(cast.creation_time, 100);
-    assert_eq!(player.active_mod_spell, Some(spell));
+    let active = player.active_mod_spell.unwrap();
+    assert_eq!(unit.spell_starts.spells[&active].spell, 81);
     assert!(terrain.terrain(0).unwrap().grid(48, 32).is_some());
+    let learned = SourcePlayerSpell {
+        state: SourcePlayerSpellState::New,
+        active: true,
+        dependent: true,
+        disabled: false,
+    };
     assert_eq!(
         player.spellbook(),
-        &BTreeMap::from([(
-            204,
-            SourcePlayerSpell {
-                state: SourcePlayerSpellState::New,
-                active: true,
-                dependent: true,
-                disabled: false,
-            }
-        )])
+        &BTreeMap::from([(81, learned), (204, learned)])
     );
     assert!(player.action_buttons().is_empty());
     // Northshire-01 A proxy-requests.jsonl:534-535,1647-1648.

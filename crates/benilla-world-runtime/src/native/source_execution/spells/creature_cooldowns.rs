@@ -102,6 +102,14 @@ pub trait CreatureCooldownOwner {
     }
 }
 
+// Spell.cpp:3510-3516. Passive spells can have cooldowns at triggering, not here.
+pub(in crate::native::source_execution) fn skips_spell_cooldown(
+    t: &SpellTemplate,
+    channel_only: bool,
+) -> bool {
+    t.attributes & 0x40 != 0 || channel_only
+}
+
 impl SourceSpellCooldowns {
     pub fn send_spell_cooldown(
         &mut self,
@@ -109,7 +117,7 @@ impl SourceSpellCooldowns {
         channel_only: bool,
         owner: &mut impl CreatureCooldownOwner,
     ) -> Result<()> {
-        if t.attributes & 0x40 != 0 || channel_only {
+        if skips_spell_cooldown(t, channel_only) {
             return Ok(());
         }
         match owner.caster_kind()? {

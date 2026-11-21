@@ -135,7 +135,7 @@ impl SourceSpell {
     }
 
     // Spell.cpp:6404-6433, without the unconfigured ENABLE_PLAYERBOTS branch.
-    fn ignore_item_requirements(&self, t: &SpellTemplate) -> Result<bool> {
+    pub(super) fn ignore_item_requirements(&self, t: &SpellTemplate) -> Result<bool> {
         if self.flags.channel_only() || self.flags.ignore_costs() {
             return Ok(true);
         }

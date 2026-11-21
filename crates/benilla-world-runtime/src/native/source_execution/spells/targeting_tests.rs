@@ -163,6 +163,48 @@ fn ordinary_unit_no_targets_stops_at_the_entry_mask_or_default_read() {
 }
 
 #[test]
+fn targetless_effect_has_no_unit_hit_and_refuses_explicit_target_map() {
+    let mut t = SpellTemplate {
+        id: 204,
+        effect1: 26,
+        // SpellTargets.cpp:469-484. A unit entry mask cannot fill a targetless effect.
+        targets: 2,
+        ..SpellTemplate::default()
+    };
+    with_fixture(&t, 0, SourceObjectKind::Creature, |live, s| {
+        live.fill(s, &t, |_| panic!("targetless effect selected a unit"))?;
+        assert_eq!(s.targetless_mask, 1);
+        assert!(s.unique_targets.is_empty());
+        Ok(())
+    })
+    .unwrap();
+    t.effectimplicittargeta1 = 1;
+    assert_eq!(
+        with_fixture(&t, 0, SourceObjectKind::Creature, |live, s| live.fill(
+            s,
+            &t,
+            |_| {}
+        ))
+        .unwrap_err()
+        .id,
+        "execution.spells.Spell_589.SetTargetMap_owner"
+    );
+    // SpellTargets.cpp:219. Effect 118 is targetless with a nonzero default.
+    t.effectimplicittargeta1 = 0;
+    t.effect1 = 118;
+    assert_eq!(
+        with_fixture(&t, 0, SourceObjectKind::Creature, |live, s| live.fill(
+            s,
+            &t,
+            |_| {}
+        ))
+        .unwrap_err()
+        .id,
+        "execution.spells.Spell_584.SetTargetMap_default_owner"
+    );
+}
+
+#[test]
 fn radius_callback_gates_precede_caster_arm() {
     let t = area_spell(1, 0);
     for (kind, scripted, owner) in [

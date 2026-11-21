@@ -286,6 +286,18 @@ impl SourceUnitAuras {
         stand: u8,
         observe: impl FnMut(u32, ProcTriggerExit),
     ) -> Result<()> {
+        self.proc_bound_cast_end(stores, spell, objects, stand, false, observe)
+    }
+
+    pub(in crate::native::source_execution) fn proc_bound_cast_end(
+        &mut self,
+        stores: &SourceSpellStores,
+        spell: &SourceSpell,
+        objects: &SourceObjects,
+        stand: u8,
+        player: bool,
+        observe: impl FnMut(u32, ProcTriggerExit),
+    ) -> Result<()> {
         let t = stores
             .template(spell.spell)
             .ok_or_else(|| refuse("execution.spells.missing_template"))?;
@@ -298,10 +310,40 @@ impl SourceUnitAuras {
             ProcUnit {
                 objects,
                 stand,
-                player: false,
+                player,
                 victim: false,
             },
             observe,
+        )
+    }
+
+    // Spell.cpp:1544-1552. Targetless non-trap hits have no victim.
+    pub(in crate::native::source_execution) fn proc_bound_targetless(
+        &mut self,
+        stores: &SourceSpellStores,
+        spell: &SourceSpell,
+        t: &SpellTemplate,
+        unit: (&SourceObjects, u8, bool),
+        mask: u8,
+    ) -> Result<()> {
+        let (objects, stand, player) = unit;
+        let [attacker, _] = prepare_masks_for_proc_system(stores, spell, t, u32::from(mask), None)?;
+        require(
+            attacker & ON_TRAP_ACTIVATION == 0,
+            "execution.spells.Spell_1551.trap_target_owner",
+        )?;
+        self.scan_creature_self_procs(
+            stores,
+            t,
+            [attacker, 0],
+            0,
+            ProcUnit {
+                objects,
+                stand,
+                player,
+                victim: false,
+            },
+            |_, _| {},
         )
     }
 
@@ -407,6 +449,32 @@ impl SourceUnitAuras {
         }
         Ok(())
     }
+}
+
+#[test]
+fn targetless_proc_refuses_trap_target_before_scanning() {
+    let stores = SourceSpellStores::default();
+    let objects = SourceObjects::default();
+    let caster = ObjectHandle {
+        thread: 12,
+        construction: 1,
+    };
+    let t = SpellTemplate {
+        effect1: 26,
+        spellfamilyname: 9,
+        spellfamilyflags: 4,
+        ..SpellTemplate::default()
+    };
+    let spell = SourceSpell::new(1, &t, caster, SpellTriggerFlags(1), 0).unwrap();
+    let mut auras = SourceUnitAuras::default();
+    assert_eq!(
+        auras
+            .proc_bound_targetless(&stores, &spell, &t, (&objects, 0, true), 1)
+            .unwrap_err()
+            .id,
+        "execution.spells.Spell_1551.trap_target_owner"
+    );
+    assert!(!auras.spell_procs_happening);
 }
 
 #[test]
