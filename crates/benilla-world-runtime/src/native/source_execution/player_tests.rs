@@ -117,6 +117,7 @@ fn human_mage_initializes_level_one_before_learning() {
             &models,
             &cells,
             CONFIG,
+            None,
             || Ok(107),
         )
         .unwrap_err();
@@ -199,6 +200,7 @@ fn invalid_race_class_and_gender_stop_before_map_binding() {
                 &models,
                 &cells,
                 CONFIG,
+                None,
                 || panic!("clock after validation"),
             )
             .unwrap_err();
@@ -231,6 +233,7 @@ fn legal_pair_without_playercreateinfo_refuses() {
             &models,
             &cells,
             CONFIG,
+            None,
             || panic!("clock after validation"),
         )
         .unwrap_err();
@@ -255,6 +258,30 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         &mut SourceRandom::new(1, &mut mt, &mut cursor, &mut |_| {}).unwrap(),
     )
     .unwrap();
+    let f1 = std::env::var_os("BENILLA_F6_MMAP_F1").unwrap();
+    let mut files = SourceTerrainFiles::default();
+    files
+        .retain_present(
+            0,
+            48,
+            32,
+            &Path::new(&f1).join("products/maps/0004832.map"),
+            &Sha256Id::parse("9924cc69ac739017c39dcd5294286c6abbe9817d9e1808efa6a5bd07ae5d3f63")
+                .unwrap(),
+        )
+        .unwrap();
+    let mut terrain =
+        SourceTerrainManager::new(files, SourceTerrainDbc::catalog(&mut catalog).unwrap());
+    terrain
+        .load_terrain(
+            0,
+            &mut SourceRandom::new(1, &mut mt, &mut cursor, &mut |_| {}).unwrap(),
+        )
+        .unwrap();
+    let targets = SourceSpellTargetMgr::initialize(&spells);
+    let mut session = SourceWorldSession::construct(true);
+    // Northshire-01 A client-packets.jsonl:4-7. WorldSession.cpp:479-499 runs before create.
+    session.set_in_char_selection();
     let mut objects = SourceObjects::default();
     let mut units = SourceUnits::default();
     let cells = SourceCells::new(MAP).unwrap();
@@ -270,10 +297,47 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             &models,
             &cells,
             CONFIG,
+            Some(SourcePlayerCastInputs {
+                targets: &targets,
+                terrain: &mut terrain,
+                map_time: &|map| {
+                    assert_eq!(map, MAP);
+                    Ok(100)
+                },
+                session: &session,
+                max_casts: 20,
+                indoor_policy: true,
+            }),
             || Ok(107),
         )
         .unwrap_err();
-    assert_eq!(error.id, "execution.player.Player_3400.passive_cast_owner");
+    assert_eq!(
+        error.id,
+        "execution.spells.Spell_3258.CalculateSpellDuration_owner"
+    );
+    let unit = units.get(&objects, player.object()).unwrap();
+    let queue = unit.unit_events.inventory();
+    let [event] = queue.queued.as_slice() else {
+        panic!("Defense must schedule exactly one spell event");
+    };
+    let SourceUnitEvent::Spell { spell } = event.kind else {
+        panic!("Defense must schedule a spell event");
+    };
+    // Northshire-01 A trace:68133333-68133335. The empty processor schedules at 0 + 1.
+    assert_eq!(
+        (queue.clock_ms, event.add_time_ms, event.exec_time_ms),
+        (0, 0, 1)
+    );
+    let schedule = event.queue.as_ref().unwrap();
+    assert_eq!((schedule.deadline_ms, schedule.insertion_id), (1, 1));
+    let cast = &unit.spell_starts.spells[&spell];
+    assert_eq!((cast.spell, cast.event), (204, Some(event.event_id)));
+    assert_eq!(cast.state, SourceSpellState::Casting);
+    assert!(cast.executing);
+    assert_eq!(unit.auras.cast_counter, 1);
+    assert_eq!(cast.creation_time, 100);
+    assert_eq!(player.active_mod_spell, Some(spell));
+    assert!(terrain.terrain(0).unwrap().grid(48, 32).is_some());
     assert_eq!(
         player.spellbook(),
         &BTreeMap::from([(
@@ -354,9 +418,10 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     let mut rank_units = SourceUnits::default();
     let mut rank_player = construct(&mut rank_objects, &mut rank_units);
     rank_player.race = 1;
-    let live = PlayerLearning {
+    let mut live = PlayerLearning {
         objects: &rank_objects,
-        unit: rank_units.get(&rank_objects, rank_player.object()).unwrap(),
+        units: &mut rank_units,
+        cast: None,
         skills: rows.skill_inputs.as_ref().unwrap(),
         spells: &spells,
         items: &items,
@@ -364,14 +429,14 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     };
     assert_eq!(
         rank_player
-            .add_spell(&live, 143, true, true, true, false)
+            .add_spell(&mut live, 143, true, true, true, false)
             .unwrap_err()
             .id,
         "execution.player.Player_3284.talent_tab_owner"
     );
     assert_eq!(
         rank_player
-            .add_spell(&live, 11069, true, true, true, false)
+            .add_spell(&mut live, 11069, true, true, true, false)
             .unwrap_err()
             .id,
         "execution.player.Player_3259.talent_rank_removal_owner"
@@ -386,7 +451,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     rank_player.spells.insert(11069, disabled);
     assert_eq!(
         rank_player
-            .learn_spell(&live, 11069, false, false)
+            .learn_spell(&mut live, 11069, false, false)
             .unwrap_err()
             .id,
         "execution.player.Player_3379.used_talent_points_owner"
@@ -401,7 +466,9 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     for id in [133, 143] {
         rank_player.spells.insert(id, disabled);
     }
-    rank_player.learn_spell(&live, 133, false, false).unwrap();
+    rank_player
+        .learn_spell(&mut live, 133, false, false)
+        .unwrap();
     for id in [133, 143] {
         assert_eq!(
             rank_player.spellbook()[&id],
@@ -472,6 +539,7 @@ fn detached_create_orders_shuffled_grants_and_sets_buttons_before_outfit() {
             &models,
             &cells,
             CONFIG,
+            None,
             || Ok(107),
         )
         .unwrap_err();

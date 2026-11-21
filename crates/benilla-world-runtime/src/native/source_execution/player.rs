@@ -18,6 +18,9 @@ use player_spellbook::PlayerLearning;
 pub use player_spellbook::{
     SourcePlayerAction, SourcePlayerActionState, SourcePlayerSpell, SourcePlayerSpellState,
 };
+#[path = "player_cast.rs"]
+mod player_cast;
+pub use player_cast::SourcePlayerCastInputs;
 
 // UpdateFields.h:27,77-88,114-120,133,140-151,180-186,215,218,228,243,263.
 const OBJECT_FIELD_TYPE: usize = 0x02;
@@ -119,6 +122,8 @@ pub struct SourcePlayer {
     // Player.h:2377,2379; Player.cpp:471. Both maps default to empty.
     spells: BTreeMap<u32, SourcePlayerSpell>,
     action_buttons: BTreeMap<u8, SourcePlayerAction>,
+    // Player.h:2556-2557; Player.cpp:640-641. One identity names the in-flight Spell and its charges.
+    active_mod_spell: Option<u64>,
 }
 
 impl SourcePlayer {
@@ -193,6 +198,7 @@ impl SourcePlayer {
                 skills: Vec::new(),
                 spells: BTreeMap::new(),
                 action_buttons: BTreeMap::new(),
+                active_mod_spell: None,
             })
         })();
         if result.is_err() {
@@ -215,6 +221,7 @@ impl SourcePlayer {
         models: &LoadedCreatureModels,
         cells: &SourceCells,
         config: SourcePlayerCreateConfig,
+        cast: Option<SourcePlayerCastInputs<'_>>,
         mut wall_seconds: impl FnMut() -> Result<i64>,
     ) -> Result<()> {
         let object = self.object;
@@ -356,16 +363,17 @@ impl SourcePlayer {
             .skill_inputs
             .as_ref()
             .ok_or_else(|| refuse("execution.player.Player_850.learn_default_skills_owner"))?;
-        let live = PlayerLearning {
+        let mut live = PlayerLearning {
             objects,
-            unit,
+            units,
+            cast,
             skills,
             spells,
             items,
             class,
         };
-        self.learn_default_skills(&live, rows.skills(race, class))?;
-        self.learn_default_spells(&live, rows.spells(race, class))?;
+        self.learn_default_skills(&mut live, rows.skills(race, class))?;
+        self.learn_default_spells(&mut live, rows.spells(race, class))?;
         for action in rows.actions(race, class) {
             self.add_action_button(&live, *action)?;
         }

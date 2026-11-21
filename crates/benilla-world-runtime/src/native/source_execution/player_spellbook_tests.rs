@@ -7,7 +7,7 @@ fn with_spells(
     templates: impl IntoIterator<Item = SpellTemplate>,
     in_world: bool,
     form: u32,
-    run: impl FnOnce(&mut SourcePlayer, &PlayerLearning<'_>),
+    run: impl FnOnce(&mut SourcePlayer, &mut PlayerLearning<'_>),
 ) {
     let mut stores = SourceSpellStores::default();
     for template in templates {
@@ -25,9 +25,10 @@ fn with_spells(
     objects.get_mut(handle).unwrap().in_world = in_world;
     run(
         &mut player,
-        &PlayerLearning {
+        &mut PlayerLearning {
             objects: &objects,
-            unit,
+            units: &mut units,
+            cast: None,
             skills: &skills,
             spells: &stores,
             items: &items,

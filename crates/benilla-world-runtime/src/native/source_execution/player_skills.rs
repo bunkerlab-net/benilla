@@ -213,6 +213,13 @@ impl PlayerSkillInputs {
             .find_map(|row| (row.successor != 0).then_some(row.successor))
     }
 
+    // Player.cpp:5887-5891. The first DBC ability defines the rank's skill.
+    fn rank_skill(&self, spell: u32) -> Option<u16> {
+        self.abilities(&self.by_spell, spell)
+            .next()
+            .map(|row| row.skill)
+    }
+
     // SpellMgr.cpp:30-39; SharedDefines.h:1484.
     pub(super) fn is_primary_profession(&self, skill: u32) -> bool {
         u16::try_from(skill)
@@ -258,10 +265,27 @@ impl SourcePlayer {
         &self.skills
     }
 
+    // Player.cpp:5885-5897. Live bonuses are not yet bound.
+    pub(super) fn spell_rank(&self, inputs: &PlayerSkillInputs, t: &SpellTemplate) -> Result<u32> {
+        let Some(id) = inputs.rank_skill(t.id) else {
+            return Ok(0);
+        };
+        let rank = self
+            .skills
+            .iter()
+            .find(|skill| skill.id_step[0] == id)
+            .map_or(0, |skill| u32::from(skill.value_max[0]));
+        Ok(if t.maxlevel > 0 {
+            rank.min(t.maxlevel.wrapping_mul(5))
+        } else {
+            rank
+        })
+    }
+
     // Player.cpp:5813-5883. Captured fresh player: the level is one and form is zero.
     pub(super) fn learn_default_skills(
         &mut self,
-        live: &PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_>,
         rows: &[PlayerCreateSkill],
     ) -> Result<()> {
         let inputs = live.skills;
@@ -308,7 +332,7 @@ impl SourcePlayer {
     }
 
     // Player.cpp:5408-5464 and :5365-5405. Use the same slots for re-entry.
-    fn set_skill(&mut self, live: &PlayerLearning<'_>, skill: SourcePlayerSkill) -> Result<()> {
+    fn set_skill(&mut self, live: &mut PlayerLearning<'_>, skill: SourcePlayerSkill) -> Result<()> {
         let [id, step] = skill.id_step;
         let [value, _] = skill.value_max;
         if id == 0 {
@@ -350,13 +374,18 @@ impl SourcePlayer {
         if inserted {
             // Player.cpp:5452-5458. A fresh bonus word is already zero.
             require(
-                !live.unit.auras.aura_holders().any(|(_, holder)| {
-                    holder
-                        .effects
-                        .iter()
-                        .flatten()
-                        .any(|aura| matches!(aura.kind, 30 | 98) && aura.misc == i32::from(id))
-                }),
+                !live
+                    .units
+                    .get(live.objects, object)?
+                    .auras
+                    .aura_holders()
+                    .any(|(_, holder)| {
+                        holder
+                            .effects
+                            .iter()
+                            .flatten()
+                            .any(|aura| matches!(aura.kind, 30 | 98) && aura.misc == i32::from(id))
+                    }),
                 "execution.player.Player_5458.apply_skill_aura_owner",
             )?;
         }
@@ -366,7 +395,7 @@ impl SourcePlayer {
     // Player.cpp:5642-5698. Equal-key abilities follow the DBC key order.
     fn update_skill_trained_spells(
         &mut self,
-        live: &PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_>,
         id: u16,
         value: u16,
         step: u16,
@@ -407,7 +436,7 @@ impl SourcePlayer {
     // Player.cpp:5701-5777. The addSpell path applies training; removal has a separate owner.
     pub(super) fn update_spell_trained_skills(
         &mut self,
-        live: &PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_>,
         spell: u32,
     ) -> Result<()> {
         if let Some((id, step, _)) = live.spells.learned_skill(spell) {
@@ -451,7 +480,7 @@ impl SourcePlayer {
     }
 
     // Player.cpp:5497-5535. A loaded learn-skill edge sets the same live skill slots.
-    fn set_skill_step(&mut self, live: &PlayerLearning<'_>, id: u16, step: u16) -> Result<()> {
+    fn set_skill_step(&mut self, live: &mut PlayerLearning<'_>, id: u16, step: u16) -> Result<()> {
         if id == 0 || step > 16 {
             return Ok(());
         }
@@ -599,16 +628,17 @@ mod learning_tests {
         let mut units = SourceUnits::default();
         let mut player = construct(&mut objects, &mut units);
         player.race = 1;
-        let live = PlayerLearning {
+        let mut live = PlayerLearning {
             objects: &objects,
-            unit: units.get(&objects, player.object()).unwrap(),
+            units: &mut units,
+            cast: None,
             skills: &skills,
             spells: &spells,
             items: &items,
             class: 8,
         };
         player
-            .add_spell(&live, 1, true, true, false, false)
+            .add_spell(&mut live, 1, true, true, false, false)
             .unwrap();
         let skill = |step, value| SourcePlayerSkill {
             id_step: [10, step],
@@ -620,16 +650,16 @@ mod learning_tests {
             [1, 2, 3]
         );
 
-        player.set_skill(&live, skill(0, 2)).unwrap();
+        player.set_skill(&mut live, skill(0, 2)).unwrap();
         assert_eq!(player.skills(), &[skill(1, 2)]);
         assert!(player.spellbook()[&4].dependent);
         assert_eq!(
-            player.set_skill(&live, skill(0, 1)).unwrap_err().id,
+            player.set_skill(&mut live, skill(0, 1)).unwrap_err().id,
             "execution.player.Player_5691.remove_spell_owner"
         );
         assert_eq!(player.skills(), &[skill(1, 1)]);
         assert_eq!(
-            player.set_skill(&live, skill(0, 0)).unwrap_err().id,
+            player.set_skill(&mut live, skill(0, 0)).unwrap_err().id,
             "execution.player.Player_5388.remove_skill_owner"
         );
         assert_eq!(player.skills(), &[skill(1, 1)]);
@@ -656,18 +686,19 @@ mod learning_tests {
             let mut player = construct(&mut objects, &mut units);
             let handle = player.object();
             objects.get_mut(handle).unwrap().in_world = in_world;
-            let live = PlayerLearning {
+            let mut live = PlayerLearning {
                 objects: &objects,
-                unit: units.get(&objects, handle).unwrap(),
+                units: &mut units,
+                cast: None,
                 skills: &skills,
                 spells: &spells,
                 items: &items,
                 class: 8,
             };
             assert!(player
-                .add_spell(&live, 1, true, false, false, false)
+                .add_spell(&mut live, 1, true, false, false, false)
                 .unwrap());
-            let learned = player.add_spell(&live, 2, true, true, true, false);
+            let learned = player.add_spell(&mut live, 2, true, true, true, false);
             if in_world {
                 assert_eq!(
                     learned.unwrap_err().id,
@@ -678,7 +709,7 @@ mod learning_tests {
                 player.spells.insert(2, player.spellbook()[&1]);
                 assert_eq!(
                     player
-                        .add_spell(&live, 1, true, true, false, false)
+                        .add_spell(&mut live, 1, true, true, false, false)
                         .unwrap_err()
                         .id,
                     "execution.player.Player_3211.send_superseded_spell_owner"
@@ -693,7 +724,7 @@ mod learning_tests {
                 assert!(player.spellbook()[&2].active);
                 assert!(!player.spellbook()[&1].active);
                 assert!(!player
-                    .add_spell(&live, 1, true, true, false, false)
+                    .add_spell(&mut live, 1, true, true, false, false)
                     .unwrap());
                 assert!(!player.spellbook()[&1].active);
             }

@@ -211,6 +211,8 @@ pub struct SourceSpell {
     pub trigger_data: Option<SpellTriggerData>,
     pub duration: i32,
     pub unique_targets: Vec<SourceSpellTarget>,
+    // Spell.h:640; Spell.cpp:387. Starts empty and orders by spell ID (PlayerDefines.h:87-90).
+    pub(super) used_aura_charges: BTreeMap<u32, u64>,
     pub damage_multipliers: [u32; 3],
     pub damage_per_effect: [i32; 3],
     /// Spell.cpp:1445-1494. Ownership transfers to the unit only on insertion.
@@ -308,6 +310,7 @@ impl SourceSpell {
             trigger_data: None,
             duration: 0,
             unique_targets: Vec::new(),
+            used_aura_charges: Default::default(),
             damage_multipliers: [0; 3],
             damage_per_effect: [0; 3],
             pending_aura: None,

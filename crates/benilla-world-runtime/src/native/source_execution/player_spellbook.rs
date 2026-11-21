@@ -53,7 +53,8 @@ impl Default for SourcePlayerAction {
 
 pub(super) struct PlayerLearning<'a> {
     pub objects: &'a SourceObjects,
-    pub unit: &'a SourceUnitFields,
+    pub units: &'a mut SourceUnits,
+    pub cast: Option<SourcePlayerCastInputs<'a>>,
     pub skills: &'a PlayerSkillInputs,
     pub spells: &'a SourceSpellStores,
     pub items: &'a SourceStartupItems,
@@ -81,7 +82,7 @@ impl SourcePlayer {
     // Player.cpp:18281-18294.
     pub(super) fn learn_default_spells(
         &mut self,
-        live: &PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_>,
         ids: &[u32],
     ) -> Result<()> {
         for &id in ids {
@@ -91,7 +92,11 @@ impl SourcePlayer {
     }
 
     // Player.cpp:5693-5696,18289-18292. Detached grants do not send a learn packet.
-    pub(super) fn learn_granted_spell(&mut self, live: &PlayerLearning<'_>, id: u32) -> Result<()> {
+    pub(super) fn learn_granted_spell(
+        &mut self,
+        live: &mut PlayerLearning<'_>,
+        id: u32,
+    ) -> Result<()> {
         if live.objects.get(self.object())?.in_world {
             self.learn_spell(live, id, true, false)
         } else {
@@ -103,7 +108,7 @@ impl SourcePlayer {
     // Player.cpp:3117-3428. The learned row is visible before casting and training.
     pub(super) fn add_spell(
         &mut self,
-        live: &PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_>,
         id: u32,
         mut active: bool,
         learning: bool,
@@ -171,7 +176,12 @@ impl SourcePlayer {
                     } else if old.state != New {
                         old.state = Changed;
                     }
-                    if active && needs_cast_at_learn(template, live.unit)? {
+                    if active
+                        && needs_cast_at_learn(
+                            template,
+                            live.units.get(live.objects, self.object())?,
+                        )?
+                    {
                         return Err(refuse("execution.player.Player_3204.passive_cast_owner"));
                     }
                     if !active && in_world {
@@ -272,8 +282,8 @@ impl SourcePlayer {
             )?;
         }
 
-        if needs_cast_at_learn(template, live.unit)? {
-            return Err(refuse("execution.player.Player_3400.passive_cast_owner"));
+        if needs_cast_at_learn(template, live.units.get(live.objects, self.object())?)? {
+            self.cast_granted_passive(live, id)?;
         }
         require(
             !template
@@ -301,7 +311,7 @@ impl SourcePlayer {
     // Player.cpp:3451-3479. The in-world notification belongs to WorldSession.
     pub(super) fn learn_spell(
         &mut self,
-        live: &PlayerLearning<'_>,
+        live: &mut PlayerLearning<'_>,
         id: u32,
         dependent: bool,
         talent: bool,

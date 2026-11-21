@@ -67,10 +67,55 @@ impl SourceSpell {
         owner: &mut impl SpellSelfCastOwner,
     ) -> Result<()> {
         self.executing = true;
-        require(
-            owner.cast_mod_owner(self.caster)?.is_none(),
-            "execution.spells.Spell_3163.SpellModRAII_owner",
-        )?;
+        let player = owner.cast_mod_owner(self.caster)?;
+        self.with_spell_mod_scope(player, false, owner, |spell, owner| {
+            spell.cast_self_in_scope(skip, caller, stores, owner)
+        })
+        .map(|_| ())
+    }
+
+    // Spell.cpp:8092-8111; Player.cpp:20542-20552. The spell ID also names its charge set.
+    pub(in crate::native::source_execution) fn with_spell_mod_scope<
+        E: SpellExecutionOwner + ?Sized,
+    >(
+        &mut self,
+        player: Option<ObjectHandle>,
+        only_save: bool,
+        owner: &mut E,
+        run: impl FnOnce(&mut Self, &mut E) -> Result<bool>,
+    ) -> Result<bool> {
+        let Some(player) = player else {
+            return run(self, owner);
+        };
+        let active = owner.active_spell_mod(player, only_save)?;
+        if active.is_none() {
+            *active = Some(self.id);
+        }
+        let success = run(self, owner)?;
+        let active = owner.active_spell_mod(player, only_save)?;
+        if *active == Some(self.id) {
+            if !only_save {
+                require(
+                    self.used_aura_charges.is_empty(),
+                    if success {
+                        "execution.spells.Spell_8105.RemoveSpellMods_owner"
+                    } else {
+                        "execution.spells.Spell_8107.ResetSpellModsDueToCanceledSpell_owner"
+                    },
+                )?;
+            }
+            *active = None;
+        }
+        Ok(success)
+    }
+
+    fn cast_self_in_scope(
+        &mut self,
+        skip: bool,
+        caller: SelfCastCaller,
+        stores: &SourceSpellStores,
+        owner: &mut impl SpellSelfCastOwner,
+    ) -> Result<bool> {
         let (auras, max_casts) = owner.cast_chain()?;
         if !auras.try_enter_cast(max_casts) {
             // Spell.cpp:3172,3815-3835. The result precedes finish and skips aura-triggered casts.
@@ -86,7 +131,7 @@ impl SourceSpell {
             }
             self.finish_failed(owner)?;
             self.executing = false;
-            return Ok(());
+            return Ok(false);
         }
         self.update_self_pointers(caller, owner.cast_objects())?;
         let t = stores
@@ -99,7 +144,8 @@ impl SourceSpell {
                 SelfCastCaller::UnitAi => "execution.spells.Spell_7860.SendInterrupted_owner",
             }));
         }
-        owner.cast_checked(self, t)
+        owner.cast_checked(self, t)?;
+        Ok(true)
     }
 
     /// Spell.cpp:3180,6901-6906. Only the self-target pointer update is bound.
@@ -118,14 +164,10 @@ impl SourceSpell {
         }
     }
 
-    /// Spell.cpp:3211-3377,3442-3484,3725-3793. Execute a checked immediate creature cast.
-    pub fn cast_checked<E: SpellCastEffects>(
-        &mut self,
+    // Spell.cpp:3210-3256. Run the calls before reading spell duration.
+    pub(in crate::native::source_execution) fn checked_cast_prefix(
+        &self,
         t: &SpellTemplate,
-        stores: &SourceSpellStores,
-        base: Option<&SourceUnitAi>,
-        effects: &mut E,
-        finish: impl FnOnce(&mut E, &mut SourceSpell) -> Result<()>,
     ) -> Result<()> {
         let precast = match t.spellfamilyname {
             0 => matches!(t.mechanic, 16 | 25),
@@ -146,7 +188,19 @@ impl SourceSpell {
         require(
             self.targets.mask & 0x1000 == 0,
             "execution.spells.Spell_3256.updateTradeSlotItem_owner",
-        )?;
+        )
+    }
+
+    /// Spell.cpp:3211-3377,3442-3484,3725-3793. Execute a checked immediate creature cast.
+    pub fn cast_checked<E: SpellCastEffects>(
+        &mut self,
+        t: &SpellTemplate,
+        stores: &SourceSpellStores,
+        base: Option<&SourceUnitAi>,
+        effects: &mut E,
+        finish: impl FnOnce(&mut E, &mut SourceSpell) -> Result<()>,
+    ) -> Result<()> {
+        self.checked_cast_prefix(t)?;
         // Spell.cpp:3258. There is no target at this duration read.
         self.duration =
             SourceSpellScript::on_duration_calculate(self.aura_script, effects.duration(t)?);
@@ -289,6 +343,56 @@ fn finish_tail(t: &SpellTemplate, live: SpellFinishOperands<'_>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spell_mod_scope_keeps_the_outer_spell_identity() {
+        #[derive(Default)]
+        struct Player(Option<u64>);
+        impl SpellExecutionOwner for Player {
+            fn active_spell_mod(&mut self, _: ObjectHandle, _: bool) -> Result<&mut Option<u64>> {
+                Ok(&mut self.0)
+            }
+        }
+        let unit = ObjectHandle {
+            thread: 12,
+            construction: 1,
+        };
+        let t = SpellTemplate::default();
+        let mut outer = SourceSpell::new(1, &t, unit, SpellTriggerFlags(1), 0).unwrap();
+        let mut inner = SourceSpell::new(2, &t, unit, SpellTriggerFlags(1), 0).unwrap();
+        let mut player = Player::default();
+        outer.used_aura_charges.insert(7, 8);
+        outer
+            .with_spell_mod_scope(Some(unit), true, &mut player, |_, player| {
+                assert_eq!(player.0, Some(1));
+                inner.with_spell_mod_scope(Some(unit), false, player, |_, player| {
+                    assert_eq!(player.0, Some(1));
+                    Ok(true)
+                })?;
+                assert_eq!(player.0, Some(1));
+                Ok(true)
+            })
+            .unwrap();
+        assert_eq!(player.0, None);
+        assert_eq!(outer.used_aura_charges.len(), 1);
+        for (success, expected) in [
+            (true, "execution.spells.Spell_8105.RemoveSpellMods_owner"),
+            (
+                false,
+                "execution.spells.Spell_8107.ResetSpellModsDueToCanceledSpell_owner",
+            ),
+        ] {
+            assert_eq!(
+                outer
+                    .with_spell_mod_scope(Some(unit), false, &mut Player::default(), |_, _| Ok(
+                        success
+                    ))
+                    .unwrap_err()
+                    .id,
+                expected
+            );
+        }
+    }
 
     struct CooldownOwner<'a> {
         objects: &'a SourceObjects,

@@ -3,6 +3,8 @@
 //! Expected outcomes have no conversion to an admissible input.
 mod active;
 pub use active::*;
+mod session;
+pub use session::*;
 mod ai_selection;
 pub use ai_selection::*;
 mod script_registry;

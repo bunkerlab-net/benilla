@@ -372,6 +372,24 @@ pub fn fresh_cast_time<'a>(
     level: impl FnOnce() -> Result<u32>,
     speed: impl FnOnce() -> Result<u32>,
 ) -> Result<i32> {
+    fresh_cast_time_for_rank(
+        lookup,
+        spell,
+        t,
+        || Ok(creature_power_rank(level()?, t)),
+        Ok,
+        speed,
+    )
+}
+
+pub(in crate::native::source_execution) fn fresh_cast_time_for_rank<'a>(
+    lookup: impl FnOnce(u32) -> Result<Option<&'a SpellDbcRecord>>,
+    spell: &SourceSpell,
+    t: &SpellTemplate,
+    rank: impl FnOnce() -> Result<u32>,
+    apply_mod: impl FnOnce(i32) -> Result<i32>,
+    speed: impl FnOnce() -> Result<u32>,
+) -> Result<i32> {
     if spell.flags.old_triggered() && (t.manacost != 0 || t.manacostpercentage != 0) {
         return Ok(0); // Spell.cpp:7105-7108.
     }
@@ -386,7 +404,7 @@ pub fn fresh_cast_time<'a>(
     };
     // Mixed signed/unsigned source arithmetic converts to uint32 before the
     // implementation-defined int32 assignment on the pinned GCC target.
-    let rank = creature_power_rank(level()?, t) as i32;
+    let rank = rank()? as i32;
     let mut time = word(1)?
         .wrapping_add(word(2)?.wrapping_mul(((rank / 5) as u32).wrapping_sub(t.baselevel)))
         as i32;
@@ -394,6 +412,7 @@ pub fn fresh_cast_time<'a>(
     if t.attributes & 2 != 0 && !spell.auto_repeat {
         time = add_ranged_delay(time)?;
     }
+    time = apply_mod(time)?;
     if t.attributes & 0x0000_0030 == 0 && t.attributesex3 & 0x2000_0000 == 0 {
         time = scale_cast_time(time, speed()?)?;
     } else if t.attributes & 2 != 0 && !spell.auto_repeat {

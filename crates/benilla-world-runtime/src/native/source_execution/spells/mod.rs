@@ -220,6 +220,17 @@ impl SpellCall {
 }
 /// External state queries are fallible. An unbound query never becomes false/OK.
 pub trait SpellExecutionOwner {
+    fn active_spell_mod(
+        &mut self,
+        _player: ObjectHandle,
+        only_save: bool,
+    ) -> Result<&mut Option<u64>> {
+        Err(refuse(if only_save {
+            "execution.spells.Spell_3033.SpellModRAII_owner"
+        } else {
+            "execution.spells.Spell_3163.SpellModRAII_owner"
+        }))
+    }
     fn spell_storage(
         &mut self,
         _caster: ObjectHandle,
