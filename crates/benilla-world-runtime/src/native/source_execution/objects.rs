@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Construction, world membership and GUID lookup remain distinct lifetimes.
+use super::active::SourcePointerSet;
 use super::*;
 use benilla_sim::resident_map::CellPair;
 use std::cell::{Cell, RefCell};
@@ -253,7 +254,7 @@ pub struct SourceObjects {
     allocations: BTreeMap<u64, (u64, ObjectHandle)>,
     players: BTreeMap<MapIdentity, std::collections::VecDeque<ObjectHandle>>,
     client_updates: RefCell<BTreeMap<MapIdentity, BTreeSet<ObjectHandle>>>,
-    event_notified: BTreeMap<MapIdentity, BTreeSet<ObjectHandle>>,
+    event_notified: BTreeMap<MapIdentity, SourcePointerSet>,
 }
 impl SourceObjects {
     pub fn construction_count(&self, thread: u64) -> u64 {
@@ -768,7 +769,7 @@ impl SourceObjects {
             let map = object
                 .map
                 .ok_or_else(|| refuse("execution.object.Object_1975.map_owner"))?;
-            self.event_notified.entry(map).or_default().insert(handle);
+            self.insert_event_notification(map, handle, object.source_allocation)?;
         }
         self.get_mut(handle)?.in_world = true;
         self.clear_update_mask(handle, false)
@@ -811,7 +812,7 @@ impl SourceObjects {
             }
         }
         if let Some(members) = event_map.and_then(|map| self.event_notified.get_mut(&map)) {
-            members.remove(&handle);
+            members.remove(handle);
         }
         self.clear_update_mask(handle, true)?;
         self.get_mut(handle)?.in_world = false;
@@ -1060,9 +1061,10 @@ impl SourceObjects {
             .map
             .ok_or_else(|| refuse("execution.object.Object_2594.map_owner"))?;
         if notify {
-            self.event_notified.entry(map).or_default().insert(handle);
+            let pointer = object.source_allocation;
+            self.insert_event_notification(map, handle, pointer)?;
         } else if let Some(members) = self.event_notified.get_mut(&map) {
-            members.remove(&handle);
+            members.remove(handle);
         }
         Ok(())
     }
@@ -1070,20 +1072,69 @@ impl SourceObjects {
     pub fn event_notified(&self, map: MapIdentity, handle: ObjectHandle) -> bool {
         self.event_notified
             .get(&map)
-            .is_some_and(|members| members.contains(&handle))
+            .is_some_and(|members| members.contains(handle))
     }
 
-    // Map.cpp:2983 walks std::set<WorldObject*> in pointer order.
-    pub fn event_notification_member(&self, map: MapIdentity) -> Result<Option<ObjectHandle>> {
-        let Some(members) = self.event_notified.get(&map) else {
-            return Ok(None);
-        };
-        require(
-            members.len() <= 1,
-            "execution.map.Map_2983.event_notify_pointer_order_owner",
+    fn insert_event_notification(
+        &mut self,
+        map: MapIdentity,
+        handle: ObjectHandle,
+        pointer: Option<u64>,
+    ) -> Result<()> {
+        self.event_notified.entry(map).or_default().insert(
+            handle,
+            pointer,
+            "execution.map.Map_1644.event_notify_pointer_duplicate",
+            |_| Ok(()),
         )?;
-        Ok(members.first().copied())
+        Ok(())
     }
+
+    pub fn bind_event_notification_address(
+        &mut self,
+        map: MapIdentity,
+        handle: ObjectHandle,
+        pointer: u64,
+    ) -> Result<()> {
+        self.event_notified
+            .get_mut(&map)
+            .ok_or_else(|| refuse("execution.map.Map_2983.event_notify_member"))?
+            .bind(handle, pointer)
+    }
+
+    pub(super) fn for_each_event_subscriber(
+        &self,
+        map: MapIdentity,
+        order: EventNotificationOrder,
+        mut visit: impl FnMut(ObjectHandle) -> Result<()>,
+    ) -> Result<()> {
+        let Some(members) = self.event_notified.get(&map) else {
+            return Ok(());
+        };
+        // Deviation: At Map.cpp:2983 solo walks stable object identities because C++ addresses are not available.
+        match order {
+            EventNotificationOrder::Identity => {
+                for (member, _) in members.bindings() {
+                    visit(member)?;
+                }
+            }
+            EventNotificationOrder::SourcePointer => {
+                if members.len() > 1 {
+                    members.ordered("execution.map.Map_2983.event_notify_pointer_order_owner")?;
+                }
+                for member in members.members() {
+                    visit(member)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum EventNotificationOrder {
+    Identity,
+    SourcePointer,
 }
 
 #[cfg(test)]

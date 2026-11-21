@@ -2042,21 +2042,22 @@ fn gameobject_bell_event_membership_follows_world_lifetime() {
             )
             .unwrap(),
     );
-    assert_eq!(
+    let members = |world: &World| {
+        let mut handles = Vec::new();
         world
             .objects
-            .event_notification_member(map())
-            .unwrap_err()
-            .id,
-        "execution.map.Map_2983.event_notify_pointer_order_owner"
-    );
+            .for_each_event_subscriber(map(), EventNotificationOrder::Identity, |handle| {
+                handles.push(handle);
+                Ok(())
+            })
+            .unwrap();
+        handles
+    };
+    assert_eq!(members(&world), [first, second]);
     world.objects.remove_from_world(second).unwrap();
     assert!(world.objects.get(second).unwrap().notify_on_event);
     assert!(!world.objects.event_notified(map(), second));
-    assert_eq!(
-        world.objects.event_notification_member(map()).unwrap(),
-        Some(first)
-    );
+    assert_eq!(members(&world), [first]);
     world.objects.add_to_world(second).unwrap();
     assert!(world.objects.event_notified(map(), second));
     world

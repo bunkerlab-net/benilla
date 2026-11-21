@@ -118,6 +118,48 @@ pub trait WorldStartupWork {
     fn observe(&mut self, observation: WorldStartupObservation) -> Result<()>;
 }
 
+pub trait WorldTailOwner: GameEventOwner + EventEffectOwner {
+    fn ready_world(&mut self) -> Result<&mut SourceWorld>;
+    fn event_effects(&self) -> &SourceEventEffects;
+}
+
+pub struct WorldTailConfig {
+    pub weekly: WeeklyQuestResetConfig,
+    pub calendar: Calendar,
+    pub maintenance_weekday: i32,
+    pub event_announce: bool,
+}
+
+pub fn initialize_world_tail(
+    owner: &mut impl WorldTailOwner,
+    config: WorldTailConfig,
+    spam_rows: Vec<Vec<u8>>,
+    work: &mut impl WorldStartupWork,
+    events: &mut SourceGameEventManager,
+) -> Result<()> {
+    let world = owner.ready_world()?;
+    // Deviation: Omit World.cpp:1398 because solo worlds have no login database.
+    // World.cpp:1402 initializes the weekly quest reset after the ban cleanup.
+    world.init_weekly_quest_reset_time(config.weekly, work)?;
+    // World.cpp:1406 starts the server maintenance check.
+    world.init_server_maintenance_check(config.calendar, config.maintenance_weekday, work)?;
+    // World.cpp:1409 loads the honor standings after maintenance.
+    world.load_honor_standings(config.calendar, config.maintenance_weekday, work)?;
+    // World.cpp:1412 loads spam records after honor standings.
+    world.load_spam_records(false, spam_rows, work)?;
+    // World.cpp:1416-1417 initializes events and sets the same timer World::Update uses.
+    let delay = events.initialize(config.event_announce, owner, |owner| {
+        owner.event_sql(1, "SELECT event FROM game_event_status")?;
+        let status = owner.event_effects().status();
+        Ok((!status.is_empty()).then(|| status.clone()))
+    })?;
+    owner
+        .ready_world()?
+        .event_timer
+        .set_interval(i64::from(delay));
+    Err(refuse("execution.world.World_1421.old_characters_owner"))
+}
+
 #[derive(Default)]
 pub(super) struct SourceSavedVariables {
     row_exists: bool,

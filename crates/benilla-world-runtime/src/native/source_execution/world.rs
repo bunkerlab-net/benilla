@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 #[path = "world_startup.rs"]
 mod startup;
 pub use startup::{
-    SourceHonorStanding, WeeklyQuestResetConfig, WorldStartupClockSite, WorldStartupObservation,
-    WorldStartupSql, WorldStartupWork,
+    initialize_world_tail, SourceHonorStanding, WeeklyQuestResetConfig, WorldStartupClockSite,
+    WorldStartupObservation, WorldStartupSql, WorldStartupWork, WorldTailConfig, WorldTailOwner,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -207,6 +207,17 @@ pub trait WorldWork {
     fn remove_old_corpses(&mut self, _thread: u64) -> Result<()> {
         Err(refuse("execution.corpse.world_sweep_owner"))
     }
+    fn update_game_events(
+        &mut self,
+        _thread: u64,
+        timer: &mut IntervalTimer,
+        _messages: &mut SourceMessager,
+    ) -> Result<()> {
+        require(
+            !timer.passed(),
+            "execution.world.World_1666.game_event_update_owner",
+        )
+    }
     fn unload_maps(&mut self, diff: u32, maps: &mut SourceMapManager) -> Result<()>;
 }
 pub struct SourceWorld {
@@ -216,6 +227,7 @@ pub struct SourceWorld {
     pub messages: SourceMessager,
     thread: u64,
     corpse_timer: IntervalTimer,
+    pub(super) event_timer: IntervalTimer,
     saved_variables: startup::SourceSavedVariables,
     honor: startup::SourceHonor,
     spam_records: Vec<Vec<u8>>,
@@ -232,6 +244,7 @@ impl SourceWorld {
             messages: SourceMessager::new(MessageOwner::World),
             thread,
             corpse_timer,
+            event_timer: IntervalTimer::default(),
             saved_variables: startup::SourceSavedVariables::default(),
             honor: startup::SourceHonor::default(),
             spam_records: Vec::new(),
@@ -240,6 +253,10 @@ impl SourceWorld {
     }
     pub fn corpse_timer_current(&self) -> i64 {
         self.corpse_timer.get_current()
+    }
+
+    pub fn event_interval(&self) -> i64 {
+        self.event_timer.get_interval()
     }
 
     pub fn next_weekly_quest_reset(&self) -> i64 {
@@ -338,12 +355,24 @@ impl SourceWorld {
                 self.corpse_timer
                     .update(i64::from(diff))
                     .map_err(|_| refuse("execution.corpse.world_timer_overflow"))?;
+                // World.cpp:1543-1549 advances WUPDATE_EVENTS with the other timers.
+                if self.event_timer.get_current() < 0 {
+                    self.event_timer.set_current(0);
+                } else {
+                    self.event_timer
+                        .update(i64::from(diff))
+                        .map_err(|_| refuse("execution.event.timer_overflow"))?;
+                }
             }
             if phase == WorldPhase::Corpses && self.corpse_timer.passed() {
                 self.corpse_timer
                     .reset()
                     .map_err(|_| refuse("execution.corpse.world_timer_overflow"))?;
                 work.remove_old_corpses(self.thread)?;
+            }
+            // World.cpp:1663-1668 lets the game event owner use the world timer.
+            if phase == WorldPhase::GameEvents {
+                work.update_game_events(self.thread, &mut self.event_timer, &mut self.messages)?;
             }
             if phase == WorldPhase::Maps {
                 if let Some(jobs) = self.maps.begin(diff)? {

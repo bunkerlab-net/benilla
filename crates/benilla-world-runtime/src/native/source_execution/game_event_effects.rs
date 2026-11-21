@@ -2,7 +2,7 @@
 //! Executable event effects at the pinned GameEventMgr.cpp:714-1159 calls.
 use super::*;
 use benilla_sim::resident_map::CellPair;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 #[path = "event_effect_inventory.rs"]
 mod inventory;
 pub use inventory::*;
@@ -115,23 +115,29 @@ pub trait EventEffectOwner: PoolStateOwner {
         Err(EventPending::Shutdown.refusal())
     }
 }
-/// Global ObjectMgr dynamic lists used by the event effects.
+/// ObjectMgr's dynamic lists and the character database's event status table.
 pub struct SourceEventEffects {
     dynamic: BTreeMap<u32, [Vec<u32>; 2]>,
+    // GameEventMgr.cpp:640-650,744-754 persist status separately from m_activeEvents (GameEventMgr.h:152).
+    status: BTreeSet<u16>,
     stopped: bool,
 }
 impl Default for SourceEventEffects {
     fn default() -> Self {
-        Self::new(BTreeMap::new())
+        Self::new(BTreeMap::new(), BTreeSet::new())
     }
 }
 impl SourceEventEffects {
     /// Takes the preceding effective ObjectMgr loader's dynamic lists, not a second roster.
-    pub fn new(dynamic: BTreeMap<u32, [Vec<u32>; 2]>) -> Self {
+    pub fn new(dynamic: BTreeMap<u32, [Vec<u32>; 2]>, status: BTreeSet<u16>) -> Self {
         Self {
+            status,
             dynamic,
             stopped: false,
         }
+    }
+    pub fn status(&self) -> &BTreeSet<u16> {
+        &self.status
     }
     pub fn dynamic_guids(&self, map: u32, kind: GridSpawnKind) -> &[u32] {
         self.dynamic.get(&map).map_or(&[], |lists| {
@@ -169,16 +175,26 @@ impl SourceEventEffects {
         let inventory = manager.inventory();
         match effect {
             GameEventEffect::TruncateStatus => {
-                owner.event_sql(cause, "TRUNCATE TABLE game_event_status")
+                owner.event_sql(cause, "TRUNCATE TABLE game_event_status")?;
+                self.status.clear();
+                Ok(())
             }
-            GameEventEffect::InsertStatus(id) => owner.event_sql(
-                cause,
-                &format!("INSERT INTO game_event_status (event) VALUES ({id})"),
-            ),
-            GameEventEffect::DeleteStatus(id) => owner.event_sql(
-                cause,
-                &format!("DELETE FROM game_event_status WHERE event = {id}"),
-            ),
+            GameEventEffect::InsertStatus(id) => {
+                owner.event_sql(
+                    cause,
+                    &format!("INSERT INTO game_event_status (event) VALUES ({id})"),
+                )?;
+                self.status.insert(id);
+                Ok(())
+            }
+            GameEventEffect::DeleteStatus(id) => {
+                owner.event_sql(
+                    cause,
+                    &format!("DELETE FROM game_event_status WHERE event = {id}"),
+                )?;
+                self.status.remove(&id);
+                Ok(())
+            }
             GameEventEffect::Announce(id) => {
                 owner.event_announce(id, &inventory.definitions[usize::from(id)].description)
             }

@@ -393,6 +393,35 @@ fn host_definitions(host: &mut Host) {
     }
 }
 #[test]
+fn event_status_owner_truncates_shutdown_rows_and_reapplies_active_event() {
+    let mut host = Host::default();
+    let mut manager = host.load(&mut rows(1));
+    host.apply(&manager, GameEventEffect::InsertStatus(2))
+        .unwrap();
+    host.calendar.update_times(130, &[(1, 130)]);
+    manager
+        .initialize(false, &mut host, |owner| {
+            Ok(Some(owner.effects.status().clone()))
+        })
+        .unwrap();
+    assert_eq!(manager.inventory().initial_status, BTreeSet::from([2]));
+    assert_eq!(host.effects.status(), &BTreeSet::from([1]));
+    assert_eq!(
+        host.sql
+            .iter()
+            .map(|(_, sql)| sql.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "INSERT INTO game_event_status (event) VALUES (2)",
+            "TRUNCATE TABLE game_event_status",
+            "INSERT INTO game_event_status (event) VALUES (1)",
+        ]
+    );
+    manager.stop_event(1, false, &mut host).unwrap();
+    assert!(host.effects.status().is_empty());
+}
+
+#[test]
 fn start_stop_signed_membership_and_noninverse_callback_order() {
     // Active/status precede spawn/unspawn, and both transitions finish with notify; GameEventMgr.cpp:714-765.
     let mut host = Host::default();
@@ -1111,7 +1140,10 @@ fn mail_index_undefined_boundaries_do_not_repair_the_signed_slot() {
 fn global_event_changes_reuse_preexisting_objectmgr_dynamic_lists() {
     // ObjectMgr.cpp:925-942 mutates lists that also contain ordinary dynamic definitions.
     let mut host = Host {
-        effects: SourceEventEffects::new(BTreeMap::from([(0, [vec![42, 7], vec![43]])])),
+        effects: SourceEventEffects::new(
+            BTreeMap::from([(0, [vec![42, 7], vec![43]])]),
+            BTreeSet::new(),
+        ),
         ..Host::default()
     };
     host_definitions(&mut host);

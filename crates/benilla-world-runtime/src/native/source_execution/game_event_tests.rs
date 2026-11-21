@@ -243,7 +243,7 @@ fn strict_edges_modulo_and_separate_next_check_sample() {
     }
     owner.update_times(130, &[(1, 500)]);
     assert_eq!(
-        manager.initialize(None, false, &mut owner).unwrap(),
+        manager.initialize(false, &mut owner, |_| Ok(None)).unwrap(),
         201_000
     );
     assert!(manager.active(1));
@@ -258,7 +258,7 @@ fn ascending_link_scan_is_not_a_fixed_point() {
     let mut owner = Owner::default();
     let mut manager = manager(&mut rows, &mut owner);
     owner.update_times(130, &[(1, 130), (2, 130)]);
-    manager.initialize(None, false, &mut owner).unwrap();
+    manager.initialize(false, &mut owner, |_| Ok(None)).unwrap();
     assert_eq!(manager.inventory().active, BTreeSet::from([2]));
     owner.update_times(130, &[(1, 130), (2, 130)]);
     manager.update(false, &mut owner).unwrap();
@@ -269,7 +269,9 @@ fn startup_resume_and_stop_preserve_status_and_signed_effect_order() {
     let mut owner = Owner::default();
     let mut manager = manager(&mut rows(1), &mut owner);
     owner.update_times(130, &[(1, 130)]);
-    manager.initialize(Some(&[1]), true, &mut owner).unwrap();
+    manager
+        .initialize(true, &mut owner, |_| Ok(Some(BTreeSet::from([1]))))
+        .unwrap();
     assert_eq!(
         owner.effects,
         vec![
@@ -324,7 +326,7 @@ fn two_timer_resets_subtract_old_then_new_interval() {
     let mut owner = Owner::default();
     let mut manager = manager(&mut rows(1), &mut owner);
     owner.update_times(130, &[(1, 130)]);
-    manager.initialize(None, false, &mut owner).unwrap();
+    manager.initialize(false, &mut owner, |_| Ok(None)).unwrap();
     let mut timer = IntervalTimer::default();
     timer.set_interval(1000);
     timer.set_current(40_000);
@@ -362,7 +364,7 @@ fn never_assigned_slots_follow_recorded_zero_and_initial_clock_order() {
         assert!(!manager.check_one(id as u16, 130).unwrap());
     }
     owner.update_times(130, &[(1, 131), (2, 132), (3, 133)]);
-    manager.initialize(None, false, &mut owner).unwrap();
+    manager.initialize(false, &mut owner, |_| Ok(None)).unwrap();
     assert_eq!(manager.inventory().active, BTreeSet::from([3]));
     assert!(owner.effects.contains(&GameEventEffect::Spawn(-2)));
     assert!(owner.timeline.windows(2).any(|pair| pair
@@ -409,7 +411,7 @@ fn disabled_linked_and_serverside_corrections_follow_source_order() {
     assert_eq!(manager.inventory().definitions[2].linked, 0);
     assert_eq!(manager.inventory().definitions[3].end, 4_102_444_800);
     owner.update_times(130, &[(1, 130), (2, 130), (3, 130)]);
-    manager.initialize(None, false, &mut owner).unwrap();
+    manager.initialize(false, &mut owner, |_| Ok(None)).unwrap();
     owner.update_times(130, &[(1, 130), (2, 130)]);
     manager.update(false, &mut owner).unwrap();
     assert!(owner.clocks.is_empty());
@@ -466,7 +468,10 @@ fn failed_reached_effect_stops_without_clearing_mutated_active_state() {
     owner.reject = Some(GameEventEffect::InsertStatus(1));
     owner.update_times(130, &[(1, 130)]);
     assert_eq!(
-        manager.initialize(None, false, &mut owner).unwrap_err().id,
+        manager
+            .initialize(false, &mut owner, |_| Ok(None))
+            .unwrap_err()
+            .id,
         "execution.event.authored_effect_refusal"
     );
     assert!(manager.active(1));
@@ -529,7 +534,7 @@ fn substitution_corrections_and_equal_key_first_active_winner() {
     assert_eq!(manager.inventory().quests[1], [31]);
     assert!(!owner.quest_flags[&31]);
     owner.update_times(130, &[(1, 130), (2, 130)]);
-    manager.initialize(None, false, &mut owner).unwrap();
+    manager.initialize(false, &mut owner, |_| Ok(None)).unwrap();
     assert_eq!(manager.active_substitution(9).unwrap().unwrap().entry, 0);
     assert_eq!(manager.inventory().substitution_events[&9], [2, 2, 1]);
     manager.stop_event(2, false, &mut owner).unwrap();
@@ -726,7 +731,7 @@ fn recorded_empty_slot_projection_or_explicit_absence() {
     assert_eq!(native_holes, holes);
     owner.update_times(130, &(1..=1024).map(|id| (id, 130)).collect::<Vec<_>>());
     assert_eq!(
-        manager.initialize(None, false, &mut owner).unwrap(),
+        manager.initialize(false, &mut owner, |_| Ok(None)).unwrap(),
         86_401_000
     );
     assert_eq!(owner.effects.len(), 1024);
@@ -769,7 +774,10 @@ fn zero_modulus_and_wrong_clock_kind_refuse_at_the_reached_operation() {
         ClockSample::authored(ClockKind::MonotonicNanoseconds, 1),
     ));
     assert_eq!(
-        manager.initialize(None, false, &mut owner).unwrap_err().id,
+        manager
+            .initialize(false, &mut owner, |_| Ok(None))
+            .unwrap_err()
+            .id,
         "execution.event.wall_clock_kind"
     );
 }

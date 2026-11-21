@@ -13,6 +13,8 @@ mod battleground_evidence;
 mod creature_models;
 #[path = "seal16_equipment.rs"]
 mod equipment;
+#[path = "seal16_world_tail_events.rs"]
+mod event_startup;
 #[path = "seal16_formation_path.rs"]
 mod formation_path;
 #[path = "seal16_gameobject_models.rs"]
@@ -1284,6 +1286,7 @@ pub(super) struct Inputs {
     weekly: weekly_tail::WeeklyEvidence,
     event_initialize_line: Option<u64>,
     event_status_writes: Vec<(u64, String)>,
+    event_startup: event_startup::EventStartupEvidence,
     graveyard_query_line: Option<u64>,
     graveyard_rows: Vec<[u32; 4]>,
     graveyard_last_field_line: Option<u64>,
@@ -1340,6 +1343,10 @@ impl Inputs {
         {
             self.weekly.observe_trace(line, kind, p);
         }
+        if thread == 1 && (line == 9801 || (61722964..=61727830).contains(&line)) {
+            self.event_startup.observe(line, kind, p);
+        }
+        self.event_startup.observe_subscriber(thread, line, kind, p);
         if thread == 1 && (46233402..=46233818).contains(&line) {
             self.transport_sql.observe(line, kind, p);
         }
@@ -2076,7 +2083,7 @@ struct Owner<'a> {
     continents: Option<ReadySourceContinents>,
     effects: SourceEventEffects,
     quests: SourceQuestMap,
-    status: BTreeSet<u16>,
+    event_notifications: Vec<(u32, u16, bool, bool)>,
     sql: Vec<String>,
     pool_operations: Vec<PoolOperation>,
     observations: Vec<GameEventObservation>,
@@ -2276,24 +2283,6 @@ impl EventEffectOwner for Owner<'_> {
             .post(cause, payload)
     }
     fn event_sql(&mut self, _: u64, sql: &str) -> Result<()> {
-        if sql == "TRUNCATE TABLE game_event_status" {
-            self.status.clear();
-        } else if let Some(id) = sql
-            .strip_prefix("INSERT INTO game_event_status (event) VALUES (")
-            .and_then(|s| s.strip_suffix(')'))
-        {
-            self.status.insert(
-                id.parse()
-                    .map_err(|_| refuse("execution.event.status_sql"))?,
-            );
-        } else if let Some(id) = sql.strip_prefix("DELETE FROM game_event_status WHERE event = ") {
-            self.status.remove(
-                &id.parse()
-                    .map_err(|_| refuse("execution.event.status_sql"))?,
-            );
-        } else {
-            return Err(refuse("execution.event.status_sql"));
-        }
         self.sql.push(sql.to_owned());
         Ok(())
     }
@@ -2323,7 +2312,23 @@ impl EventEffectOwner for Owner<'_> {
             .as_mut()
             .ok_or_else(|| refuse("execution.event.map_traversal_owner"))?
             .map_mut(map)?
-            .on_event_happened(event, active, resume)
+            .on_event_happened(event, active, resume, EventNotificationOrder::SourcePointer)?;
+        self.event_notifications
+            .push((map.map, event, active, resume));
+        Ok(())
+    }
+}
+impl WorldTailOwner for Owner<'_> {
+    fn ready_world(&mut self) -> Result<&mut SourceWorld> {
+        require(
+            self.continents.is_some(),
+            "execution.world.World_1389.continent_join_owner",
+        )?;
+        Ok(&mut self.world)
+    }
+
+    fn event_effects(&self) -> &SourceEventEffects {
+        &self.effects
     }
 }
 impl PersistentEffects for Owner<'_> {
@@ -2884,6 +2889,44 @@ pub(super) fn continue_startup(
     assert!(quest_catalog
         .templates()
         .all(SourceQuestTemplate::is_active));
+    let reset: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(recording.join("reset.json")).unwrap()).unwrap();
+    let character = &reset["databases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["database"] == "characters")
+        .unwrap();
+    let f1_root = recording.ancestors().nth(3).unwrap();
+    let snapshot = retained_f1_file(
+        f1_root,
+        Path::new(character["snapshot"].as_str().unwrap()),
+        &Sha256Id::parse(character["sha256"].as_str().unwrap()).unwrap(),
+    )
+    .unwrap();
+    let mut status = BTreeSet::new();
+    for line in snapshot.split(|&b| b == b'\n') {
+        if let Some(mut rest) = line.strip_prefix(b"INSERT INTO `game_event_status` VALUES ") {
+            loop {
+                if rest == b";" {
+                    break;
+                }
+                assert_eq!(rest.first(), Some(&b'('));
+                let (value, next) = super::super::manager_inputs::sql_value(&rest[1..]).unwrap();
+                status.insert(
+                    std::str::from_utf8(value.as_ref().unwrap())
+                        .unwrap()
+                        .parse()
+                        .unwrap(),
+                );
+                assert_eq!(next.first(), Some(&b')'));
+                rest = &next[1..];
+                if rest.first() == Some(&b',') {
+                    rest = &rest[1..];
+                }
+            }
+        }
+    }
     let (world, weekly_config) = observed.weekly.bind_config();
     let mut owner = Owner {
         world,
@@ -2898,9 +2941,9 @@ pub(super) fn continue_startup(
         pools,
         states: SourceManagers::default(),
         continents: None,
-        effects: SourceEventEffects::new(dynamic),
+        effects: SourceEventEffects::new(dynamic, status),
         quests: quest_catalog,
-        status: BTreeSet::new(),
+        event_notifications: Vec::new(),
         sql: Vec::new(),
         pool_operations: Vec::new(),
         observations: Vec::new(),
@@ -2960,43 +3003,6 @@ pub(super) fn continue_startup(
         }
     }
     assert_eq!(event_load_counts[1..], [67, 3239, 11204]);
-    let reset: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(recording.join("reset.json")).unwrap()).unwrap();
-    let character = &reset["databases"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|row| row["database"] == "characters")
-        .unwrap();
-    let f1_root = recording.ancestors().nth(3).unwrap();
-    let snapshot = retained_f1_file(
-        f1_root,
-        Path::new(character["snapshot"].as_str().unwrap()),
-        &Sha256Id::parse(character["sha256"].as_str().unwrap()).unwrap(),
-    )
-    .unwrap();
-    for line in snapshot.split(|&b| b == b'\n') {
-        if let Some(mut rest) = line.strip_prefix(b"INSERT INTO `game_event_status` VALUES ") {
-            loop {
-                if rest == b";" {
-                    break;
-                }
-                assert_eq!(rest.first(), Some(&b'('));
-                let (value, next) = super::super::manager_inputs::sql_value(&rest[1..]).unwrap();
-                owner.status.insert(
-                    std::str::from_utf8(value.as_ref().unwrap())
-                        .unwrap()
-                        .parse()
-                        .unwrap(),
-                );
-                assert_eq!(next.first(), Some(&b')'));
-                rest = &next[1..];
-                if rest.first() == Some(&b',') {
-                    rest = &rest[1..];
-                }
-            }
-        }
-    }
     let db: serde_json::Value = serde_json::from_slice(
         &std::fs::read(recording.join("db-proxy-clock-input.json")).unwrap(),
     )
@@ -7315,17 +7321,7 @@ pub(super) fn continue_startup(
         551
     );
     observed.bans.assert_matches(recording);
-    let (calendar, maintenance_weekday) = observed.weekly.maintenance_inputs();
-    let refusal = ready
-        .initialize_world_tail(
-            &mut owner.world,
-            weekly_config,
-            calendar,
-            maintenance_weekday,
-            weekly_tail::stock_spam_records(f1_root),
-            &mut observed.weekly,
-        )
-        .unwrap_err();
+    observed.event_startup.bind_subscribers(&mut ready);
     owner.continents = Some(ready);
     let map0 = owner.event_next_map(None, None).unwrap().unwrap();
     let map1 = owner.event_next_map(None, Some(map0)).unwrap().unwrap();
@@ -7333,6 +7329,25 @@ pub(super) fn continue_startup(
     assert!(owner.event_next_map(None, Some(map1)).unwrap().is_none());
     assert!(owner.event_next_map(Some(0), Some(map0)).unwrap().is_none());
     assert_eq!(owner.event_next_map(Some(1), None).unwrap(), Some(map1));
+    let event_announce = observed.event_startup.bind_config(&events);
+    // Trace :61723094 starts Update. :61723096-61727830 supplies NextCheck.
+    assert!(owner.update.iter().copied().eq([1794314193]));
+    assert_eq!(owner.checks.len(), 1024);
+    assert!(owner.checks.iter().all(|&value| value == 1794314193));
+    let (calendar, maintenance_weekday) = observed.weekly.maintenance_inputs();
+    let refusal = initialize_world_tail(
+        &mut owner,
+        WorldTailConfig {
+            weekly: weekly_config,
+            calendar,
+            maintenance_weekday,
+            event_announce,
+        },
+        weekly_tail::stock_spam_records(f1_root),
+        &mut observed.weekly,
+        &mut events,
+    )
+    .unwrap_err();
     observed.weekly.assert_consumed();
     assert_eq!(owner.world.next_weekly_quest_reset(), 1794376800); // Trace :61722159.
     assert_eq!(owner.world.next_maintenance_date(), 8257850); // Trace :61722719.
@@ -7345,8 +7360,15 @@ pub(super) fn continue_startup(
     for (pool, transport) in [(pool0, transport0), (pool1, transport1)] {
         println!("{pool} next_owner={next_owner} next_source={next_source}{transport}");
     }
-    assert!(!events.inventory().initialized);
-    assert!(owner.sql.is_empty() && owner.raw.is_empty());
+    let initialized = events.inventory().initialized;
+    assert!(initialized);
+    observed.event_startup.assert_results(
+        recording,
+        &events,
+        &owner,
+        &observed.event_status_writes,
+    );
+    assert!(owner.raw.is_empty());
     assert_eq!(owner.cursor.raw, 8712);
     assert_eq!(next_word, (8712, 3411341330));
     assert_eq!(u64::from(owner.engine.clone().next_u32()), next_word.1);
@@ -7358,7 +7380,7 @@ pub(super) fn continue_startup(
         .count();
     assert!(results > 0);
     println!(
-        "F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_script_names_sql=1 matched_template_sql=6 matched_creature_model_sql=3 matched_equipment_sql=3 matched_creature_immunity_sql=1 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached=false next_owner_map0={next_owner} next_owner_map1={next_owner} next_raw={} next_word={} clone_next_word_checked=true matched_transport_sql={matched_transport_sql} world_updater_queue_bindings={queue_bindings} world_updater_worker_births={worker_count}",
+        "F6_SEAL16_STARTUP matched_spawn_selections=5324 matched_raw_words={} matched_map_thread_words={matched_map_words:?} matched_map_sql=4 matched_script_names_sql=1 matched_template_sql=6 matched_creature_model_sql=3 matched_equipment_sql=3 matched_creature_immunity_sql=1 matched_creature_spell_list_sql=5 matched_spawn_data_sql=2 matched_graveyard_sql=1 matched_encounter_sql=4 matched_group_sql=6 pool_results={results} event_initialization_reached={initialized} next_owner_map0={next_owner} next_owner_map1={next_owner} next_raw={} next_word={} clone_next_word_checked=true matched_transport_sql={matched_transport_sql} world_updater_queue_bindings={queue_bindings} world_updater_worker_births={worker_count}",
         owner.cursor.raw, next_word.0, next_word.1
     );
 }

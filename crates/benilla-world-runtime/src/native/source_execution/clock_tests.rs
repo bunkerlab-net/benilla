@@ -125,6 +125,7 @@ fn world_source_phases_and_map_accumulation() {
     ];
     for threaded in [false, true] {
         let mut world = SourceWorld::new(1, 100).unwrap();
+        world.event_timer.set_interval(86_401_000);
         if threaded {
             world
                 .scheduler
@@ -153,6 +154,19 @@ fn world_source_phases_and_map_accumulation() {
         assert_eq!(work.jobs[2].diff, 250);
         assert_eq!(work.jobs.len(), 4);
     }
+}
+
+#[test]
+fn event_timer_refuses_a_due_update_without_its_owner() {
+    let mut world = SourceWorld::new(1, 100).unwrap();
+    world.event_timer.set_interval(10);
+    let mut work = Work::default();
+    world.update(9, &mut work).unwrap();
+    assert_eq!(
+        world.update(1, &mut work).unwrap_err().id,
+        "execution.world.World_1666.game_event_update_owner"
+    );
+    assert_eq!(work.phases.last(), Some(&WorldPhase::GameEvents));
 }
 #[test]
 fn barrier_blocks_all_post_map_phases() {

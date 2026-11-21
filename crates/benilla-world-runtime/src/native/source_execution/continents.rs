@@ -184,36 +184,42 @@ pub struct SourceContinent {
 }
 impl SourceContinent {
     // Map.cpp:2978-2986 calls instance data before walking live subscribers.
-    pub fn on_event_happened(&mut self, event: u16, activate: bool, resume: bool) -> Result<()> {
+    pub fn on_event_happened(
+        &mut self,
+        event: u16,
+        activate: bool,
+        resume: bool,
+        order: EventNotificationOrder,
+    ) -> Result<()> {
         if let Some(instance) = &mut self.instance_data {
             instance.on_event_happened(&self.objects, event, activate)?;
         }
-        let Some(handle) = self.objects.event_notification_member(self.identity)? else {
-            return Ok(());
-        };
-        let object = self.objects.get(handle)?;
-        if !object.in_world {
-            return Ok(());
-        }
-        match object.kind {
-            // GameObject.h:868 dispatches through the object's AI.
-            SourceObjectKind::GameObject | SourceObjectKind::Transport => self
-                .gameobjects
-                .get(handle)?
-                .ai
-                .as_ref()
-                .ok_or_else(|| refuse("execution.gameobject.GameObject_868.ai_owner"))?
-                .on_event_happened(event, activate, resume),
-            // Creature.h:863 dispatches to the installed UnitAI, including on pets.
-            SourceObjectKind::Creature | SourceObjectKind::Pet => {
-                self.ais
-                    .get(&self.objects, handle)?
-                    .on_event_happened(event, activate, resume);
-                Ok(())
-            }
-            // Object.h:1088 provides the empty callback for other WorldObjects.
-            _ => Ok(()),
-        }
+        self.objects
+            .for_each_event_subscriber(self.identity, order, |handle| {
+                let object = self.objects.get(handle)?;
+                if !object.in_world {
+                    return Ok(());
+                }
+                match object.kind {
+                    // GameObject.h:868 dispatches through the object's AI.
+                    SourceObjectKind::GameObject | SourceObjectKind::Transport => self
+                        .gameobjects
+                        .get(handle)?
+                        .ai
+                        .as_ref()
+                        .ok_or_else(|| refuse("execution.gameobject.GameObject_868.ai_owner"))?
+                        .on_event_happened(event, activate, resume),
+                    // Creature.h:863 dispatches to the installed UnitAI, including on pets.
+                    SourceObjectKind::Creature | SourceObjectKind::Pet => {
+                        self.ais
+                            .get(&self.objects, handle)?
+                            .on_event_happened(event, activate, resume);
+                        Ok(())
+                    }
+                    // Object.h:1088 provides the empty callback for other WorldObjects.
+                    _ => Ok(()),
+                }
+            })
     }
 
     /// Map.cpp:172-189. Call independently for each async job; no RNG is requested here.
@@ -508,30 +514,6 @@ impl ReadySourceContinents {
             .as_mut()
             .ok_or_else(|| refuse("execution.world.World_1395.loot_stores_owner"))?
             .check_reference_templates(self.battlegrounds.used_refloot(), notice)
-    }
-
-    pub fn initialize_world_tail(
-        &self,
-        world: &mut SourceWorld,
-        config: WeeklyQuestResetConfig,
-        calendar: Calendar,
-        maintenance_weekday: i32,
-        spam_rows: Vec<Vec<u8>>,
-        work: &mut impl WorldStartupWork,
-    ) -> Result<()> {
-        // Deviation: Omit World.cpp:1398 because solo worlds have no login database.
-        // World.cpp:1402 initializes the weekly quest reset after the ban cleanup.
-        world.init_weekly_quest_reset_time(config, work)?;
-        // World.cpp:1406 starts the server maintenance check.
-        world.init_server_maintenance_check(calendar, maintenance_weekday, work)?;
-        // World.cpp:1409 loads the honor standings after maintenance.
-        world.load_honor_standings(calendar, maintenance_weekday, work)?;
-        // World.cpp:1412 loads spam records after honor standings.
-        world.load_spam_records(false, spam_rows, work)?;
-        // World.cpp:1416 initializes game events after the startup loaders.
-        Err(refuse(
-            "execution.world.World_1416.game_event_map_and_mailbox_owner",
-        ))
     }
 }
 

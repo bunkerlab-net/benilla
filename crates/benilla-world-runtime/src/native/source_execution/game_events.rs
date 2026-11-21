@@ -379,12 +379,10 @@ impl SourceGameEventManager {
                         .and_then(|v| u16::try_from(v).ok())
                         .ok_or_else(|| refuse("execution.event.initial_binding_owner"))
                 })
-                .collect::<Result<Vec<_>>>()?;
-            this.initialize(
-                (!status.is_empty()).then_some(status.as_slice()),
-                announce,
-                owner,
-            )
+                .collect::<Result<BTreeSet<_>>>()?;
+            this.initialize(announce, owner, |_| {
+                Ok((!status.is_empty()).then_some(status))
+            })
         })
     }
     pub fn active_substitution(&self, guid: u32) -> Result<Option<&GameEventSubstitution>> {
@@ -956,7 +954,7 @@ impl SourceGameEventManager {
     }
     fn update_inner(
         &mut self,
-        resume: Option<&BTreeSet<u16>>,
+        initializing: bool,
         announce: bool,
         owner: &mut impl GameEventOwner,
     ) -> Result<u32> {
@@ -972,7 +970,8 @@ impl SourceGameEventManager {
             }
             if self.window(id, now)? {
                 if !self.active(u32::from(id)) && (data.linked == 0 || self.active(data.linked)) {
-                    self.start_inner(id, resume.is_some_and(|r| r.contains(&id)), announce, owner)?;
+                    let resume = initializing && self.state.initial_status.contains(&id);
+                    self.start_inner(id, resume, announce, owner)?;
                 }
             } else if self.active(u32::from(id)) {
                 self.stop_inner(id, owner)?;
@@ -985,31 +984,32 @@ impl SourceGameEventManager {
         owner.observe(GameEventObservation::NextDelay(delay))?;
         Ok(delay)
     }
-    pub fn initialize(
+    // GameEventMgr.cpp:634-656 clears runtime activity before querying shutdown status.
+    pub fn initialize<O: GameEventOwner>(
         &mut self,
-        status: Option<&[u16]>,
         announce: bool,
-        owner: &mut impl GameEventOwner,
+        owner: &mut O,
+        query_status: impl FnOnce(&mut O) -> Result<Option<BTreeSet<u16>>>,
     ) -> Result<u32> {
         self.run(|this| {
             this.ready()?;
             this.state.active.clear();
+            let status = query_status(owner)?;
             require(
-                status.is_none_or(|rows| !rows.is_empty()),
+                status.as_ref().is_none_or(|rows| !rows.is_empty()),
                 "execution.event.empty_query_result",
             )?;
-            let status: BTreeSet<_> = status.into_iter().flatten().copied().collect();
-            this.state.initial_status = status.clone();
-            if !status.is_empty() {
+            this.state.initial_status = status.unwrap_or_default();
+            if !this.state.initial_status.is_empty() {
                 owner.effect(this, GameEventEffect::TruncateStatus)?;
             }
-            let delay = this.update_inner(Some(&status), announce, owner)?;
+            let delay = this.update_inner(true, announce, owner)?;
             this.state.initialized = true;
             Ok(delay)
         })
     }
     pub fn update(&mut self, announce: bool, owner: &mut impl GameEventOwner) -> Result<u32> {
-        self.run(|this| this.update_inner(None, announce, owner))
+        self.run(|this| this.update_inner(false, announce, owner))
     }
     pub fn update_world_timer(
         &mut self,
@@ -1028,7 +1028,7 @@ impl SourceGameEventManager {
                 interval: timer.get_interval(),
                 current: timer.get_current(),
             })?;
-            let delay = this.update_inner(None, announce, owner)?;
+            let delay = this.update_inner(false, announce, owner)?;
             timer.set_interval(i64::from(delay));
             timer
                 .reset()

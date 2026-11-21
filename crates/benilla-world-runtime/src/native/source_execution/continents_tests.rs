@@ -83,21 +83,57 @@ fn event_notification_uses_instance_then_live_subscribers_after_join() {
     let id = map.identity;
     let mut ready = continents.join_initialization([Ok(()), Ok(())]).unwrap();
     let map = ready.map_mut(id).unwrap();
+    let order = EventNotificationOrder::SourcePointer;
     assert_eq!(
-        map.on_event_happened(16, true, true).unwrap_err().id,
+        map.on_event_happened(16, true, true, order).unwrap_err().id,
         "execution.world_script.world_eastern_kingdoms_115.MoveWaypoint_owner"
     );
     assert_eq!(
-        map.on_event_happened(16, false, false).unwrap_err().id,
+        map.on_event_happened(16, false, false, order)
+            .unwrap_err()
+            .id,
         "execution.map.Map_2983.event_notify_pointer_order_owner"
     );
+    map.objects
+        .bind_event_notification_address(id, subscribers[0], 0x2000)
+        .unwrap();
+    assert_eq!(
+        map.on_event_happened(16, false, false, order)
+            .unwrap_err()
+            .id,
+        "execution.map.Map_2983.event_notify_pointer_order_owner"
+    );
+    map.objects
+        .bind_event_notification_address(id, subscribers[1], 0x1000)
+        .unwrap();
+    for (order, expected) in [
+        (
+            EventNotificationOrder::SourcePointer,
+            [subscribers[1], subscribers[0]],
+        ),
+        (
+            EventNotificationOrder::Identity,
+            [subscribers[0], subscribers[1]],
+        ),
+    ] {
+        let mut actual = Vec::new();
+        map.objects
+            .for_each_event_subscriber(id, order, |handle| {
+                actual.push(handle);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(actual, expected);
+    }
     map.objects.remove_from_world(subscribers[0]).unwrap();
     assert_eq!(
-        map.on_event_happened(16, true, false).unwrap_err().id,
+        map.on_event_happened(16, true, false, order)
+            .unwrap_err()
+            .id,
         "execution.unit_ai.generation_missing"
     );
     map.objects.remove_from_world(subscribers[1]).unwrap();
-    map.on_event_happened(16, true, false).unwrap();
+    map.on_event_happened(16, true, false, order).unwrap();
 }
 
 fn updater_config(setting: &str) -> Result<MapUpdaterConfig> {

@@ -444,6 +444,7 @@ impl WorldWork for WorldHost {
 #[test]
 fn corpse_world_timer_is_twenty_minutes_and_preserves_one_interval_overshoot() {
     let mut world = SourceWorld::new(1, 100).unwrap();
+    world.event_timer.set_interval(86_401_000);
     let mut work = WorldHost {
         phases: Vec::new(),
         sweeps: 0,

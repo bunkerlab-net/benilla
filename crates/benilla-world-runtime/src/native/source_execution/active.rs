@@ -70,6 +70,20 @@ impl SourcePointerSet {
         Ok(true)
     }
 
+    pub(super) fn bind(&mut self, object: ObjectHandle, pointer: u64) -> Result<()> {
+        let binding = self
+            .members
+            .get_mut(&object)
+            .ok_or_else(|| refuse("execution.active.pointer_member"))?;
+        require(
+            pointer != 0 && binding.is_none() && !self.ordered.contains_key(&pointer),
+            "execution.active.pointer_binding",
+        )?;
+        *binding = Some(pointer);
+        self.ordered.insert(pointer, object);
+        Ok(())
+    }
+
     fn following(&self, object: ObjectHandle) -> Option<ObjectHandle> {
         self.members[&object].and_then(|pointer| {
             self.ordered
