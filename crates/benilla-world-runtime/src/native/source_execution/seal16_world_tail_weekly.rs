@@ -7,9 +7,37 @@ use super::{
 use crate::native::source_execution::Calendar;
 use benilla_sim::source_calendar::Tm;
 use std::collections::VecDeque;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
 
 #[path = "seal16_world_tail_maintenance.rs"]
 mod maintenance;
+
+pub(super) fn stock_spam_records(f1: &Path) -> Vec<Vec<u8>> {
+    let file = std::fs::File::open(f1.join("initial-classicmangos.sql")).unwrap();
+    let mut sql = BufReader::new(file);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        assert_ne!(sql.read_until(b'\n', &mut line).unwrap(), 0);
+        if line == b"LOCK TABLES `spam_records` WRITE;\n" {
+            break;
+        }
+    }
+    // initial-classicmangos.sql:823225-823229 has no rows between the key toggles.
+    let expected: [&[u8]; 4] = [
+        b"/*!40000 ALTER TABLE `spam_records` DISABLE KEYS */;\n",
+        b"/*!40000 ALTER TABLE `spam_records` ENABLE KEYS */;\n",
+        b"UNLOCK TABLES;\n",
+        b"COMMIT;\n",
+    ];
+    for expected in expected {
+        line.clear();
+        sql.read_until(b'\n', &mut line).unwrap();
+        assert_eq!(line, expected);
+    }
+    Vec::new()
+}
 
 #[derive(Default)]
 pub(super) struct WeeklyEvidence {

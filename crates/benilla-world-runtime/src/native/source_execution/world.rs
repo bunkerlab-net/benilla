@@ -215,6 +215,7 @@ pub struct SourceWorld {
     corpse_timer: IntervalTimer,
     saved_variables: startup::SourceSavedVariables,
     honor: startup::SourceHonor,
+    spam_records: Vec<Vec<u8>>,
     stopped: bool,
 }
 impl SourceWorld {
@@ -229,6 +230,7 @@ impl SourceWorld {
             corpse_timer,
             saved_variables: startup::SourceSavedVariables::default(),
             honor: startup::SourceHonor::default(),
+            spam_records: Vec::new(),
             stopped: false,
         })
     }
@@ -278,6 +280,39 @@ impl SourceWorld {
     ) -> Result<()> {
         self.honor
             .load_standings(calendar.world_seconds()?, weekday, work)
+    }
+
+    pub fn spam_records(&self) -> &[Vec<u8>] {
+        &self.spam_records
+    }
+
+    // World.cpp:2307-2324 replaces the list on reload only when the query returns rows.
+    pub fn load_spam_records(
+        &mut self,
+        reload: bool,
+        mut rows: Vec<Vec<u8>>,
+        work: &mut impl WorldStartupWork,
+    ) -> Result<()> {
+        let sql = WorldStartupSql::SpamRecords(rows.len());
+        work.observe(WorldStartupObservation::Sql(sql))?;
+        if rows.is_empty() {
+            return Ok(());
+        }
+        if reload {
+            self.spam_records.clear();
+        }
+        // Field.h:49-52 reads each value as a C string.
+        for record in &mut rows {
+            if let Some(end) = record.iter().position(|&byte| byte == 0) {
+                record.truncate(end);
+            }
+        }
+        if self.spam_records.is_empty() {
+            self.spam_records = rows;
+        } else {
+            self.spam_records.append(&mut rows);
+        }
+        Ok(())
     }
 
     // A failed owner ends the accepted prefix before later phases; World.cpp:1542-1702.

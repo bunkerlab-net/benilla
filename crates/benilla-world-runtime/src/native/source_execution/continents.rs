@@ -444,6 +444,7 @@ impl ReadySourceContinents {
         config: WeeklyQuestResetConfig,
         calendar: Calendar,
         maintenance_weekday: i32,
+        spam_rows: Vec<Vec<u8>>,
         work: &mut impl WorldStartupWork,
     ) -> Result<()> {
         // Deviation: Omit World.cpp:1398 because solo worlds have no login database.
@@ -454,7 +455,11 @@ impl ReadySourceContinents {
         // World.cpp:1409 loads the honor standings after maintenance.
         world.load_honor_standings(calendar, maintenance_weekday, work)?;
         // World.cpp:1412 loads spam records after honor standings.
-        Err(refuse("execution.world.World_1412.spam_records_owner"))
+        world.load_spam_records(false, spam_rows, work)?;
+        // World.cpp:1416 initializes game events after the startup loaders.
+        Err(refuse(
+            "execution.world.World_1416.game_event_map_and_mailbox_owner",
+        ))
     }
 }
 

@@ -12,6 +12,7 @@ pub(super) struct MaintenanceEvidence {
     milliseconds: Vec<(u64, u64)>,
     transaction_clocks: Vec<(u64, u64)>,
     standing_wrapper_samples: [bool; 2],
+    spam_query_samples: [bool; 5],
 }
 
 enum MaintenanceObservation {
@@ -30,7 +31,7 @@ impl MaintenanceEvidence {
                 assert_eq!(p[1], "0x55cb9c2b2c58");
                 assert!(self.game_time.replace(numeric(p, 0)).is_none());
             }
-            (61722219 | 61722373 | 61722515 | 61722780, "sql_request_bytes")
+            (61722219 | 61722373 | 61722515 | 61722780 | 61722930, "sql_request_bytes")
             | (61722657 | 61722689, "sql_transaction_command")
             | (61722672 | 61722719, "sql_write_bytes") => {
                 assert!(self.pending_sql.replace(unhex(p[5])).is_none());
@@ -42,6 +43,11 @@ impl MaintenanceEvidence {
             (61722899, "sql_query_result") => {
                 assert_eq!(&p[..2], ["4294967301", "203338"]);
                 assert_eq!(&p[4..], ["2", "0"]);
+                self.push_sql(numeric(p, 3));
+            }
+            (61722937, "sql_query_result") => {
+                assert_eq!(&p[..2], ["4294967298", "203339"]);
+                assert_eq!(&p[4..], ["1", "0"]);
                 self.push_sql(numeric(p, 3));
             }
             (61722354, "sql_conversion_logical") => {
@@ -68,7 +74,36 @@ impl MaintenanceEvidence {
                 assert_eq!(p, ["4294967301", "43", "1880", "1"]);
                 self.standing_wrapper_samples[1] = true;
             }
-            (61722222 | 61722376 | 61722518 | 61722675 | 61722722 | 61722783, "clock_ms") => {
+            (61722931, "clock_callsite") => {
+                assert_eq!(
+                    (p[0], p[2], p[3]),
+                    ("3", "831941", "/lib/x86_64-linux-gnu/libstdc++.so.6")
+                );
+                self.spam_query_samples[0] = true;
+            }
+            (61722932, "clock_sample") => {
+                assert_eq!(&p[..3], ["1", "443366", "108256856"]);
+                self.spam_query_samples[1] = true;
+            }
+            (61722934, "sql_clock_request") => {
+                assert_eq!(p, ["4294967298", "267", "1878", "1"]);
+                self.spam_query_samples[2] = true;
+            }
+            (61722935, "sql_query") => {
+                assert_eq!(self.pending_sql.as_deref(), Some(unhex(p[5]).as_slice()));
+                self.spam_query_samples[3] = true;
+            }
+            (61722936, "logical_birth") => {
+                assert_eq!(
+                    p,
+                    ["4294967678", "sql_result", "1", "382", "0x55cbd2105430"]
+                );
+                self.spam_query_samples[4] = true;
+            }
+            (
+                61722222 | 61722376 | 61722518 | 61722675 | 61722722 | 61722783 | 61722933,
+                "clock_ms",
+            ) => {
                 self.milliseconds.push((line, numeric(p, 0)));
             }
             (61722658 | 61722690, "sql_clock_request") => {
@@ -108,6 +143,7 @@ impl MaintenanceEvidence {
                     }
                     WorldStartupSql::HonorDelete { affected, .. } => affected as u64,
                     WorldStartupSql::HonorBegin | WorldStartupSql::HonorCommit => 0,
+                    WorldStartupSql::SpamRecords(rows) => rows as u64,
                     _ => panic!("maintenance SQL trace diverged"),
                 };
                 assert_eq!(actual, rows);
@@ -134,9 +170,11 @@ impl MaintenanceEvidence {
                 (61722675, 136608),
                 (61722722, 136609),
                 (61722783, 136615),
+                (61722933, 136657),
             ]
         );
         assert_eq!(self.transaction_clocks, [(61722658, 34), (61722690, 36)]);
         assert_eq!(self.standing_wrapper_samples, [true; 2]);
+        assert_eq!(self.spam_query_samples, [true; 5]);
     }
 }

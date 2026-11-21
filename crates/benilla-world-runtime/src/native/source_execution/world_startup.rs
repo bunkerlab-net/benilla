@@ -53,6 +53,7 @@ pub enum WorldStartupSql {
         through: u32,
         rows_present: bool,
     },
+    SpamRecords(usize),
 }
 impl fmt::Display for WorldStartupSql {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -93,6 +94,7 @@ impl fmt::Display for WorldStartupSql {
                 out,
                 "SELECT guid,SUM(honor) as honor_sum FROM character_honor_cp WHERE TYPE = {HONORABLE} AND date BETWEEN {from} AND {through} GROUP BY guid ORDER BY honor_sum DESC"
             ),
+            Self::SpamRecords(_) => out.write_str("SELECT record FROM spam_records"),
         }
     }
 }
@@ -580,5 +582,62 @@ mod tests {
                 }]
             );
         }
+    }
+
+    #[test]
+    fn load_spam_records_appends_or_replaces_in_query_order() {
+        let mut world = SourceWorld::new(1, 100).unwrap();
+        let mut work = Work::default();
+        world
+            .load_spam_records(
+                false,
+                vec![b"one".to_vec(), b"\0ignored".to_vec()],
+                &mut work,
+            )
+            .unwrap();
+        world
+            .load_spam_records(false, vec![b"two".to_vec()], &mut work)
+            .unwrap();
+        assert_eq!(
+            world.spam_records(),
+            [b"one".to_vec(), vec![], b"two".to_vec()]
+        );
+        world
+            .load_spam_records(
+                true,
+                vec![b"new\0ignored".to_vec(), b"last".to_vec()],
+                &mut work,
+            )
+            .unwrap();
+        assert_eq!(world.spam_records(), [b"new".to_vec(), b"last".to_vec()]);
+        assert_eq!(
+            work.sql,
+            [
+                WorldStartupSql::SpamRecords(2),
+                WorldStartupSql::SpamRecords(1),
+                WorldStartupSql::SpamRecords(2),
+            ]
+        );
+    }
+
+    #[test]
+    fn load_spam_records_keeps_existing_rows_when_query_is_empty() {
+        let mut world = SourceWorld::new(1, 100).unwrap();
+        let mut work = Work::default();
+        world
+            .load_spam_records(false, vec![b"keep".to_vec()], &mut work)
+            .unwrap();
+        for reload in [false, true] {
+            world.load_spam_records(reload, vec![], &mut work).unwrap();
+            assert_eq!(world.spam_records(), [b"keep".to_vec()]);
+        }
+        assert_eq!(
+            work.sql,
+            [
+                WorldStartupSql::SpamRecords(1),
+                WorldStartupSql::SpamRecords(0),
+                WorldStartupSql::SpamRecords(0),
+            ]
+        );
     }
 }

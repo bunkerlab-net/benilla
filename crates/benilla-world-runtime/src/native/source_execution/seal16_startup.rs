@@ -1335,7 +1335,7 @@ impl Inputs {
         }
         if thread == 1
             && (matches!(line, 6100 | 7330 | 10035 | 10074 | 60100830)
-                || (61722127..=61722899).contains(&line))
+                || (61722127..=61722937).contains(&line))
         {
             self.weekly.observe_trace(line, kind, p);
         }
@@ -2928,8 +2928,9 @@ pub(super) fn continue_startup(
         .iter()
         .find(|row| row["database"] == "characters")
         .unwrap();
+    let f1_root = recording.ancestors().nth(3).unwrap();
     let snapshot = retained_f1_file(
-        recording.ancestors().nth(3).unwrap(),
+        f1_root,
         Path::new(character["snapshot"].as_str().unwrap()),
         &Sha256Id::parse(character["sha256"].as_str().unwrap()).unwrap(),
     )
@@ -7273,6 +7274,7 @@ pub(super) fn continue_startup(
             weekly_config,
             calendar,
             maintenance_weekday,
+            weekly_tail::stock_spam_records(f1_root),
             &mut observed.weekly,
         )
         .unwrap_err();
@@ -7281,6 +7283,7 @@ pub(super) fn continue_startup(
     assert_eq!(world.next_maintenance_date(), 8257850); // Trace :61722719.
     let (alliance, horde) = world.honor_standings();
     assert!(alliance.is_empty() && horde.is_empty()); // Trace :61722899.
+    assert!(world.spam_records().is_empty()); // Trace :61722937.
     assert_eq!(refusal.id, active_init::STARTUP_NEXT_OWNER);
     let next_owner = refusal.id;
     let next_source = active_init::STARTUP_NEXT_SOURCE;
