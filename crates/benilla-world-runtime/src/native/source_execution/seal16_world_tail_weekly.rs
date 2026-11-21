@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Weekly reset trace bindings and comparisons.
+//! Weekly reset and maintenance trace bindings.
 use super::{
-    tm, unhex, ClockKind, ClockSample, Result, SourceWorld, WeeklyQuestResetConfig,
+    tm, unhex, CalendarOwner, ClockKind, ClockSample, Result, SourceWorld, WeeklyQuestResetConfig,
     WorldStartupClockSite, WorldStartupObservation, WorldStartupSql, WorldStartupWork,
 };
+use crate::native::source_execution::Calendar;
 use benilla_sim::source_calendar::Tm;
 use std::collections::VecDeque;
+
+#[path = "seal16_world_tail_maintenance.rs"]
+mod maintenance;
 
 #[derive(Default)]
 pub(super) struct WeeklyEvidence {
@@ -18,6 +22,7 @@ pub(super) struct WeeklyEvidence {
     sql: VecDeque<(String, u64)>,
     pending_sql: Option<String>,
     wrapper_clocks: Vec<(u64, u64)>,
+    maintenance: maintenance::MaintenanceEvidence,
 }
 
 enum WeeklyObservation {
@@ -39,6 +44,11 @@ impl WeeklyEvidence {
             SourceWorld::new(1, self.map_interval.unwrap()).unwrap(),
             WeeklyQuestResetConfig::new(self.weekday.unwrap(), self.hour.unwrap()),
         )
+    }
+
+    pub(super) fn maintenance_inputs(&self) -> (Calendar, i32) {
+        let (seconds, weekday) = self.maintenance.inputs();
+        (Calendar::new(CalendarOwner::World, seconds), weekday)
     }
 
     pub(super) fn observe_trace(&mut self, line: u64, kind: &str, p: &[&str]) {
@@ -101,7 +111,7 @@ impl WeeklyEvidence {
             (61722130 | 61722162, "clock_ms") => {
                 self.wrapper_clocks.push((line, numeric(p, 0)));
             }
-            _ => (),
+            _ => self.maintenance.observe_trace(line, kind, p),
         }
     }
 
@@ -112,6 +122,7 @@ impl WeeklyEvidence {
             self.wrapper_clocks,
             [(61722130, 136475), (61722162, 136476)]
         );
+        self.maintenance.assert_consumed();
     }
 }
 
@@ -123,6 +134,10 @@ impl WorldStartupWork for WeeklyEvidence {
     }
 
     fn observe(&mut self, value: WorldStartupObservation) -> Result<()> {
+        if self.reads.is_empty() {
+            self.maintenance.observe(value);
+            return Ok(());
+        }
         match (self.reads.pop_front().unwrap(), value) {
             (WeeklyObservation::Sql, WorldStartupObservation::Sql(sql)) => {
                 let (expected, rows) = self.sql.pop_front().unwrap();
@@ -130,6 +145,7 @@ impl WorldStartupWork for WeeklyEvidence {
                 let actual_rows = match sql {
                     WorldStartupSql::SelectWeeklyReset(value) => u64::from(value.is_some()),
                     WorldStartupSql::InsertWeeklyReset(_) => 1,
+                    _ => panic!("weekly reset SQL trace diverged"),
                 };
                 assert_eq!(actual_rows, rows);
             }

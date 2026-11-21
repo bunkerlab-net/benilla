@@ -214,6 +214,7 @@ pub struct SourceWorld {
     thread: u64,
     corpse_timer: IntervalTimer,
     saved_variables: startup::SourceSavedVariables,
+    honor: startup::SourceHonor,
     stopped: bool,
 }
 impl SourceWorld {
@@ -227,6 +228,7 @@ impl SourceWorld {
             thread,
             corpse_timer,
             saved_variables: startup::SourceSavedVariables::default(),
+            honor: startup::SourceHonor::default(),
             stopped: false,
         })
     }
@@ -244,6 +246,24 @@ impl SourceWorld {
         work: &mut impl WorldStartupWork,
     ) -> Result<()> {
         self.saved_variables.init_weekly_reset(config, work)
+    }
+
+    pub fn next_maintenance_date(&self) -> u32 {
+        self.saved_variables.next_maintenance
+    }
+
+    pub(super) fn init_server_maintenance_check(
+        &mut self,
+        calendar: Calendar,
+        weekday: i32,
+        work: &mut impl WorldStartupWork,
+    ) -> Result<()> {
+        self.saved_variables.init_maintenance(
+            calendar.world_seconds()?,
+            weekday,
+            &mut self.honor,
+            work,
+        )
     }
     // A failed owner ends the accepted prefix before later phases; World.cpp:1542-1702.
     pub fn update<W: WorldWork>(&mut self, diff: u32, work: &mut W) -> Result<()> {

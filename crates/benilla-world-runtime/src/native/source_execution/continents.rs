@@ -442,14 +442,18 @@ impl ReadySourceContinents {
         &self,
         world: &mut SourceWorld,
         config: WeeklyQuestResetConfig,
+        calendar: Calendar,
+        maintenance_weekday: i32,
         work: &mut impl WorldStartupWork,
     ) -> Result<()> {
         // Deviation: Omit World.cpp:1398 because solo worlds have no login database.
         // World.cpp:1402 initializes the weekly quest reset after the ban cleanup.
         world.init_weekly_quest_reset_time(config, work)?;
         // World.cpp:1406 starts the server maintenance check.
+        world.init_server_maintenance_check(calendar, maintenance_weekday, work)?;
+        // World.cpp:1409 loads the honor standings after maintenance.
         Err(refuse(
-            "execution.world.World_1406.server_maintenance_check_owner",
+            "execution.world.World_1409.honor_standing_list_owner",
         ))
     }
 }

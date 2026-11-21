@@ -4,9 +4,8 @@ use super::*;
 use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
-pub(super) const STARTUP_NEXT_OWNER: &str =
-    "execution.world.World_1406.server_maintenance_check_owner";
-pub(super) const STARTUP_NEXT_SOURCE: &str = "World.cpp:1406";
+pub(super) const STARTUP_NEXT_OWNER: &str = "execution.world.World_1409.honor_standing_list_owner";
+pub(super) const STARTUP_NEXT_SOURCE: &str = "World.cpp:1409";
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
 pub(super) use clocks::{ActiveClock, ActiveClocks};

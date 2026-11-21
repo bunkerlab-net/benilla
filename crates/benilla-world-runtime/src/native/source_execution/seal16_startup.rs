@@ -1334,7 +1334,8 @@ impl Inputs {
             self.bans.observe(line, kind, p);
         }
         if thread == 1
-            && (matches!(line, 6100 | 10035 | 10074) || (61722127..=61722185).contains(&line))
+            && (matches!(line, 6100 | 7330 | 10035 | 10074 | 60100830)
+                || (61722127..=61722752).contains(&line))
         {
             self.weekly.observe_trace(line, kind, p);
         }
@@ -7265,11 +7266,19 @@ pub(super) fn continue_startup(
     );
     observed.bans.assert_matches(recording);
     let (mut world, weekly_config) = observed.weekly.bind_config();
+    let (calendar, maintenance_weekday) = observed.weekly.maintenance_inputs();
     let refusal = ready
-        .initialize_world_tail(&mut world, weekly_config, &mut observed.weekly)
+        .initialize_world_tail(
+            &mut world,
+            weekly_config,
+            calendar,
+            maintenance_weekday,
+            &mut observed.weekly,
+        )
         .unwrap_err();
     observed.weekly.assert_consumed();
     assert_eq!(world.next_weekly_quest_reset(), 1794376800); // Trace :61722159.
+    assert_eq!(world.next_maintenance_date(), 8257850); // Trace :61722719.
     assert_eq!(refusal.id, active_init::STARTUP_NEXT_OWNER);
     let next_owner = refusal.id;
     let next_source = active_init::STARTUP_NEXT_SOURCE;

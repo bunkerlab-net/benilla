@@ -31,6 +31,14 @@ pub enum WorldStartupClockSite {
 pub enum WorldStartupSql {
     SelectWeeklyReset(Option<u64>),
     InsertWeeklyReset(u64),
+    SelectMaintenance(Option<u32>),
+    InsertMaintenance(u32),
+    UpdateMaintenance(u32),
+    HonorDates { date_top: u32, rows_present: bool },
+    HonorKills { through: u32, rows_present: bool },
+    HonorBegin,
+    HonorDelete { through: u32, affected: usize },
+    HonorCommit,
 }
 impl fmt::Display for WorldStartupSql {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -42,6 +50,31 @@ impl fmt::Display for WorldStartupSql {
                 out,
                 "INSERT INTO saved_variables (NextWeeklyQuestResetTime) VALUES ('{seconds}')"
             ),
+            Self::SelectMaintenance(_) => {
+                out.write_str("SELECT NextMaintenanceDate FROM saved_variables")
+            }
+            Self::InsertMaintenance(date) => write!(
+                out,
+                "INSERT INTO saved_variables (NextMaintenanceDate) VALUES ('{date}')"
+            ),
+            Self::UpdateMaintenance(date) => write!(
+                out,
+                "UPDATE saved_variables SET NextMaintenanceDate = '{date}'"
+            ),
+            Self::HonorDates { date_top, .. } => write!(
+                out,
+                "SELECT date FROM character_honor_cp WHERE TYPE = 1 AND date <= {date_top} GROUP BY date ORDER BY date DESC"
+            ),
+            Self::HonorKills { through, .. } => write!(
+                out,
+                "SELECT guid,TYPE,COUNT(*) AS kills FROM character_honor_cp WHERE date <= {through} AND victim_type>0 GROUP BY guid,type"
+            ),
+            Self::HonorBegin => out.write_str("START TRANSACTION"),
+            Self::HonorDelete { through, .. } => write!(
+                out,
+                "DELETE FROM character_honor_cp WHERE date <= {through}"
+            ),
+            Self::HonorCommit => out.write_str("COMMIT"),
         }
     }
 }
@@ -69,6 +102,7 @@ pub trait WorldStartupWork {
 pub(super) struct SourceSavedVariables {
     row_exists: bool,
     next_weekly_reset: i64,
+    pub(super) next_maintenance: u32,
 }
 impl SourceSavedVariables {
     pub(super) fn next_weekly_reset(&self) -> i64 {
@@ -134,6 +168,137 @@ fn wall(work: &mut impl WorldStartupWork, site: WorldStartupClockSite) -> Result
         "execution.world.weekly_reset_clock_kind",
     )?;
     Ok(sample.value())
+}
+
+const HONORABLE: u8 = 1; // Player.h:328.
+
+#[derive(Clone, Copy)]
+struct HonorContribution {
+    date: u32,
+    kind: u8,
+    victim_type: u8,
+}
+
+#[derive(Default)]
+pub(super) struct SourceHonor {
+    contributions: Vec<HonorContribution>,
+}
+impl SourceHonor {
+    // ObjectMgr.cpp:3791-3851 flushes rank points, then prunes the old kill records.
+    pub(super) fn flush(&mut self, date_top: u32, work: &mut impl WorldStartupWork) -> Result<()> {
+        let dates = self
+            .contributions
+            .iter()
+            .any(|row| row.kind == HONORABLE && row.date <= date_top);
+        work.observe(WorldStartupObservation::Sql(WorldStartupSql::HonorDates {
+            date_top,
+            rows_present: dates,
+        }))?;
+        require(
+            !dates,
+            "execution.honor.ObjectMgr_3797.nonempty_rank_dates_owner",
+        )?;
+
+        let through = date_top.wrapping_sub(7);
+        let kills = self
+            .contributions
+            .iter()
+            .any(|row| row.victim_type > 0 && row.date <= through);
+        work.observe(WorldStartupObservation::Sql(WorldStartupSql::HonorKills {
+            through,
+            rows_present: kills,
+        }))?;
+        require(
+            !kills,
+            "execution.honor.ObjectMgr_3831.nonempty_aggregate_kills_owner",
+        )?;
+
+        // SqlOperations.cpp:46-67 sends START only when the queued DELETE commits.
+        work.observe(WorldStartupObservation::Sql(WorldStartupSql::HonorBegin))?;
+        let before = self.contributions.len();
+        self.contributions.retain(|row| row.date > through);
+        work.observe(WorldStartupObservation::Sql(WorldStartupSql::HonorDelete {
+            through,
+            affected: before - self.contributions.len(),
+        }))?;
+        work.observe(WorldStartupObservation::Sql(WorldStartupSql::HonorCommit))
+    }
+}
+
+// World.h:457-459 converts the existing game time to a packed local date.
+fn date_today(seconds: i64, work: &mut impl WorldStartupWork) -> Result<u32> {
+    let civil = maintenance_local(seconds, work)?;
+    Ok(((civil.year as u32) << 16) | civil.yday as u32)
+}
+
+// World.h:461-468 reads and rounds the same game time to the configured weekday.
+fn last_maintenance_day(
+    seconds: i64,
+    weekday: u32,
+    work: &mut impl WorldStartupWork,
+) -> Result<u32> {
+    let today = date_today(seconds, work)?;
+    let civil = maintenance_local(seconds, work)?;
+    Ok(today.wrapping_sub((civil.wday as u32 + 7 - weekday) % 7))
+}
+
+fn maintenance_local(seconds: i64, work: &mut impl WorldStartupWork) -> Result<Tm> {
+    let civil = source_calendar::localtime(seconds)
+        .map_err(|_| refuse("execution.world.World_458.localtime_null_undefined"))?;
+    work.observe(WorldStartupObservation::LocalTime { seconds, civil })?;
+    Ok(civil)
+}
+
+impl SourceSavedVariables {
+    // World.cpp:2199-2215 reads the next maintenance date and starts it when due.
+    pub(super) fn init_maintenance(
+        &mut self,
+        cached_game_seconds: i64,
+        weekday: i32,
+        honor: &mut SourceHonor,
+        work: &mut impl WorldStartupWork,
+    ) -> Result<()> {
+        let weekday = if weekday < 0 { 4 } else { weekday.min(6) } as u32;
+        work.observe(WorldStartupObservation::Sql(
+            WorldStartupSql::SelectMaintenance(self.row_exists.then_some(self.next_maintenance)),
+        ))?;
+        if !self.row_exists {
+            let date = last_maintenance_day(cached_game_seconds, weekday, work)?;
+            self.next_maintenance = if date == date_today(cached_game_seconds, work)? {
+                date
+            } else {
+                date.wrapping_add(7)
+            };
+            self.row_exists = true;
+            work.observe(WorldStartupObservation::Sql(
+                WorldStartupSql::InsertMaintenance(self.next_maintenance),
+            ))?;
+        }
+        if self.next_maintenance <= date_today(cached_game_seconds, work)? {
+            self.start_maintenance(cached_game_seconds, weekday, honor, work)?;
+        }
+        Ok(())
+    }
+
+    // World.cpp:2180-2196 performs maintenance before the first session can exist.
+    fn start_maintenance(
+        &mut self,
+        cached_game_seconds: i64,
+        weekday: u32,
+        honor: &mut SourceHonor,
+        work: &mut impl WorldStartupWork,
+    ) -> Result<()> {
+        let last = last_maintenance_day(cached_game_seconds, weekday, work)?;
+        self.next_maintenance = last.wrapping_add(7);
+        if self.next_maintenance <= date_today(cached_game_seconds, work)? {
+            self.next_maintenance = self.next_maintenance.wrapping_add(7);
+        }
+        honor.flush(last, work)?;
+        // Master.cpp:126,142 starts the world runnable after this startup call.
+        work.observe(WorldStartupObservation::Sql(
+            WorldStartupSql::UpdateMaintenance(self.next_maintenance),
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -215,5 +380,89 @@ mod tests {
         );
         assert!(work.clocks.is_empty());
         assert_eq!(work.sql, [WorldStartupSql::SelectWeeklyReset(None)]);
+    }
+
+    #[test]
+    fn maintenance_closes_missing_row_without_flushing_before_due_day() {
+        let mut saved = SourceSavedVariables::default();
+        let mut honor = SourceHonor::default();
+        let mut work = Work::default();
+        saved
+            .init_maintenance(1794314189, 3, &mut honor, &mut work)
+            .unwrap();
+        assert_eq!(saved.next_maintenance, 8257850);
+        assert_eq!(
+            work.sql,
+            [
+                WorldStartupSql::SelectMaintenance(None),
+                WorldStartupSql::InsertMaintenance(8257850),
+            ]
+        );
+    }
+
+    #[test]
+    fn maintenance_prunes_old_non_kill_rows_and_keeps_the_newer_rows() {
+        let mut honor = SourceHonor {
+            contributions: vec![
+                HonorContribution {
+                    date: 8257836,
+                    kind: 2,
+                    victim_type: 0,
+                },
+                HonorContribution {
+                    date: 8257837,
+                    kind: 2,
+                    victim_type: 1,
+                },
+            ],
+        };
+        let mut work = Work::default();
+        honor.flush(8257843, &mut work).unwrap();
+        assert_eq!(honor.contributions.len(), 1);
+        assert_eq!(honor.contributions[0].date, 8257837);
+        assert_eq!(
+            work.sql,
+            [
+                WorldStartupSql::HonorDates {
+                    date_top: 8257843,
+                    rows_present: false
+                },
+                WorldStartupSql::HonorKills {
+                    through: 8257836,
+                    rows_present: false
+                },
+                WorldStartupSql::HonorBegin,
+                WorldStartupSql::HonorDelete {
+                    through: 8257836,
+                    affected: 1
+                },
+                WorldStartupSql::HonorCommit,
+            ]
+        );
+    }
+
+    #[test]
+    fn maintenance_refuses_the_first_unowned_nonempty_honor_result() {
+        let mut work = Work::default();
+        for (kind, expected) in [
+            (
+                1,
+                "execution.honor.ObjectMgr_3797.nonempty_rank_dates_owner",
+            ),
+            (
+                2,
+                "execution.honor.ObjectMgr_3831.nonempty_aggregate_kills_owner",
+            ),
+        ] {
+            let mut honor = SourceHonor {
+                contributions: vec![HonorContribution {
+                    date: 8257836,
+                    kind,
+                    victim_type: 1,
+                }],
+            };
+            assert_eq!(honor.flush(8257843, &mut work).unwrap_err().id, expected);
+            assert_eq!(honor.contributions.len(), 1);
+        }
     }
 }
