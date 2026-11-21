@@ -924,6 +924,27 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         (10, 0x8000_009f),
         (11, 0x8000_0816),
     ];
+    // Player.cpp:2965-2979,5905-5912 selects the live rows sent on login.
+    let live_spells = player
+        .spellbook()
+        .iter()
+        .filter_map(|(&id, spell)| {
+            (spell.active && !spell.disabled && spell.state != SourcePlayerSpellState::Removed)
+                .then_some(id)
+        })
+        .collect::<Vec<_>>();
+    let live_actions = player
+        .action_buttons()
+        .iter()
+        .filter_map(|(&slot, button)| {
+            (button.state != SourcePlayerActionState::Deleted && button.packed_data != 0)
+                .then_some((slot, button.packed_data))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        (live_spells.as_slice(), live_actions.as_slice()),
+        (packet_spells.as_slice(), packet_actions.as_slice())
+    );
     assert_eq!(player.action_buttons().len(), packet_actions.len());
     assert_eq!(player.spellbook().len(), packet_spells.len());
     assert_eq!(
