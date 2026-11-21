@@ -198,6 +198,11 @@ is meaningful without a bounded content/mechanics inventory.
   (`CreatureEventAIMgr.cpp:979-996`, `ScriptMgr.h:679`).
   Startup matches the template SELECT at trace :52620961 before the EventAI
   SELECT at :58819675. Runtime string selection refuses at `CreatureEventAI.cpp:1262`.
+  EventAI reads the loaded quest templates after area triggers and DB scripts
+  can set exploration flags (`World.cpp:1146,1217-1226,1316` and
+  `CreatureEventAIMgr.cpp:406,754,791`). Seal16 loads nine quest-action rows.
+  Event 340101 still refuses at the preceding relay lookup
+  (`CreatureEventAIMgr.cpp:964`, trace :59107516).
   Map 0 matches 1,096 completions, 1,173 allocations, 32,493 random words,
   799 clocks, 97 paths, and two SQL requests. GUID12058 finishes Defensive
   Stance and its 7376 boost (trace :60985257). GUID89544 and GUID89542 finish

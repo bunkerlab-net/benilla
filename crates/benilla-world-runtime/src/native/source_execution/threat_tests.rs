@@ -579,7 +579,8 @@ fn retained_catalog04_threat_dependencies_and_undefined_candidates_or_explicit_a
             .unwrap(),
     )
     .unwrap();
-    let mut loader = EventAiCatalog::new(&mut catalog, config);
+    let quests = event_ai_tests::recorded_quests(&mut catalog, None);
+    let mut loader = EventAiCatalog::new(&mut catalog, config, &quests);
     let mut loaded = 0;
     let mut threat_rows = 0;
     let mut selectors = BTreeSet::new();
@@ -620,7 +621,8 @@ fn retained_catalog04_threat_dependencies_and_undefined_candidates_or_explicit_a
         }
     }
     assert_eq!(raw_rows, 11469);
-    assert_eq!(loaded, 11126);
+    // Stock quest actions and later text operands: Seal16 trace :58819675.
+    assert_eq!(loaded, 11135);
     assert_eq!(iterator_candidates, 0);
     assert_eq!(threat_rows, 4);
     assert_eq!(zone_rows, 18);

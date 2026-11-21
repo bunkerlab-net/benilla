@@ -302,7 +302,8 @@ fn catalog_main_spells_static_census_and_entry4633_operands() {
     let rows = catalog_event_ai_rows(&mut catalog).unwrap();
     let mut definitions = EventAiDefinitions::default();
     let mut unavailable = BTreeMap::<i32, usize>::new();
-    let mut loader = EventAiCatalog::new(&mut catalog, config);
+    let quests = event_ai_tests::recorded_quests(&mut catalog, Some(&stores));
+    let mut loader = EventAiCatalog::new(&mut catalog, config, &quests);
     for row in rows {
         let key = row.words[1] as i32;
         match load_event_ai_row(&mut loader, row) {

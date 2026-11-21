@@ -1,6 +1,26 @@
 use super::*;
+use crate::native::production_compiler::VerifiedCatalog;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+
+pub(super) fn recorded_quests(
+    catalog: &mut VerifiedCatalog,
+    spells: Option<&SourceSpellStores>,
+) -> SourceQuestMap {
+    let (config, trace) = quest_map_test_inputs::script_quest_recording()
+        .expect("recorded quest config and trace required");
+    let loaded_spells;
+    let spells = match spells {
+        Some(spells) => spells,
+        None => {
+            loaded_spells =
+                SourceSpellStores::load(catalog, &mut SourceSpellScriptRegistry).unwrap();
+            &loaded_spells
+        }
+    };
+    // Stock SQL :780205,782047-782054,782180 already sets the flag for these actions.
+    quest_map_test_inputs::load_script_quest_catalog(catalog, spells, &config, &trace)
+}
 
 #[derive(Default)]
 struct Loader {
@@ -226,6 +246,68 @@ fn missing_entry_guid_invalid_event_and_unimplemented_quests_have_distinct_loade
         loaded(&mut loader, row(6, i32::MIN + 1, 4)).guid,
         i32::MAX as u32
     );
+}
+
+#[test]
+fn event_ai_quest_notices_use_the_loaded_template_and_effective_flag() {
+    let Some(root) = std::env::var_os("BENILLA_F5_AI_CATALOG") else {
+        println!("SKIP EventAI quest notices: set BENILLA_F5_AI_CATALOG");
+        return;
+    };
+    let mut catalog = VerifiedCatalog::open(Path::new(&root), false).unwrap();
+    let config = EventAiLoaderConfig::parse(
+        b"LogFilter_EventAiDev=1",
+        Sha256Id::of(b"LogFilter_EventAiDev=1"),
+    )
+    .unwrap();
+    struct NoQuestOperands;
+    impl QuestLoaderOwner for NoQuestOperands {}
+    // All three IDs exist in stock SQL. The authored map omits 2460.
+    let rows = [8353, 8357].map(|id| {
+        let mut words = [0; 131];
+        words[0] = id;
+        SourceQuestTemplate::from_decoded_fields(words, Default::default())
+    });
+    let mut quests = SourceQuestMap::load_quests(rows, &mut NoQuestOperands).unwrap();
+    quests
+        .load_area_triggers([[1, 8357]], |_| Ok(true))
+        .unwrap();
+    let mut loader = EventAiCatalog::new(&mut catalog, config, &quests);
+    for kind in [19, 20] {
+        for (quest, expected) in [(2460, vec![407, 408]), (8353, vec![408])] {
+            let mut event = row(1, 3401, kind);
+            event.words[6] = quest;
+            let result = load_event_ai_row(&mut loader, event).unwrap();
+            assert_eq!(
+                result.disposition,
+                EventAiDisposition::Skipped { line: 408 }
+            );
+            assert_eq!(
+                result
+                    .notices
+                    .iter()
+                    .map(|notice| notice.line)
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+    }
+    for (kind, missing, no_bit) in [(15, 760, 757), (26, 797, 794)] {
+        for (quest, expected) in [(2460, Some(missing)), (8353, Some(no_bit)), (8357, None)] {
+            let mut event = row(1, 3401, 4);
+            event.words[12..16].copy_from_slice(&[kind, quest, 6, 0]);
+            let result = load_event_ai_row(&mut loader, event).unwrap();
+            assert!(matches!(result.disposition, EventAiDisposition::Loaded(_)));
+            assert!(result
+                .notices
+                .iter()
+                .copied()
+                .eq(expected.map(|line| EventAiNotice {
+                    line,
+                    slot: Some(1)
+                })));
+        }
+    }
 }
 #[test]
 fn row_parameter_repairs_preserve_source_flag_and_continue_quirks() {
@@ -679,7 +761,8 @@ fn retained_catalog04_eventai_disposition_and_missing_owner_census_or_explicit_a
     .unwrap();
     assert!(config.dev_log_filter());
     assert_eq!(config.event_ai_dev_line, 432);
-    let mut owner = EventAiCatalog::new(&mut catalog, config);
+    let quests = recorded_quests(&mut catalog, None);
+    let mut owner = EventAiCatalog::new(&mut catalog, config, &quests);
     let mut dispositions = BTreeMap::new();
     let mut reasons = BTreeMap::new();
     let mut notices = BTreeMap::new();
@@ -1024,7 +1107,8 @@ fn retained_catalog04_inherited_eventai_update_census_or_explicit_absence() {
     let rows = catalog_event_ai_rows(&mut catalog).unwrap();
     let mut definitions = EventAiDefinitions::default();
     let mut unavailable = BTreeMap::<i32, String>::new();
-    let mut loader = EventAiCatalog::new(&mut catalog, config.clone());
+    let quests = recorded_quests(&mut catalog, None);
+    let mut loader = EventAiCatalog::new(&mut catalog, config.clone(), &quests);
     for row in rows {
         let key = row.words[1] as i32;
         match load_event_ai_row(&mut loader, row) {

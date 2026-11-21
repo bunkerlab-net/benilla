@@ -165,7 +165,8 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
         })
         .collect::<BTreeMap<_, _>>();
     let rows = catalog_event_ai_rows(&mut catalog).unwrap();
-    let mut loader = EventAiCatalog::new(&mut catalog, config.clone());
+    let quests = event_ai_tests::recorded_quests(&mut catalog, None);
+    let mut loader = EventAiCatalog::new(&mut catalog, config.clone(), &quests);
     let mut loaded = 0;
     let mut root_rows = Vec::new();
     let mut other_refusals = BTreeMap::<String, usize>::new();
@@ -253,7 +254,8 @@ fn catalog04_motion_defaults_and_eventai_census_or_explicit_absence() {
             }
         }
     }
-    assert_eq!(loaded, 11126);
+    // Stock quest actions and later text operands: Seal16 trace :58819675.
+    assert_eq!(loaded, 11135);
     assert_eq!(root_rows.len(), 39);
     assert_eq!(motion_dependent_rows, 1562);
     assert_eq!(wander_templates.len(), 3163);

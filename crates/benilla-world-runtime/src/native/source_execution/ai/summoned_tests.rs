@@ -864,6 +864,7 @@ fn summoned_catalog04_constructor_and_first_update_census_or_explicit_absence() 
         *spawn_counts.entry(w[1]).or_default() += 1;
     }
     let rows = catalog_event_ai_rows(&mut catalog).unwrap();
+    let quests = event_ai_tests::recorded_quests(&mut catalog, None);
     let mut selected_counts =
         BTreeMap::from([("TotemAI", (0usize, 0usize)), ("GuardianAI", (0, 0))]);
     let mut outcomes = BTreeMap::<String, (usize, usize)>::new();
@@ -911,7 +912,7 @@ fn summoned_catalog04_constructor_and_first_update_census_or_explicit_absence() 
                 .cloned()
                 .collect();
             let (defs, _) = EventAiDefinitions::load(
-                &mut EventAiCatalog::new(&mut catalog, config.clone()),
+                &mut EventAiCatalog::new(&mut catalog, config.clone(), &quests),
                 relevant,
             )?;
             let base = SourceCreatureAi::construct(

@@ -2668,104 +2668,7 @@ pub(super) fn continue_startup(
         script_templates.string(12),
         Some([(73, 0), (74, 0), (75, 0), (76, 0)].as_slice())
     );
-    // World.cpp:1316 loads the shared EventAI store before continent construction.
-    let mut event_rows = catalog_event_ai_rows(catalog).unwrap();
-    event_rows.sort_by_key(|row| row.words[0]);
-    assert_eq!(
-        event_rows.iter().map(|row| row.words).collect::<Vec<_>>(),
-        observed.event_ai_rows
-    );
-    let event_query = observed.event_ai_query.unwrap();
-    assert!(observed
-        .map_identities
-        .values()
-        .all(|(line, _)| event_query.0 < *line));
-    let mut event_definitions = EventAiDefinitions::default();
-    let mut event_unavailable = BTreeSet::new();
-    let mut event_skipped_sites = BTreeMap::<u32, usize>::new();
-    let mut event_unavailable_causes = BTreeMap::<String, usize>::new();
-    let mut event_loader = EventAiCatalog::new(catalog, ai_config.clone());
-    event_loader.bind_spell_lists(&creature_spell_lists);
-    event_loader.bind_script_templates(&script_templates);
-    let mut event_census = [0usize; 3];
-    for row in event_rows {
-        let key = row.words[1] as i32;
-        let id = row.words[0];
-        let flags = row.words[5];
-        match load_event_ai_row(&mut event_loader, row) {
-            Ok(EventAiLoad {
-                disposition: EventAiDisposition::Loaded(event),
-                notices,
-            }) => {
-                assert!(notices.iter().all(|notice| notice.line != 992));
-                event_census[0] += 1;
-                event_definitions.insert(event);
-            }
-            Ok(EventAiLoad {
-                disposition: EventAiDisposition::Skipped { line },
-                ..
-            }) => {
-                event_census[1] += 1;
-                *event_skipped_sites.entry(line).or_default() += 1;
-            }
-            Err(error) => {
-                event_census[2] += 1;
-                event_unavailable.insert(key);
-                if let Some(count) = event_unavailable_causes.get_mut(&error.id) {
-                    *count += 1;
-                } else {
-                    event_unavailable_causes.insert(error.id.clone(), 1);
-                }
-                event_definitions.mark_unavailable(key, id, flags, error);
-            }
-        }
-    }
-    // initial-classicmangos.sql:148741-160209,450914-451331.
-    assert_eq!(event_census, [11277, 0, 192]);
-    assert_eq!(event_unavailable.len(), 123);
-    assert_eq!(
-        event_unavailable_causes,
-        BTreeMap::from([
-            (
-                "execution.event_ai.loader.effective_quest_flags_owner".into(),
-                9
-            ),
-            ("execution.event_ai.loader.relay_store_owner".into(), 151),
-            ("execution.event_ai.loader.relay_template_owner".into(), 7),
-            ("execution.event_ai.loader.summon_store_owner".into(), 25),
-        ])
-    );
-    let event_definitions = std::sync::Arc::new(event_definitions);
-    let summon_query = observed.event_ai_summon_query.unwrap();
-    assert!(template_query_line < summon_query.0);
-    assert!(summon_query.0 < event_query.0);
-    println!(
-        "F6_EVENT_AI_STORE loaded={} skipped={} refused={} unavailable_keys={} matched_loader_sql=1 matched_random_template_sql=1 unmatched_summon_sql=1 query_line={} random_template_request_line={template_query_line} summon_observed_only_line={}",
-        event_census[0], event_census[1], event_census[2], event_unavailable.len(),
-        event_query.0, summon_query.0
-    );
-    println!(
-        "F6_EVENT_AI_LOAD_DISPOSITIONS cpp_skipped={event_skipped_sites:?} unrepresented={event_unavailable_causes:?}"
-    );
-    for (entry, guid) in [(687, 1996), (4692, 28044)] {
-        println!(
-            "F6_EVENT_AI_AVAILABILITY entry={entry} guid={guid} result={:?}",
-            event_definitions.check_spawn_availability(entry, guid, false)
-        );
-    }
-    // World.cpp:1316 loads EventAI before ScriptDevAIMgr at :1333.
-    assert!(event_query.0 < observed.script_library_query_line.unwrap());
-    assert!(observed
-        .group_queries
-        .iter()
-        .all(|(line, _)| *line < event_query.0));
     let collision_models = SourceCollisionModels::load(catalog).unwrap();
-    // World.cpp:927,1333,1341 precedes CreateContinents at :1389.
-    let scripts = std::mem::take(&mut observed.script_registry).load(
-        catalog,
-        &creature_templates,
-        &gameobject_templates,
-    );
     struct AddonSpellOwners;
     impl SpellLoaderOwner for AddonSpellOwners {
         fn script(
@@ -3302,6 +3205,138 @@ pub(super) fn continue_startup(
         observed.waypoint_queries
     );
     waypoints::census(&waypoint_paths, owner.spawns, &groups, catalog);
+    // World.cpp:1313-1316 follows the quest writers (:1146,1217-1226)
+    // and waypoints (:1248). Seal16 trace :46239919,52628270,53017218,57131519.
+    let summon_query = observed.event_ai_summon_query.unwrap();
+    let event_query = observed.event_ai_query.unwrap();
+    assert_eq!(summon_query, (58818418, 8712));
+    assert_eq!(event_query, (58819675, 8712));
+    assert_eq!(owner.cursor.raw, event_query.1);
+    assert!(template_query_line < observed.waypoint_queries[0].0);
+    assert!(observed.waypoint_queries.last().unwrap().0 < summon_query.0);
+    assert!(summon_query.0 < event_query.0);
+    let mut event_rows = catalog_event_ai_rows(catalog).unwrap();
+    event_rows.sort_by_key(|row| row.words[0]);
+    assert_eq!(
+        event_rows.iter().map(|row| row.words).collect::<Vec<_>>(),
+        observed.event_ai_rows
+    );
+    assert!(observed
+        .map_identities
+        .values()
+        .all(|(line, _)| event_query.0 < *line));
+    let mut event_definitions = EventAiDefinitions::default();
+    let mut event_unavailable = BTreeSet::new();
+    let mut event_skipped_sites = BTreeMap::<u32, usize>::new();
+    let mut event_unavailable_causes = BTreeMap::<String, usize>::new();
+    let mut event_loader = EventAiCatalog::new(catalog, ai_config.clone(), &owner.quests);
+    event_loader.bind_spell_lists(&creature_spell_lists);
+    event_loader.bind_script_templates(db_scripts.templates());
+    let mut event_census = [0usize; 3];
+    let mut loaded_quest_actions = Vec::new();
+    for row in event_rows {
+        let key = row.words[1] as i32;
+        let id = row.words[0];
+        let flags = row.words[5];
+        match load_event_ai_row(&mut event_loader, row) {
+            Ok(EventAiLoad {
+                disposition: EventAiDisposition::Loaded(event),
+                notices,
+            }) => {
+                assert!(notices.iter().all(|notice| notice.line != 992));
+                for action in event
+                    .actions
+                    .iter()
+                    .filter(|action| matches!(action.kind, 15 | 26))
+                {
+                    assert!(!notices
+                        .iter()
+                        .any(|n| matches!(n.line, 609 | 757 | 760 | 794 | 797)));
+                    loaded_quest_actions.push((id, key, action.params.unwrap()[0]));
+                }
+                event_census[0] += 1;
+                event_definitions.insert(event);
+            }
+            Ok(EventAiLoad {
+                disposition: EventAiDisposition::Skipped { line },
+                ..
+            }) => {
+                event_census[1] += 1;
+                *event_skipped_sites.entry(line).or_default() += 1;
+            }
+            Err(error) => {
+                if id == 340101 {
+                    // Stock SQL :151693, trace :59107516. Slot 1 reaches :964 before :754.
+                    assert_eq!(error.id, "execution.event_ai.loader.relay_store_owner");
+                }
+                event_census[2] += 1;
+                event_unavailable.insert(key);
+                if let Some(count) = event_unavailable_causes.get_mut(&error.id) {
+                    *count += 1;
+                } else {
+                    event_unavailable_causes.insert(error.id.clone(), 1);
+                }
+                event_definitions.mark_unavailable(key, id, flags, error);
+            }
+        }
+    }
+    // Stock SQL :153301,154367-154406,157644,159440 and quest rows :782047-782054,782180.
+    // Each entry has no other unavailable row after the text-template check at :990.
+    assert_eq!(
+        loaded_quest_actions,
+        [
+            (511101, 5111, 8353),   // Seal16 trace :59264276.
+            (673501, 6735, 8357),   // :59368189.
+            (674001, 6740, 8356),   // :59368286.
+            (674103, 6741, 8354),   // :59368591.
+            (674601, 6746, 8360),   // :59368688.
+            (682601, 6826, 8355),   // :59369665.
+            (692901, 6929, 8359),   // :59371993.
+            (1181402, 11814, 8358), // :59687571.
+            (1538101, 15381, 8519), // :59862679.
+        ]
+    );
+    assert!(loaded_quest_actions
+        .iter()
+        .all(|(_, key, _)| !event_unavailable.contains(key)));
+    assert_eq!(event_census, [11286, 0, 183]);
+    assert_eq!(event_unavailable.len(), 114);
+    assert_eq!(
+        event_unavailable_causes,
+        BTreeMap::from([
+            ("execution.event_ai.loader.relay_store_owner".into(), 151),
+            ("execution.event_ai.loader.relay_template_owner".into(), 7),
+            ("execution.event_ai.loader.summon_store_owner".into(), 25),
+        ])
+    );
+    let event_definitions = std::sync::Arc::new(event_definitions);
+    println!(
+        "F6_EVENT_AI_STORE loaded={} skipped={} refused={} unavailable_keys={} matched_loader_sql=1 matched_random_template_sql=1 unmatched_summon_sql=1 query_line={} random_template_request_line={template_query_line} summon_observed_only_line={}",
+        event_census[0], event_census[1], event_census[2], event_unavailable.len(),
+        event_query.0, summon_query.0
+    );
+    println!(
+        "F6_EVENT_AI_LOAD_DISPOSITIONS cpp_skipped={event_skipped_sites:?} unrepresented={event_unavailable_causes:?}"
+    );
+    for (entry, guid) in [(687, 1996), (4692, 28044)] {
+        println!(
+            "F6_EVENT_AI_AVAILABILITY entry={entry} guid={guid} result={:?}",
+            event_definitions.check_spawn_availability(entry, guid, false)
+        );
+    }
+    // World.cpp:1316 loads EventAI before ScriptDevAIMgr at :1333.
+    assert_eq!(observed.script_library_query_line, Some(59937887));
+    assert!(event_query.0 < observed.script_library_query_line.unwrap());
+    assert!(observed
+        .group_queries
+        .iter()
+        .all(|(line, _)| *line < event_query.0));
+    // World.cpp:927,1333,1341 precedes CreateContinents at :1389.
+    let scripts = std::mem::take(&mut observed.script_registry).load(
+        catalog,
+        &creature_templates,
+        &gameobject_templates,
+    );
     let mut outdoor_pvp = SourceOutdoorPvp::default();
     let mut outdoor_messages = SourceMessager::new(MessageOwner::World);
     // The current registry is empty before MapManager::Initialize, not a recorded result.

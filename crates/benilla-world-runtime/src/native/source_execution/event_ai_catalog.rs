@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Narrow F2.6 DBC/F2.8 SQL operands for EventAI validation, not gameplay admission.
 use super::super::production_compiler::VerifiedCatalog;
+use super::quest_map::EXPLORATION;
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -42,6 +43,7 @@ pub fn catalog_event_ai_rows(catalog: &mut VerifiedCatalog) -> Result<Vec<EventA
 /// Caches narrow ID/metadata projections, not decoded whole catalog rows.
 pub struct EventAiCatalog<'a> {
     catalog: &'a mut VerifiedCatalog,
+    quests: &'a SourceQuestMap,
     ids: BTreeMap<EventAiLookup, BTreeSet<u32>>,
     spells: Option<BTreeMap<u32, EventAiSpell>>,
     config: EventAiLoaderConfig,
@@ -49,9 +51,14 @@ pub struct EventAiCatalog<'a> {
     script_templates: Option<&'a SourceDbScriptTemplates>,
 }
 impl<'a> EventAiCatalog<'a> {
-    pub fn new(catalog: &'a mut VerifiedCatalog, config: EventAiLoaderConfig) -> Self {
+    pub fn new(
+        catalog: &'a mut VerifiedCatalog,
+        config: EventAiLoaderConfig,
+        quests: &'a SourceQuestMap,
+    ) -> Self {
         Self {
             catalog,
+            quests,
             ids: BTreeMap::new(),
             spells: None,
             config,
@@ -91,7 +98,6 @@ impl<'a> EventAiCatalog<'a> {
                     Creature => ("creature_template", "entry"),
                     Guid => ("creature", "guid"),
                     Condition => ("conditions", "condition_entry"),
-                    Quest => ("quest_template", "entry"),
                     Broadcast => ("broadcast_text", "id"),
                     // These lookups consume loaded manager products, not merely a raw key.
                     Summon => return Err(refuse("execution.event_ai.loader.summon_store_owner")),
@@ -118,6 +124,10 @@ impl<'a> EventAiCatalog<'a> {
 }
 impl EventAiLoaderOwner for EventAiCatalog<'_> {
     fn contains(&mut self, domain: EventAiLookup, id: u32, _entry: u32) -> Result<bool> {
+        if domain == EventAiLookup::Quest {
+            // CreatureEventAIMgr.cpp:406.
+            return Ok(self.quests.template(id).is_some());
+        }
         if domain == EventAiLookup::SpellList {
             return Ok(self
                 .spell_lists
@@ -190,13 +200,11 @@ impl EventAiLoaderOwner for EventAiCatalog<'_> {
             .cloned())
     }
     fn quest_exploration(&mut self, id: u32) -> Result<Option<bool>> {
-        if !self.contains(EventAiLookup::Quest, id, 0)? {
-            return Ok(None);
-        }
-        // ObjectMgr.cpp:4579-4584,6285-6290 can add this flag after raw SQL loading.
-        Err(refuse(
-            "execution.event_ai.loader.effective_quest_flags_owner",
-        ))
+        // CreatureEventAIMgr.cpp:754-760,791-797.
+        Ok(self
+            .quests
+            .template(id)
+            .map(|quest| quest.has_special_flag(EXPLORATION)))
     }
     fn assistance_radius(&mut self) -> Result<u32> {
         self.config.assistance_radius()

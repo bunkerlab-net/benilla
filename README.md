@@ -54,6 +54,8 @@ matchmaking service or elected game host runs in P2P mode.
   Addon and EventAI casts use the same live unit registry. The spell finish
   can remove the caster from its victim's attacker list. Non-self spell
   effects remain unbound in this replay.
+  EventAI reads quest existence and exploration flags from the loaded quest
+  store after area triggers and DB scripts.
 - Native component [format `NATIVE_FORMAT_VERSION`](crates/benilla-world-runtime/src/native/README.md#initial-cast-genesis)
   binds seed-independent initial-cast plans and per-life creature initialization
   to shared-RNG receipts. Creature selection owns current/historical stats through

@@ -56,7 +56,8 @@ fn catalog04_spell_start_static_readiness_and_undefined_operands() {
     )
     .unwrap();
     let rows = catalog_event_ai_rows(&mut catalog).unwrap();
-    let mut loader = EventAiCatalog::new(&mut catalog, config);
+    let quests = event_ai_tests::recorded_quests(&mut catalog, Some(&stores));
+    let mut loader = EventAiCatalog::new(&mut catalog, config, &quests);
     let mut dependent = 0;
     let mut before = BTreeMap::<String, usize>::new();
     let mut constructor = BTreeMap::<String, usize>::new();
@@ -285,7 +286,8 @@ fn catalog04_spell_area_and_first_cast_location_census() {
     .into_iter()
     .collect::<BTreeMap<_, _>>();
     let mut post_aura_next = BTreeMap::<String, usize>::new();
-    let mut loader = EventAiCatalog::new(&mut catalog, config);
+    let quests = event_ai_tests::recorded_quests(&mut catalog, Some(&s));
+    let mut loader = EventAiCatalog::new(&mut catalog, config, &quests);
     let mut total = 0;
     let mut passed = 0;
     let mut rejected = BTreeMap::<String, usize>::new();

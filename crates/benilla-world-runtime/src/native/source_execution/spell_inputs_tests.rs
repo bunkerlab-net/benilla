@@ -710,7 +710,8 @@ fn real_catalog_spell_census_or_explicit_absence() {
     )
     .unwrap();
     let rows = catalog_event_ai_rows(&mut catalog).unwrap();
-    let mut owner = EventAiCatalog::new(&mut catalog, config);
+    let quests = event_ai_tests::recorded_quests(&mut catalog, Some(&s));
+    let mut owner = EventAiCatalog::new(&mut catalog, config, &quests);
     let mut dependent = 0;
     let mut met = 0;
     let mut blocked = BTreeMap::<String, usize>::new();

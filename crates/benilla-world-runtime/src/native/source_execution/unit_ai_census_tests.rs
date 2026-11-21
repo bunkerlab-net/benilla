@@ -81,7 +81,8 @@ fn catalog04_unit_ai_readiness_census_or_explicit_absence() {
         })
         .sum::<usize>();
     assert_eq!(reaction_outside_enum_range, 0);
-    let mut loader = EventAiCatalog::new(&mut catalog, config.clone());
+    let quests = event_ai_tests::recorded_quests(&mut catalog, None);
+    let mut loader = EventAiCatalog::new(&mut catalog, config.clone(), &quests);
     let mut first = BTreeMap::<String, usize>::new();
     let mut constructor_refusals = BTreeMap::<String, usize>::new();
     let mut loaded = 0;
@@ -197,7 +198,8 @@ fn catalog04_unit_ai_readiness_census_or_explicit_absence() {
             }
         }
     }
-    assert_eq!(loaded, 11126);
+    // Stock quest actions and later text operands: Seal16 trace :58819675.
+    assert_eq!(loaded, 11135);
     assert_eq!(
         first.values().sum::<usize>() + ready_true + ready_false,
         11469

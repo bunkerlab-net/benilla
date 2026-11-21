@@ -258,7 +258,8 @@ fn event_ai_resolves_loaded_lists_and_retains_unbound_store_refusal() {
     .unwrap();
     let (store, _) =
         LoadedCreatureSpellLists::load(vec![target(0)], vec![entry(1)], vec![], &metadata());
-    let mut owner = EventAiCatalog::new(&mut catalog, config);
+    let quests = SourceQuestMap::default();
+    let mut owner = EventAiCatalog::new(&mut catalog, config, &quests);
     assert_eq!(
         owner
             .contains(EventAiLookup::SpellList, 1, 0)

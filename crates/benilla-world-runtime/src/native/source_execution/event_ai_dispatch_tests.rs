@@ -1109,7 +1109,8 @@ fn retained_catalog04_dispatch_census_and_undefined_domains_or_explicit_absence(
             .unwrap(),
     )
     .unwrap();
-    let mut loader = EventAiCatalog::new(&mut catalog, config);
+    let quests = event_ai_tests::recorded_quests(&mut catalog, None);
+    let mut loader = EventAiCatalog::new(&mut catalog, config, &quests);
     let mut events = BTreeMap::<u32, DispatchCensus>::new();
     let mut actions = BTreeMap::<u16, DispatchCensus>::new();
     let mut totals = DispatchCensus::default();

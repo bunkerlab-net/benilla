@@ -8,7 +8,7 @@ mod catalog;
 pub use catalog::{QuestCatalogInputs, QUEST_TEMPLATE_QUERY};
 mod validation;
 
-const EXPLORATION: u32 = 0x02;
+pub(super) const EXPLORATION: u32 = 0x02;
 
 #[derive(Debug, Default)]
 pub struct SourceQuestTemplate {
@@ -195,6 +195,12 @@ impl SourceQuestTemplate {
     pub fn is_active(&self) -> bool {
         self.active
     }
+
+    // QuestDef.h:188.
+    pub fn has_special_flag(&self, flag: u32) -> bool {
+        self.special_flags & flag != 0
+    }
+
     pub fn required_items_count(&self) -> usize {
         self.required_items_count
     }
@@ -555,7 +561,7 @@ impl SourceQuestMap {
                 notice(&mut self.notices, 6281, quest, trigger);
                 continue;
             };
-            if template.special_flags & EXPLORATION == 0 {
+            if !template.has_special_flag(EXPLORATION) {
                 notice(&mut self.notices, 6287, quest, trigger);
                 template.special_flags |= EXPLORATION; // ObjectMgr.cpp:6290.
             }
@@ -591,7 +597,7 @@ impl DbScriptLoaderOwner for SourceQuestMap {
         self.area_triggers()?;
         Ok(self
             .template(id)
-            .map(|quest| quest.special_flags & EXPLORATION != 0))
+            .map(|quest| quest.has_special_flag(EXPLORATION)))
     }
 
     fn set_quest_exploration(&mut self, id: u32) -> Result<()> {
