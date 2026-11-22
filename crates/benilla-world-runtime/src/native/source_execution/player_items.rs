@@ -35,6 +35,8 @@ pub struct SourceItem {
     pub count: u32,
     pub duration: u32,
     pub charges: [i32; 5],
+    // Item.cpp:208 calls Object.cpp:105-108. UpdateFields.h:48 and Item.h:147,159.
+    enchantments: [[u32; 3]; 7],
     pub flags: u32,
     pub durability: u32,
     pub max_durability: u32,
@@ -42,6 +44,16 @@ pub struct SourceItem {
     queue_pos: Option<usize>,
     object_type: u32,
     scale: f32,
+}
+
+impl SourceItem {
+    // Item.h:294 reads the ID word for an enchantment slot.
+    pub(super) fn enchantment_id(&self, slot: usize) -> Result<u32> {
+        self.enchantments
+            .get(slot)
+            .map(|words| words[0])
+            .ok_or_else(|| refuse("execution.item.Item_294.enchantment_slot_owner"))
+    }
 }
 
 #[derive(Default)]

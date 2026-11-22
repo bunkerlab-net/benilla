@@ -59,15 +59,22 @@ pub(super) struct PlayerHonor {
     rank: HonorRank,
     highest: HonorRank,
     rank_points: Option<f32>,
-    stored: f32,
-    stored_kills: [u32; 2], // Dishonorable, honorable.
-    standing: i32,
+    pub(super) stored: f32,
+    pub(super) stored_kills: [u32; 2], // Dishonorable, honorable.
+    pub(super) standing: i32,
     standing_word: u32,
     bar: u8,
     today: [u16; 2], // Honorable, dishonorable.
     kills: [u32; 3], // Yesterday, this week, last week.
     contribution: [u32; 3],
     lifetime: [u32; 2], // Honorable, dishonorable.
+}
+
+impl PlayerHonor {
+    // Player.cpp:15716 binds the internal rank ID.
+    pub(super) fn highest_rank(&self) -> u32 {
+        u32::from(self.highest.rank)
+    }
 }
 
 impl SourcePlayer {

@@ -30,6 +30,14 @@ pub use player_items::{ItemLifetimeObservation, SourceItem, SourceItems, SourceP
 
 #[path = "player_honor.rs"]
 mod player_honor;
+#[path = "player_save.rs"]
+mod player_save;
+pub use player_save::{SourcePlayerSaveInputs, SourcePlayerSaveObservation};
+#[path = "player_save_fields.rs"]
+mod player_save_fields;
+#[cfg(test)]
+#[path = "player_save_tests.rs"]
+mod player_save_tests;
 
 // UpdateFields.h:27,77-88,114-120,133,140-151,180-186,215,218,228,243,263.
 const OBJECT_FIELD_TYPE: usize = 0x02;
@@ -156,6 +164,7 @@ pub struct SourcePlayer {
     // Player.h:2556-2557; Player.cpp:640-641. One identity names the in-flight Spell and its charges.
     active_mod_spell: Option<u64>,
     honor: player_honor::PlayerHonor,
+    save_fields: player_save_fields::PlayerSaveFields,
 }
 
 impl SourcePlayer {
@@ -247,6 +256,7 @@ impl SourcePlayer {
                 spell_mods: BTreeMap::new(),
                 active_mod_spell: None,
                 honor: player_honor::PlayerHonor::default(),
+                save_fields: player_save_fields::PlayerSaveFields::default(),
             })
         })();
         if result.is_err() {
@@ -630,6 +640,7 @@ impl SourcePlayer {
             power.create_health,
         )?;
         // Player.cpp:2917-2938 clears already-zero flags and preserves player control.
+        self.clear_stat_player_flags(objects)?;
         let (health, mana, energy) = (vitals.max_health, vitals.max_mana, vitals.max_energy);
         objects.set_update_value(object, UNIT_FIELD_HEALTH, &mut vitals.health, health)?;
         objects.set_update_value(object, UNIT_FIELD_POWER1, &mut vitals.mana, mana)?;

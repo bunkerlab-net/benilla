@@ -686,7 +686,11 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         .create(
             &mut objects,
             &mut units,
-            request(),
+            SourcePlayerCreation {
+                // Northshire-01 A client-packets.jsonl:11.
+                name: "Northshire".into(),
+                ..request()
+            },
             &rows,
             &spells,
             &items,
@@ -997,6 +1001,14 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     assert!(rows.items(1, 8).is_empty());
     let placed = player.item_update_queue.clone();
     let handle = player.object();
+    super::player_save_tests::assert_recorded_create_save(
+        &mut player,
+        &objects,
+        &units,
+        &live_items,
+        &session,
+        Path::new(&trace),
+    );
     player
         .discard(
             &mut objects,
