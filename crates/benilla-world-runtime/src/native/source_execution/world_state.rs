@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::{refuse, Result, SourceWorldClock};
+use std::collections::BTreeSet;
 
 pub type WorldStateRow<'a> = (u32, Option<&'a [u8]>);
 
@@ -10,6 +11,7 @@ struct AhnQiraj {
     counters: [u32; 30],
     phase2_tier: u32,
     killed_bosses: u32,
+    spawned_guids: BTreeSet<u32>,
 }
 
 struct ScourgeInvasion {
@@ -139,6 +141,157 @@ impl SourceWorldState {
     pub(super) fn war_effort(&self) -> (u32, u32) {
         (self.aq.phase, self.aq.killed_bosses)
     }
+
+    // WorldState.cpp:730-737,848-869 schedules a pass in AQResources enum order.
+    pub(super) fn war_effort_pass(&mut self, resource: usize) -> Option<WarEffortPass> {
+        if self.aq.phase > 2 {
+            return None;
+        }
+        let &(team, group) = RESOURCES.get(resource)?;
+        let (counter, goal) = self.aq.group_counter_and_goal(team, group);
+        let computed = resource_tier(counter, goal);
+        let tier = if self.aq.phase == 2 && self.aq.phase2_tier != u32::MAX {
+            self.aq.phase2_tier.min(5) as usize
+        } else {
+            computed
+        };
+        let mut pass = WarEffortPass {
+            map: team as u32,
+            guids: [0; 10],
+            len: 0,
+        };
+        for brand in &WAR_EFFORT_GUIDS {
+            for guids in &brand[..tier] {
+                let guid = guids[group];
+                // Fixed table entries are unique. Insert all before traversing any maps.
+                if self.aq.spawned_guids.insert(guid) {
+                    pass.guids[pass.len] = guid;
+                    pass.len += 1;
+                }
+            }
+        }
+        Some(pass)
+    }
+
+    // WorldState.cpp:217-222 resumes the invasion only in STATE_1_ENABLED.
+    pub(super) fn resume_scourge_invasion(&self) -> Result<()> {
+        if self.invasion.state == 1 {
+            return Err(refuse(
+                "execution.world.WorldState_219.scourge_invasion_owner",
+            ));
+        }
+        Ok(())
+    }
+}
+
+// WorldState.h:139-184 and WorldState.cpp:939-975 map resource ordinals to (map, group).
+const RESOURCES: [(usize, usize); 30] = [
+    (1, 4),
+    (1, 3),
+    (1, 2),
+    (1, 1),
+    (1, 4),
+    (1, 0),
+    (1, 2),
+    (1, 1),
+    (1, 0),
+    (1, 3),
+    (0, 0),
+    (0, 1),
+    (0, 0),
+    (0, 4),
+    (0, 3),
+    (0, 2),
+    (0, 3),
+    (0, 1),
+    (0, 2),
+    (0, 4),
+    (0, 2),
+    (0, 4),
+    (0, 0),
+    (0, 3),
+    (0, 1),
+    (1, 2),
+    (1, 4),
+    (1, 0),
+    (1, 3),
+    (1, 1),
+];
+
+// WorldState.cpp:765-777 in map order, then AQResourceGroup order.
+const GROUP_RESOURCES: [[[usize; 3]; 5]; 2] = [
+    [
+        [22, 10, 12],
+        [11, 17, 24],
+        [15, 18, 20],
+        [14, 16, 23],
+        [13, 19, 21],
+    ],
+    [[5, 8, 27], [3, 7, 29], [2, 6, 25], [1, 9, 28], [0, 4, 26]],
+];
+
+// WorldState.cpp:66-93 gives goals in AQResources order, with five shared goals.
+const RESOURCE_GOALS: [u32; 25] = [
+    96000, 10000, 22000, 250000, 19000, 60000, 18000, 250000, 60000, 10000, 180000, 800000, 110000,
+    33000, 14000, 28000, 20000, 600000, 24000, 20000, 45000, 13000, 40000, 8500, 200000,
+];
+
+// WorldState.cpp:759,779-831 lists Alliance first, then Horde, tier and group order.
+const WAR_EFFORT_GUIDS: [[[u32; 5]; 5]; 2] = [
+    [
+        [155010, 155011, 155012, 155013, 155014],
+        [155020, 155021, 155022, 155023, 155024],
+        [155030, 155031, 155032, 155033, 155034],
+        [155040, 155041, 155042, 155043, 155044],
+        [155050, 155051, 155052, 155053, 155054],
+    ],
+    [
+        [155510, 155511, 155512, 155513, 155514],
+        [155520, 155521, 155522, 155523, 155524],
+        [155530, 155531, 155532, 155533, 155534],
+        [155540, 155541, 155542, 155543, 155544],
+        [155550, 155551, 155552, 155553, 155554],
+    ],
+];
+
+pub(super) struct WarEffortPass {
+    pub(super) map: u32,
+    guids: [u32; 10],
+    len: usize,
+}
+
+impl WarEffortPass {
+    pub(super) fn guids(&self) -> &[u32] {
+        &self.guids[..self.len]
+    }
+}
+
+impl AhnQiraj {
+    // WorldState.cpp:977-988 sums the three unsigned counters and shifts shared goals.
+    fn group_counter_and_goal(&self, team: usize, group: usize) -> (u32, u32) {
+        let mut counter = 0_u32;
+        let mut goal = 0;
+        for resource in GROUP_RESOURCES[team][group] {
+            counter = counter.wrapping_add(self.counters[resource]);
+            let goal_index = if resource > 24 {
+                resource - 5
+            } else {
+                resource
+            };
+            goal += RESOURCE_GOALS[goal_index];
+        }
+        (counter, goal)
+    }
+}
+
+// WorldState.cpp:833-846 tests strict, integer thresholds from highest to lowest.
+fn resource_tier(counter: u32, goal: u32) -> usize {
+    for (tier, percent) in [(5, 90), (4, 70), (3, 50), (2, 30), (1, 10)] {
+        if counter > goal * percent / 100 {
+            return tier;
+        }
+    }
+    0
 }
 
 // WorldState.cpp:691-710 dispatches event starts for active war effort phases.
@@ -374,6 +527,60 @@ mod tests {
                 refusal
             );
         }
+    }
+
+    #[test]
+    fn war_effort_passes_visit_both_teams_with_empty_counters() {
+        let mut world = SourceWorldState::default();
+        let mut maps = [0; 2];
+        for pass in (0..).map_while(|resource| world.war_effort_pass(resource)) {
+            maps[pass.map as usize] += 1;
+            assert!(pass.guids().is_empty());
+        }
+        assert_eq!(maps, [15, 15]);
+        world.aq.phase = 3;
+        assert!(world.war_effort_pass(0).is_none());
+    }
+
+    #[test]
+    fn war_effort_queues_both_brands_and_deduplicates_before_visiting() {
+        let mut world = SourceWorldState::default();
+        // Horde herbs: 96,000 + 19,000 + the shared 13,000.
+        world.aq.counters[0] = 12_800;
+        assert!(world.war_effort_pass(0).unwrap().guids().is_empty());
+        world.aq.counters[0] += 1;
+        let first = world.war_effort_pass(0).unwrap();
+        assert_eq!(first.map, 1);
+        assert_eq!(first.guids(), [155014, 155514]);
+        assert!(world.aq.spawned_guids.contains(&155014));
+        assert!(world.aq.spawned_guids.contains(&155514));
+        // Alliance herbs could now reach tier one, but share the live dedup set.
+        world.aq.counters[13] = 6601;
+        let next = world.war_effort_pass(13).unwrap();
+        assert_eq!(next.map, 0);
+        assert!(next.guids().is_empty());
+        world.aq.counters[0] = 12_801;
+        world.aq.counters[4] = u32::MAX;
+        let wrap = world.war_effort_pass(4).unwrap();
+        assert!(wrap.guids().is_empty());
+        assert_eq!(world.aq.spawned_guids.len(), 2);
+    }
+
+    #[test]
+    fn war_effort_transport_uses_forced_tier_except_the_minus_one_sentinel() {
+        let mut world = SourceWorldState::default();
+        world.aq.phase = 2;
+        world.aq.phase2_tier = 2;
+        let pass = world.war_effort_pass(0).unwrap();
+        assert_eq!(pass.guids(), [155014, 155024, 155514, 155524]);
+        world.aq.phase2_tier = u32::MAX;
+        assert!(world.war_effort_pass(1).unwrap().guids().is_empty());
+        world.aq.counters[1] = 28_501;
+        let pass = world.war_effort_pass(1).unwrap();
+        assert_eq!(
+            pass.guids(),
+            [155013, 155023, 155033, 155043, 155053, 155513, 155523, 155533, 155543, 155553]
+        );
     }
 
     #[test]

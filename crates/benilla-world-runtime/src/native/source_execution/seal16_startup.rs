@@ -2344,6 +2344,13 @@ impl WorldTailOwner for Owner<'_> {
     fn event_effects(&self) -> &SourceEventEffects {
         &self.effects
     }
+
+    fn war_effort_gameobject(&mut self, map: MapIdentity, db_guid: u32) -> Result<()> {
+        self.continents
+            .as_mut()
+            .ok_or_else(|| refuse("execution.world.World_1389.continent_join_owner"))?
+            .spawn_world_gameobject(map, 1, db_guid, self.spawns, None)
+    }
 }
 impl PersistentEffects for Owner<'_> {
     fn sql(&mut self, _: PersistentSql) -> Result<()> {

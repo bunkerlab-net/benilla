@@ -54,6 +54,82 @@ fn both_completed_jobs_make_continents_ready() {
 }
 
 #[test]
+fn war_effort_gameobject_checks_live_definition_before_factory_binding() {
+    use crate::native::production_compiler::ObjectMgrSpawnRow;
+    struct Load;
+    impl EffectiveSpawnOwner for Load {
+        fn original_zone(&mut self, _: u32, _: [f32; 3]) -> Result<u32> {
+            Ok(12)
+        }
+
+        fn autoload_active(&mut self) -> Result<bool> {
+            Ok(false)
+        }
+    }
+
+    let mut ready = join_jobs([Ok(()), Ok(())]).unwrap();
+    let map = ready.next_map(Some(1), None).unwrap();
+    let mut spawns = SourceEffectiveSpawns::default();
+    ready
+        .spawn_world_gameobject(map, 1, 155014, &spawns, None)
+        .unwrap();
+    spawns
+        .inspect_row(
+            GridSpawnKind::GameObject,
+            ObjectMgrSpawnRow {
+                ordinal: 0,
+                guid: 155014,
+                entry: 10,
+                map: 0,
+                pose: [0.0; 4],
+                respawn: [20, 20],
+                radius: 0.0,
+                movement: 0,
+                mask: 1,
+                event: 0,
+                pools: [0; 2],
+                spawn_template: 0,
+                rotation: [0.0, 0.0, 0.0, 1.0],
+            },
+            &EffectiveSpawnInputs {
+                gameobjects: BTreeMap::from([(10, EffectiveSpawnTemplate::default())]),
+                maps: BTreeMap::from([(0, 0)]),
+                ..Default::default()
+            },
+            &mut Load,
+        )
+        .unwrap();
+    assert_eq!(
+        ready
+            .spawn_world_gameobject(map, 1, 155014, &spawns, None)
+            .unwrap_err()
+            .id,
+        "execution.world.Object_2182.war_effort_gameobject_factory_owner"
+    );
+    let mut invoked = false;
+    ready
+        .spawn_world_gameobject(
+            map,
+            1,
+            155014,
+            &spawns,
+            Some(&mut |live, request, row| {
+                assert_eq!(live.identity, map);
+                assert_eq!(request.map, map);
+                assert_eq!(request.thread, 1);
+                assert_eq!(request.key.kind, GridSpawnKind::GameObject);
+                assert_eq!(request.key.guid, row.row.guid);
+                assert_eq!(request.requested_guid(), 0);
+                assert_eq!(row.row.map, 0);
+                invoked = true;
+                Ok(false)
+            }),
+        )
+        .unwrap();
+    assert!(invoked);
+}
+
+#[test]
 fn event_notification_uses_instance_then_live_subscribers_after_join() {
     let (mut continents, _) =
         construct(&mut SourceTerrainManager::default(), GuidMaximum::NoResult);

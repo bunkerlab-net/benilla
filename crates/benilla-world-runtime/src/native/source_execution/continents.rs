@@ -396,6 +396,12 @@ pub struct SourceContinents {
     updater: SourceScheduler,
 }
 
+pub(super) const WAR_EFFORT_GAMEOBJECT_FACTORY: &str =
+    "execution.world.Object_2182.war_effort_gameobject_factory_owner";
+
+/// Binds live factory inputs to `DynamicSpawnRequest::spawn_gameobject`.
+pub type WorldGameObjectFactory<'a> =
+    dyn FnMut(&mut SourceContinent, DynamicSpawnRequest, &EffectiveSpawnData) -> Result<bool> + 'a;
 pub struct ReadySourceContinents {
     continents: SourceContinents,
     conditions: Option<SourceConditions>,
@@ -433,6 +439,37 @@ impl ReadySourceContinents {
             .iter_mut()
             .find(|map| map.identity == identity)
             .ok_or_else(|| refuse("execution.continents.map_identity"))
+    }
+
+    // Object.cpp:2173-2188 looks up the row before calling the dynamic constructor.
+    pub fn spawn_world_gameobject(
+        &mut self,
+        map: MapIdentity,
+        thread: u64,
+        guid: u32,
+        spawns: &SourceEffectiveSpawns,
+        factory: Option<&mut WorldGameObjectFactory<'_>>,
+    ) -> Result<()> {
+        let key = SpawnKey {
+            kind: GridSpawnKind::GameObject,
+            guid,
+        };
+        let Some(row) = spawns.complete_data(key)? else {
+            return Ok(());
+        };
+        // Map.cpp:141-142 allows gameobjects even when the row has a spawn mask.
+        let map = self.map_mut(map)?;
+        let construct = factory.ok_or_else(|| refuse(WAR_EFFORT_GAMEOBJECT_FACTORY))?;
+        construct(
+            map,
+            DynamicSpawnRequest {
+                map: map.identity,
+                thread,
+                key,
+            },
+            row,
+        )?;
+        Ok(())
     }
 
     pub fn bind_conditions(&mut self, conditions: SourceConditions) {

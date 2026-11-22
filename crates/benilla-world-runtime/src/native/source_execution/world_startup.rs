@@ -126,6 +126,10 @@ pub trait WorldStartupWork {
 pub trait WorldTailOwner: GameEventOwner + EventEffectOwner {
     fn ready_world(&mut self) -> Result<&mut SourceWorld>;
     fn event_effects(&self) -> &SourceEventEffects;
+
+    fn war_effort_gameobject(&mut self, _map: MapIdentity, _db_guid: u32) -> Result<()> {
+        Err(refuse(WAR_EFFORT_GAMEOBJECT_FACTORY))
+    }
 }
 
 pub struct WorldTailConfig {
@@ -181,8 +185,22 @@ pub fn initialize_world_tail(
     start_war_effort_event(phase, killed_bosses, |id| {
         events.start_event(id, false, false, config.event_announce, owner)
     })?;
+    // WorldState.cpp:216,863-869 visits the team map even when the pass has no GUIDs.
+    for resource in 0.. {
+        let Some(pass) = owner.ready_world()?.world_state.war_effort_pass(resource) else {
+            break;
+        };
+        let mut after = None;
+        while let Some(map) = owner.event_next_map(Some(pass.map), after)? {
+            for &guid in pass.guids() {
+                owner.war_effort_gameobject(map, guid)?;
+            }
+            after = Some(map);
+        }
+    }
+    owner.ready_world()?.world_state.resume_scourge_invasion()?;
     Err(refuse(
-        "execution.world.WorldState_216.war_effort_spawn_owner",
+        "execution.world.WorldState_222.emerald_dragons_owner",
     ))
 }
 
