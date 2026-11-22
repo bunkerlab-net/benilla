@@ -25,13 +25,13 @@ impl WorldStartupWork for Work {
 
 pub(super) fn assert_recorded_create_save(
     player: &mut SourcePlayer,
-    objects: &SourceObjects,
-    units: &SourceUnits,
-    items: &SourceItems,
+    objects: &mut SourceObjects,
+    units: &mut SourceUnits,
+    items: &mut SourceItems,
     spells: &SourceSpellStores,
-    session: &SourceWorldSession,
+    session: &mut SourceWorldSession,
     trace: &Path,
-) {
+) -> [u32; 8] {
     // Northshire-01 A mangosd.conf:825 and proxy-requests.jsonl:1498.
     const SKIP_CINEMATICS: u32 = 0;
     let world = SourceWorld::new(12, 200).unwrap();
@@ -63,22 +63,17 @@ pub(super) fn assert_recorded_create_save(
         world_work: &mut work,
         wall_seconds: &mut || Ok(read_wall.next().unwrap()),
     };
-    let mut effects = Vec::new();
-    let stop = player
-        .finish_detached_create(false, SKIP_CINEMATICS, &mut inputs, |effect| {
-            effects.push(effect);
-            Ok(())
-        })
-        .unwrap_err();
-    assert_eq!(stop.id, "execution.player_save.Player_15779.commit_owner");
+    player.set_creation_flags(false, SKIP_CINEMATICS);
+    let staged = player.stage_save(&mut inputs).unwrap();
     assert_eq!(read_wall.next(), None);
     assert_eq!(work.0, [game_seconds; 3]);
-    let [SourcePlayerSaveObservation::Begin, SourcePlayerSaveObservation::Row(RowOperation::Delete(RowDelete::Character(guid))), SourcePlayerSaveObservation::Row(RowOperation::Insert(RowInsert::Character(row))), inventory @ ..] =
-        effects.as_slice()
+    assert_eq!(staged.rows.len(), 37); // C:p1502-1607, not counting BEGIN and COMMIT.
+    let [RowOperation::Delete(RowDelete::Character(guid)), RowOperation::Insert(RowInsert::Character(row)), inventory @ ..] =
+        staged.rows.as_slice()
     else {
-        panic!("unexpected save prefix {effects:?}");
+        panic!("unexpected save batch {:?}", staged.rows);
     };
-    assert_eq!(*guid, row.guid);
+    assert_eq!((staged.guid, *guid), (row.guid, row.guid));
     let projected = bind_words(row);
     assert_eq!(projected.len(), 56);
     for ((name, projected), observed) in columns.iter().zip(&projected).zip(&create) {
@@ -113,24 +108,16 @@ pub(super) fn assert_recorded_create_save(
     assert_eq!(logout[23].bytes, 1795250531u64.to_le_bytes());
     let (inventory, learning) = inventory.split_at(16); // C:p1519-1552.
     super::player_items::save_inventory::tests::assert_create_recording(c, inventory);
-    assert_eq!(learning.len(), 19); // C:p1557-1605.
+    let tutorial =
+        super::player_save_learning::tests::assert_create_learning_recording(c, *guid, learning);
     assert_eq!(
-        learning[0],
-        SourcePlayerSaveObservation::Row(RowOperation::Delete(RowDelete::CooldownsByGuid(*guid)))
-    );
-    assert_eq!(
-        learning[17],
-        SourcePlayerSaveObservation::Row(RowOperation::Delete(
-            RowDelete::EnteredInstancesByAccount(row.account)
-        ))
-    );
-    assert_eq!(
-        learning[18],
-        SourcePlayerSaveObservation::Row(RowOperation::Insert(RowInsert::Tutorial(TutorialRow {
+        tutorial,
+        TutorialRow {
             account: u64::from(row.account),
             words: [0; 8],
-        })))
+        }
     ); // C:p1605.
+    tutorial.words
 }
 
 // Northshire-01 A trace :68134692-68134694 and :68134746-68134747.
@@ -373,8 +360,8 @@ fn create_applies_cinematics_and_first_login_before_save() {
     let mut objects = SourceObjects::default();
     let mut units = SourceUnits::default();
     let world = SourceWorld::new(12, 200).unwrap();
-    let session = SourceWorldSession::construct(97, false);
-    let items = SourceItems::default();
+    let mut session = SourceWorldSession::construct(97, false);
+    let mut items = SourceItems::default();
     for (same_race, config, expected) in [
         (true, 0, 0),
         (false, 1, 0),
@@ -386,10 +373,10 @@ fn create_applies_cinematics_and_first_login_before_save() {
         player.save_fields.teleport_far = true;
         player.save_fields.at_login = 1;
         let mut inputs = SourcePlayerSaveInputs {
-            objects: &objects,
-            units: &units,
-            items: &items,
-            session: &session,
+            objects: &mut objects,
+            units: &mut units,
+            items: &mut items,
+            session: &mut session,
             quests: &SourceQuestMap::default(),
             spells: &SourceSpellStores::default(),
             clock: &SourceWorldClock::default(),
@@ -400,8 +387,9 @@ fn create_applies_cinematics_and_first_login_before_save() {
             world_work: &mut Work::default(),
             wall_seconds: &mut || panic!("far teleport returns before wall time"),
         };
+        player.set_creation_flags(same_race, config);
         let stop = player
-            .finish_detached_create(same_race, config, &mut inputs, |_| {
+            .project_save(&mut inputs, |_| {
                 panic!("far teleport returns before transaction")
             })
             .unwrap_err();
@@ -423,8 +411,8 @@ fn save_refuses_in_source_order_without_a_commit() {
     let mut units = SourceUnits::default();
     let mut player = super::tests::construct(&mut objects, &mut units);
     let world = SourceWorld::new(12, 200).unwrap();
-    let session = SourceWorldSession::construct(97, false);
-    let items = SourceItems::default();
+    let mut session = SourceWorldSession::construct(97, false);
+    let mut items = SourceItems::default();
     let handle = player.object();
     objects
         .assign_guid(handle, 5, SourceGuid::from_raw(5))
@@ -506,16 +494,7 @@ fn save_refuses_in_source_order_without_a_commit() {
             true,
             true,
         ),
-        (
-            false,
-            false,
-            0,
-            false,
-            false,
-            "Player_15779.commit_owner",
-            true,
-            true,
-        ),
+        (false, false, 0, false, false, "", true, true),
     ] {
         objects.get_mut(handle).unwrap().in_world = in_world;
         player.save_fields.teleport_near = near;
@@ -525,10 +504,10 @@ fn save_refuses_in_source_order_without_a_commit() {
         let mut wall_count = 0;
         let mut work = Work::default();
         let mut inputs = SourcePlayerSaveInputs {
-            objects: &objects,
-            units: &units,
-            items: &items,
-            session: &session,
+            objects: &mut objects,
+            units: &mut units,
+            items: &mut items,
+            session: &mut session,
             quests: &SourceQuestMap::default(),
             spells: &SourceSpellStores::default(),
             clock: &SourceWorldClock::default(),
@@ -543,13 +522,32 @@ fn save_refuses_in_source_order_without_a_commit() {
             },
         };
         let mut effects = Vec::new();
-        let stop = player
-            .save_to_db_prefix(&mut inputs, |effect| {
-                effects.push(effect);
-                Ok(())
-            })
-            .unwrap_err();
-        assert_eq!(stop.id, format!("execution.player_save.{reason}"));
+        let result = player.project_save(&mut inputs, |effect| {
+            effects.push(effect);
+            Ok(())
+        });
+        if reason.is_empty() {
+            assert_eq!(result.unwrap(), 5);
+            assert_eq!(
+                effects[3..],
+                [
+                    SourcePlayerSaveObservation::Row(RowOperation::Delete(
+                        RowDelete::CooldownsByGuid(5)
+                    )),
+                    SourcePlayerSaveObservation::Row(RowOperation::Delete(RowDelete::AurasByGuid(
+                        5
+                    ))),
+                    SourcePlayerSaveObservation::Row(RowOperation::Delete(
+                        RowDelete::EnteredInstancesByAccount(97)
+                    )),
+                ]
+            );
+        } else {
+            assert_eq!(
+                result.unwrap_err().id,
+                format!("execution.player_save.{reason}")
+            );
+        }
         assert_eq!(wall_count, i32::from(reads_wall));
         assert_eq!(work.0, [10; 3]);
         assert_eq!(effects[0], SourcePlayerSaveObservation::Begin);
@@ -559,8 +557,8 @@ fn save_refuses_in_source_order_without_a_commit() {
         );
         assert_eq!(
             effects.len(),
-            if reason == "Player_15779.commit_owner" {
-                6 // Includes the unconditional cooldown, aura and timer deletes.
+            if reason.is_empty() {
+                6
             } else if has_row {
                 3
             } else {

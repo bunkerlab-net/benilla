@@ -34,7 +34,10 @@ pub use player_items::{
 mod player_honor;
 #[path = "player_save.rs"]
 mod player_save;
-pub use player_save::{SourcePlayerSaveInputs, SourcePlayerSaveObservation};
+pub use player_save::{
+    SourcePlayerSaveError, SourcePlayerSaveInputs, SourcePlayerSaveObservation,
+    SourcePlayerSaveStore,
+};
 #[path = "player_reputation.rs"]
 mod player_reputation;
 #[path = "player_save_fields.rs"]

@@ -455,3 +455,50 @@ impl PlayerCreateRows {
         self.order_grants();
     }
 }
+
+#[cfg(feature = "synthetic-native-tests")]
+impl PlayerCreateRows {
+    #[doc(hidden)]
+    pub fn authored_save_fixture() -> Self {
+        let outfit = PlayerOutfitRow {
+            selector: 2049,
+            items: [19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        };
+        Self {
+            skill_inputs: Some(PlayerSkillInputs::authored_save_language(98)),
+            skills: BTreeMap::from([((1, 8), vec![PlayerCreateSkill { id: 98, step: 0 }])]),
+            races: BTreeMap::from([(
+                1,
+                PlayerCreateRace {
+                    faction: 1,
+                    display: [49, 50],
+                    team: 7,
+                    taxi_mask: 2,
+                },
+            )]),
+            classes: BTreeMap::from([(8, 0)]),
+            starts: BTreeMap::from([(
+                (1, 8),
+                PlayerCreateStart {
+                    map: 0,
+                    zone: 12,
+                    pose: SourcePose([1.0_f32, 2.0, 3.0, 0.0].map(f32::to_bits)),
+                },
+            )]),
+            outfits: Some(BTreeMap::from([(1, outfit)])),
+            actions: BTreeMap::from([(
+                (1, 8),
+                vec![PlayerCreateAction {
+                    button: 11,
+                    action: 19,
+                    kind: 128,
+                }],
+            )]),
+            class_levels: BTreeMap::from([((8, 1), [31, 100])]),
+            levels: BTreeMap::from([((1, 8, 1), [20, 20, 20, 23, 22])]),
+            xp: BTreeMap::from([(1, 400)]),
+            display_scales: BTreeMap::from([(49, [1.0, 1.0])]),
+            ..Default::default()
+        }
+    }
+}

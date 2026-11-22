@@ -120,25 +120,24 @@ fn assert_bind(
     assert_eq!(words, binds, "p{execute}");
 }
 
-fn assert_observed_binds(
+fn assert_observed_binds<'a>(
     proxy: &BTreeMap<usize, Value>,
-    effects: &[SourcePlayerSaveObservation],
+    effects: impl ExactSizeIterator<Item = &'a RowOperation>,
     lines: &[(usize, usize)],
 ) {
-    use SourcePlayerSaveObservation::Row;
     assert_eq!(effects.len(), lines.len());
-    for (effect, &at) in effects.iter().zip(lines) {
+    for (effect, &at) in effects.zip(lines) {
         match effect {
-            Row(RowOperation::Insert(RowInsert::Inventory(row))) => {
+            RowOperation::Insert(RowInsert::Inventory(row)) => {
                 assert_bind(proxy, at, INVENTORY_INSERT, &inventory_binds(row, false));
             }
-            Row(RowOperation::ReplaceItemInstance(row)) => {
+            RowOperation::ReplaceItemInstance(row) => {
                 assert_bind(proxy, at, INSTANCE_REPLACE, &instance_binds(row));
             }
-            Row(RowOperation::Update(RowUpdate::Inventory(row))) => {
+            RowOperation::Update(RowUpdate::Inventory(row)) => {
                 assert_bind(proxy, at, INVENTORY_UPDATE, &inventory_binds(row, true));
             }
-            Row(RowOperation::Update(RowUpdate::ItemInstance(row))) => {
+            RowOperation::Update(RowUpdate::ItemInstance(row)) => {
                 assert_bind(proxy, at, INSTANCE_UPDATE, &instance_binds(row));
             }
             _ => panic!("unexpected inventory operation at p{}: {effect:?}", at.1),
@@ -146,10 +145,7 @@ fn assert_observed_binds(
     }
 }
 
-pub(in super::super::super) fn assert_create_recording(
-    root: &Path,
-    effects: &[SourcePlayerSaveObservation],
-) {
+pub(in super::super::super) fn assert_create_recording(root: &Path, effects: &[RowOperation]) {
     // C proxy-requests.jsonl:1516-1552, all eight placement/instance pairs in queue order.
     let lines = [
         (1516, 1519),
@@ -170,7 +166,7 @@ pub(in super::super::super) fn assert_create_recording(
         (1521, 1552),
     ];
     let proxy = proxy_rows(root, lines.iter().flat_map(|&(p, e)| [p, p + 1, e]));
-    assert_observed_binds(&proxy, effects, &lines);
+    assert_observed_binds(&proxy, effects.iter(), &lines);
 }
 
 fn fixture<T>(
@@ -242,7 +238,7 @@ fn save(player: &SourcePlayer, live: &Outfit<'_>) -> Vec<SourcePlayerSaveObserva
         .unwrap()
         .counter();
     player
-        .save_inventory(live.objects, live.items, guid, &mut |effect| {
+        .save_inventory(live.objects, live.items, guid, true, &mut |effect| {
             rows.push(effect);
             Ok(())
         })
@@ -334,7 +330,14 @@ fn authored_a_packet_fixture_matches_all_six_logout_inventory_executes() {
             .flat_map(|&(p, e)| [p, p + 1, e])
             .chain([1552, 1847, 1852]),
     );
-    assert_observed_binds(&proxy, &effects, &lines);
+    assert_observed_binds(
+        &proxy,
+        effects.iter().map(|event| match event {
+            SourcePlayerSaveObservation::Row(row) => row,
+            SourcePlayerSaveObservation::Begin => panic!("unexpected inventory BEGIN"),
+        }),
+        &lines,
+    );
     let SourcePlayerSaveObservation::Row(RowOperation::Update(RowUpdate::Inventory(row))) =
         &effects[4]
     else {
@@ -417,7 +420,7 @@ fn refused_or_failed_inventory_projection_keeps_states_and_positions() {
         let mut attempts = 0;
         assert_eq!(
             player
-                .save_inventory(live.objects, live.items, 1, &mut |_| {
+                .save_inventory(live.objects, live.items, 1, true, &mut |_| {
                     attempts += 1;
                     require(attempts != 4, "test.inventory_observer_failure")
                 })
@@ -433,7 +436,7 @@ fn refused_or_failed_inventory_projection_keeps_states_and_positions() {
         player.remove_backpack_item(live, handles[2], 25).unwrap();
         assert_eq!(
             player
-                .save_inventory(live.objects, live.items, 1, &mut |_| panic!(
+                .save_inventory(live.objects, live.items, 1, true, &mut |_| panic!(
                     "corrupt queue wrote a row"
                 ))
                 .unwrap_err()

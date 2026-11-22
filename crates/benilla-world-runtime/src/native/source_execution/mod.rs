@@ -173,6 +173,7 @@ mod manager_validation;
 pub use manager_validation::*;
 mod world_managers;
 pub use world_managers::*;
+pub mod character_login;
 mod messages;
 mod objects;
 mod path_distance;

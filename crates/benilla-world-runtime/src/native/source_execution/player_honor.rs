@@ -23,6 +23,7 @@ const DISHONORABLE: u8 = 2;
 const HK_NEW: u8 = 0;
 const HK_OLD: u8 = 1;
 const HK_DELETED: u8 = 2;
+const HK_UNCHANGED: u8 = 3;
 struct HonorCp {
     date: u32,
     points: f32,
@@ -85,6 +86,11 @@ impl SourcePlayer {
             !self.honor.cp.iter().any(|cp| cp.state == HK_NEW),
             "execution.player_save.Player_16010.honor_cp_owner",
         )
+    }
+
+    // Player.cpp:16023-16024. The projection refuses NEW contributions at :16010.
+    pub(super) fn acknowledge_honor_cp(&mut self) {
+        self.honor.cp.retain(|cp| cp.state == HK_UNCHANGED);
     }
 
     // Player.cpp:6453-6573.

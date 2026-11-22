@@ -437,3 +437,6 @@ fn format_91_fixture_and_source_files_are_independent() {
 
 #[path = "source_cold/rows_tests.rs"]
 mod batch;
+
+#[path = "source_cold_character_tests.rs"]
+mod character_create;

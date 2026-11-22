@@ -3,6 +3,7 @@
 
 use crate::{durability, hash, storage::Storage, Durability, Error};
 use benilla_world_runtime::{
+    native::source_execution::player::SourcePlayerSaveStore,
     native::source_execution::source_rows::{
         ActionRow, AuraRow, CharacterRow, CooldownRow, DragonStateRow, EnteredInstanceRow,
         HomebindRow, InventoryRow, ItemInstanceRow, QuestRow, RepRow, RespawnRow, RowOperation,
@@ -267,8 +268,19 @@ impl SourceColdStore {
         &mut self,
         operations: impl IntoIterator<Item = RowOperation>,
     ) -> Result<Prepared, Error> {
+        self.prepare_batch(operations, false)
+    }
+
+    fn prepare_batch(
+        &mut self,
+        operations: impl IntoIterator<Item = RowOperation>,
+        creating: bool,
+    ) -> Result<Prepared, Error> {
         const MAX_OPERATIONS: usize = 131_072;
         let mut rows = self.read_rows()?;
+        if creating && rows.character().is_some() {
+            return Err(Error::AlreadyExists);
+        }
         let mut counts = Vec::new();
         for operation in operations {
             if counts.len() == MAX_OPERATIONS {
@@ -322,6 +334,20 @@ impl SourceColdStore {
             digest: self.digest,
             operations: prepared.operations,
         })
+    }
+}
+
+impl SourcePlayerSaveStore for SourceColdStore {
+    type Receipt = Receipt;
+    type Error = Error;
+
+    fn check_open(&self) -> Result<(), Error> {
+        self.ensure_open()
+    }
+
+    fn commit_create(&mut self, rows: Vec<RowOperation>) -> Result<Receipt, Error> {
+        let prepared = self.prepare_batch(rows, true)?;
+        self.commit(prepared)
     }
 }
 

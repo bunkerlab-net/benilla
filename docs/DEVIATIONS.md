@@ -42,7 +42,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - [benilla-srp](#benilla-srp): 2
 - [benilla-ui](#benilla-ui): 135
 - [benilla-world](#benilla-world): 47
-- [benilla-world-runtime](#benilla-world-runtime): 12
+- [benilla-world-runtime](#benilla-world-runtime): 14
 
 ### benilla-app
 
@@ -1014,12 +1014,14 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 - CreatureSpellList.h:84-91 leaves ChanceRangedAttack unwritten; the owner permits guard\_ai.cpp:68 because both branches do nothing when Spells is empty. ([`src/native/source_execution/ai/script_guard.rs:45`](../crates/benilla-world-runtime/src/native/source_execution/ai/script_guard.rs#L45))
 - Preserve the raw u32 event number, because C++ leaves the non-fixed AIEventType enum indeterminate outside 0..1023 (AIDefines.h:22-56) and the owner chose intent on 2026-11-12 so scourge\_invasion.cpp:956-965's 7166 reaches its receiver unchanged; ScriptMgr.cpp:2759-2775. ([`src/native/source_execution/assistance.rs:8`](../crates/benilla-world-runtime/src/native/source_execution/assistance.rs#L8))
+- CharacterHandler.cpp:515-516 observes the single committed roster entry because the solo world has no LoginDatabase. ([`src/native/source_execution/character_login.rs:134`](../crates/benilla-world-runtime/src/native/source_execution/character_login.rs#L134))
 - Use logical workers because replay follows recorded thread identities. ([`src/native/source_execution/continents.rs:514`](../crates/benilla-world-runtime/src/native/source_execution/continents.rs#L514))
 - Report map 0's refusal first because startup needs a deterministic error. ([`src/native/source_execution/continents.rs:562`](../crates/benilla-world-runtime/src/native/source_execution/continents.rs#L562))
 - CreatureSpellList.h:84-91 leaves Disabled unwritten; the owner permits UnitAI.cpp:1165 because both branches do nothing for empty spells outside combat. ([`src/native/source_execution/creature_ai.rs:1078`](../crates/benilla-world-runtime/src/native/source_execution/creature_ai.rs#L1078))
 - Pin never-assigned scheduleType to recorded F1 round-15 zero because CMaNGOS GameEventMgr.h:53-71 leaves it indeterminate. ([`src/native/source_execution/game_events.rs:14`](../crates/benilla-world-runtime/src/native/source_execution/game_events.rs#L14))
 - Synchronize global pet numbers because ObjectMgr.cpp:119-127 and ObjectMgr.h:826,1247 race across SpellEffects.cpp:2372,3288; owner approved 2026-11-06. ([`src/native/source_execution/guids.rs:168`](../crates/benilla-world-runtime/src/native/source_execution/guids.rs#L168))
 - At Map.cpp:2983 solo walks stable object identities because C++ addresses are not available. ([`src/native/source_execution/objects.rs:1135`](../crates/benilla-world-runtime/src/native/source_execution/objects.rs#L1135))
+- Defer Player.cpp:15766-15777 acknowledgements because a failed local publication must leave pending writes dirty. ([`src/native/source_execution/player_save.rs:87`](../crates/benilla-world-runtime/src/native/source_execution/player_save.rs#L87))
 - CreatureSpellList.h:84-91 leaves Disabled unwritten; the owner permits UnitAI.cpp:106 because both branches are false when Spells is empty. ([`src/native/source_execution/unit_ai.rs:991`](../crates/benilla-world-runtime/src/native/source_execution/unit_ai.rs#L991))
 - Omit World.cpp:1398 because solo worlds have no login database. World.cpp:1402 initializes the weekly quest reset after the ban cleanup. ([`src/native/source_execution/world_startup.rs:182`](../crates/benilla-world-runtime/src/native/source_execution/world_startup.rs#L182))
 - Omit World.cpp:1421 because solo worlds have no realm character deletion queue. ([`src/native/source_execution/world_startup.rs:201`](../crates/benilla-world-runtime/src/native/source_execution/world_startup.rs#L201))

@@ -38,6 +38,13 @@ impl SourcePlayer {
         }
         Ok(())
     }
+
+    // ReputationMgr.cpp:532.
+    pub(super) fn acknowledge_reputation(&mut self) {
+        for state in self.reputation.values_mut() {
+            state.need_save = false;
+        }
+    }
 }
 
 #[cfg(test)]

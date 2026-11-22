@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
-use super::source_rows::{CharacterRow, FloatWord};
+use super::source_rows::{CharacterRow, FloatWord, RowDelete, RowInsert, RowOperation};
 use super::*;
 
 // Player.h:374 and Taxi.h:67-71.
@@ -82,13 +82,20 @@ impl SourcePlayer {
         )
     }
 
-    // Player.cpp:15643-15758. SqlPreparedStatement.h:255 clears the stream after each text bind.
-    pub(super) fn character_row(
+    // Player.cpp:15621-15760. Stage the delete before reading the insert operands.
+    pub(super) fn save_character_row(
         &self,
         inputs: &mut SourcePlayerSaveInputs<'_, impl WorldStartupWork>,
-        object: &SourceObject,
-        guid: u32,
-    ) -> Result<CharacterRow> {
+        observe: &mut impl FnMut(SourcePlayerSaveObservation) -> Result<()>,
+    ) -> Result<u32> {
+        let object = inputs.objects.get(self.object)?;
+        let guid = object
+            .guid
+            .ok_or_else(|| refuse("execution.player_save.Player_15622.character_guid_owner"))?
+            .counter();
+        observe(SourcePlayerSaveObservation::Row(RowOperation::Delete(
+            RowDelete::Character(guid),
+        )))?;
         let live = &self.save_fields;
         let account = inputs.session.account_id(); // Player.cpp:15644, WorldSession.h:244.
         let unit = inputs.units.get(inputs.objects, self.object)?;
@@ -148,7 +155,7 @@ impl SourcePlayer {
         let [rage, focus, happiness] = power
             .auxiliary_current
             .ok_or_else(|| refuse("execution.player_save.Player_15730.power_owner"))?;
-        Ok(CharacterRow {
+        let row = CharacterRow {
             guid,
             account,
             name: self.name.clone(),
@@ -196,7 +203,11 @@ impl SourcePlayer {
             ammo_id: live.ammo,
             action_bars: self.field_bytes[2],
             fishing_steps: live.fishing_steps,
-        })
+        };
+        observe(SourcePlayerSaveObservation::Row(RowOperation::Insert(
+            RowInsert::Character(Box::new(row)),
+        )))?;
+        Ok(guid)
     }
 
     // Player.cpp:15738-15752. SetVisibleItemSlot (10173-10187) copies the placed item's entry and enchant IDs.

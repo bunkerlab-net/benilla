@@ -251,6 +251,19 @@ fn authored_deleted_skill_saves_in_hash_order_before_forgotten_skill_stop() {
         "execution.player_save.Player_16246.forgotten_skill_owner"
     );
     assert_eq!(again, rows);
+
+    // C:p1580-1598 resolved all ten written slots. A malformed live index refuses
+    // at the source value read before the row can enter a publishable batch.
+    player.skill_status.get_mut(6).unwrap().slot = usize::MAX;
+    let mut invalid = Vec::new();
+    assert_eq!(
+        player
+            .save_skills(4, &mut capture(&mut invalid))
+            .unwrap_err()
+            .id,
+        "execution.player_save.Player_16211.skill_slot_undefined"
+    );
+    assert_eq!(invalid, rows[..1]);
 }
 
 #[test]
@@ -482,28 +495,23 @@ fn project(
     rows
 }
 
-pub(in super::super) fn assert_learning_recordings(
-    trace: &Path,
-    player: &SourcePlayer,
-    live: &PlayerLearning<'_, '_>,
-    session: &mut SourceWorldSession,
-) {
-    let c = trace.parent().unwrap().parent().unwrap();
-    let p = proxy(c);
-    // C:p1481,1491. Auth load returned no tutorial row before Create.
-    assert!(sql_result(c, &p[1491 - 1]).is_empty());
-    session.bind_tutorials(None);
-    let guid = live
-        .objects
-        .get(player.object)
-        .unwrap()
-        .guid
-        .unwrap()
-        .counter();
-    // C trace :68134692-68134694. No live deadlines depend on clock subsecond precision.
-    let rows = project(player, live, session, guid, 1_795_246_040_000);
-    assert_eq!(rows.len(), 19);
-    // C:p1554-1605. Compare every typed bind in emitted order.
+pub(in super::super) fn assert_create_learning_recording(
+    root: &Path,
+    guid: u32,
+    rows: &[RowOperation],
+) -> TutorialRow {
+    let p = proxy(root);
+    // C:p1481,1491. Auth loaded an empty tutorial table before Create.
+    assert!(sql_result(root, &p[1491 - 1]).is_empty());
+    assert_eq!(payload(&p[1502 - 1]), b"\x03START TRANSACTION");
+    assert_prepared(
+        &p,
+        1504,
+        1509,
+        "DELETE FROM characters WHERE guid = ?",
+        &[u32_bind(guid)],
+    );
+    assert_eq!(payload(&p[1607 - 1]), b"\x03COMMIT");
     assert_filtered_deletes(
         &p,
         [1554, 1557, 1572, 1575, 1600],
@@ -551,13 +559,21 @@ pub(in super::super) fn assert_learning_recordings(
         .collect::<Vec<_>>();
     assert_prepared(&p, 1602, 1605,
         "INSERT INTO character_tutorial (account,tut0,tut1,tut2,tut3,tut4,tut5,tut6,tut7) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", &binds);
+    tutorial
+}
 
+pub(in super::super) fn assert_logout_learning_recordings(
+    trace: &Path,
+    player: &SourcePlayer,
+    live: &PlayerLearning<'_, '_>,
+    tutorial_words: [u32; 8],
+) {
     let northshire03 = trace
         .ancestors()
         .nth(5)
         .unwrap()
         .join("northshire-03/source-choice");
-    assert_authored_a_logout(&northshire03.join("a"), live, player, tutorial.words);
+    assert_authored_a_logout(&northshire03.join("a"), live, player, tutorial_words);
     assert_authored_b_logout(&northshire03.join("b"), live, player);
 }
 

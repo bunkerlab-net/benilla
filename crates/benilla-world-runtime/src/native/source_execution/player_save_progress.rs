@@ -6,10 +6,6 @@ use super::*;
 // QuestDef.h:358-373. A default entry is NEW even if its status is NONE.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum QuestSaveState {
-    #[allow(
-        dead_code,
-        reason = "Player.cpp:16164 acknowledgement follows publication"
-    )]
     Unchanged,
     #[allow(dead_code, reason = "Player.cpp:13340 quest mutation is not yet bound")]
     Changed,
@@ -79,6 +75,15 @@ impl SourcePlayer {
             observe(SourcePlayerSaveObservation::Row(op))?;
         }
         Ok(())
+    }
+
+    // Player.cpp:16164. Skipped autocomplete entries stay dirty.
+    pub(super) fn acknowledge_quest_status(&mut self, written: Vec<u32>) {
+        for quest in written {
+            if let Some(status) = self.quest_status.get_mut(&quest) {
+                status.state = QuestSaveState::Unchanged;
+            }
+        }
     }
 
     // Player.cpp:16168-16185 saves the whole set only if dirty and nonempty.

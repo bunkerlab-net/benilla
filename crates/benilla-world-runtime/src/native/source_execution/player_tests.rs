@@ -1003,16 +1003,16 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     assert!(rows.items(1, 8).is_empty());
     let placed = player.item_update_queue.clone();
     let handle = player.object();
-    super::player_save_tests::assert_recorded_create_save(
+    let tutorial_words = super::player_save_tests::assert_recorded_create_save(
         &mut player,
-        &objects,
-        &units,
-        &live_items,
+        &mut objects,
+        &mut units,
+        &mut live_items,
         &spells,
-        &session,
+        &mut session,
         Path::new(&trace),
     );
-    super::player_save_learning::tests::assert_learning_recordings(
+    super::player_save_learning::tests::assert_logout_learning_recordings(
         Path::new(&trace),
         &player,
         &PlayerLearning {
@@ -1024,7 +1024,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
             items: &items,
             class: 8,
         },
-        &mut session,
+        tutorial_words,
     );
     player
         .discard(

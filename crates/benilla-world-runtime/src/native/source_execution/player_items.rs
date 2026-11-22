@@ -68,6 +68,12 @@ pub struct SourceItem {
 }
 
 impl SourceItem {
+    #[cfg(feature = "synthetic-native-tests")]
+    #[doc(hidden)]
+    pub fn authored_save_state(&self) -> (SourceItemState, Option<usize>) {
+        (self.state, self.queue_pos)
+    }
+
     // Item.h:294 reads the ID word for an enchantment slot.
     pub(super) fn enchantment_id(&self, slot: usize) -> Result<u32> {
         self.enchantments
@@ -210,6 +216,45 @@ impl SourceItems {
         self.0
             .get_mut(&handle)
             .ok_or_else(|| refuse("execution.item.stale_item_handle"))
+    }
+}
+
+#[cfg(feature = "synthetic-native-tests")]
+impl SourceItems {
+    #[doc(hidden)]
+    pub fn authored_removed_save_item(
+        &mut self,
+        player: &mut SourcePlayer,
+        objects: &mut SourceObjects,
+        counter: u32,
+    ) -> Result<ObjectHandle> {
+        let owner = objects
+            .get(player.object)?
+            .guid
+            .ok_or_else(|| refuse("test.item_owner"))?;
+        let handle = objects.construct(player.object.thread, SourceObjectKind::Item)?;
+        objects.assign_guid(
+            handle,
+            counter,
+            SourceGuid::without_entry(HighGuid::Item, counter),
+        )?;
+        self.0.insert(
+            handle,
+            SourceItem {
+                owner,
+                state: SourceItemState::Unchanged,
+                ..Default::default()
+            },
+        );
+        SourceItem::set_state(
+            handle,
+            SourceItemState::Removed,
+            player,
+            objects,
+            self,
+            &mut |_| {},
+        )?;
+        Ok(handle)
     }
 }
 

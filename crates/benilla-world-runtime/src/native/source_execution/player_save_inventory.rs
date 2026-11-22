@@ -21,6 +21,7 @@ impl SourcePlayer {
         objects: &SourceObjects,
         items: &SourceItems,
         guid: u32,
+        allow_removed_projection: bool,
         observe: &mut impl FnMut(SourcePlayerSaveObservation) -> Result<()>,
     ) -> Result<()> {
         for &handle in self.items[BUYBACK].iter().flatten() {
@@ -61,9 +62,30 @@ impl SourcePlayer {
         // Player.cpp:15988-15992 skips null entries without changing their neighbours' positions.
         let mut emit = |row| observe(SourcePlayerSaveObservation::Row(row));
         for &handle in self.item_update_queue.iter().flatten() {
-            Self::save_item_to_inventory(objects, handle, items.get(handle)?, guid, &mut emit)?;
+            Self::save_item_to_inventory(
+                objects,
+                handle,
+                items.get(handle)?,
+                guid,
+                allow_removed_projection,
+                &mut emit,
+            )?;
         }
         Ok(())
+    }
+
+    // Item.cpp:399-402,704-708; Player.cpp:15994. The projection validated every handle.
+    pub(in super::super) fn acknowledge_inventory(&mut self, items: &mut SourceItems) {
+        for &handle in self.item_update_queue.iter().flatten() {
+            if let Some(item) = items.0.get_mut(&handle) {
+                if matches!(item.state, SourceItemState::New | SourceItemState::Changed) {
+                    // Nonempty loot changes refuse before publication. None, temporary and
+                    // unchanged loot keep their state.
+                    item.mark_unchanged();
+                }
+            }
+        }
+        self.item_update_queue.clear();
     }
 
     // Player.cpp:3819-3864 writes the placement before saving the Item instance.
@@ -72,6 +94,7 @@ impl SourcePlayer {
         handle: ObjectHandle,
         item: &SourceItem,
         guid: u32,
+        allow_removed_projection: bool,
         emit: &mut impl FnMut(RowOperation) -> Result<()>,
     ) -> Result<()> {
         require(
@@ -104,7 +127,7 @@ impl SourcePlayer {
             }
             SourceItemState::Unchanged => {}
         }
-        item.save_instance(item_guid, emit)
+        item.save_instance(item_guid, allow_removed_projection, emit)
     }
 }
 
@@ -113,6 +136,7 @@ impl SourceItem {
     fn save_instance(
         &self,
         guid: u32,
+        allow_removed_projection: bool,
         emit: &mut impl FnMut(RowOperation) -> Result<()>,
     ) -> Result<()> {
         let wrapped = self.flags & ITEM_DYNFLAG_WRAPPED != 0;
@@ -151,12 +175,16 @@ impl SourceItem {
                 )?;
                 emit(RowOperation::Delete(RowDelete::ItemInstance(guid)))?;
                 require(!wrapped, "execution.player_save.Item_341.gift_owner")?;
-                return require(
+                require(
                     !matches!(
                         self.loot_state,
                         ITEM_LOOT_UNCHANGED | ITEM_LOOT_CHANGED | ITEM_LOOT_REMOVED
                     ),
                     "execution.player_save.Item_347.item_loot_delete_owner",
+                )?;
+                return require(
+                    allow_removed_projection,
+                    "execution.player_save.Item_351.destroy_removed_owner",
                 );
             }
             SourceItemState::Unchanged => return Ok(()),
@@ -169,6 +197,12 @@ impl SourceItem {
             self.loot_state != ITEM_LOOT_NEW,
             "execution.player_save.Item_376.item_loot_insert_owner",
         )
+    }
+
+    // Item.cpp:704-708. The Player clears its queue separately.
+    fn mark_unchanged(&mut self) {
+        self.queue_pos = None;
+        self.state = SourceItemState::Unchanged;
     }
 
     /// Item.cpp:684-769. The placement owner unlinks a removed Item before calling.
@@ -199,8 +233,7 @@ impl SourceItem {
             return items.destroy(objects, handle, observe);
         }
         if state == SourceItemState::Unchanged {
-            item.queue_pos = None;
-            item.state = state;
+            item.mark_unchanged();
             return Ok(());
         }
         if item.state != SourceItemState::New {

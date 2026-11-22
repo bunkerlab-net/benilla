@@ -23,6 +23,39 @@ impl SourcePlayer {
         Ok(())
     }
 
+    // Player.cpp:16275. The projection refuses spell deletion at :16265.
+    pub(super) fn acknowledge_spells(&mut self) {
+        for spell in self.spells.values_mut() {
+            spell.state = SourcePlayerSpellState::Unchanged;
+        }
+    }
+
+    // Player.cpp:15824,15836,15846.
+    pub(super) fn acknowledge_actions(&mut self) {
+        self.action_buttons.retain(|_, button| {
+            if button.state == SourcePlayerActionState::Deleted {
+                return false;
+            }
+            button.state = SourcePlayerActionState::Unchanged;
+            true
+        });
+    }
+
+    // Player.cpp:16207,16234. Erase in source traversal order.
+    pub(super) fn acknowledge_skills(&mut self) {
+        let mut cursor = self.skill_status.first_key();
+        while let Some(id) = cursor {
+            cursor = self.skill_status.next_key(id);
+            if let Some(status) = self.skill_status.get_mut(id) {
+                if status.state == SkillState::Deleted {
+                    self.skill_status.erase(id);
+                } else {
+                    status.state = SkillState::Unchanged;
+                }
+            }
+        }
+    }
+
     /// Player.cpp:3679-3716. GCD and school lockouts are outside the spell map.
     pub fn save_spell_cooldowns(
         &self,
@@ -132,7 +165,13 @@ impl SourcePlayer {
                 SkillState::Unchanged => continue,
                 SkillState::Deleted => RowOperation::Delete(RowDelete::Skill { guid, skill }),
                 SkillState::New | SkillState::Changed => {
-                    let [value, max] = self.skills[status.slot].value_max;
+                    let [value, max] = self
+                        .skills
+                        .get(status.slot)
+                        .ok_or_else(|| {
+                            refuse("execution.player_save.Player_16211.skill_slot_undefined")
+                        })?
+                        .value_max;
                     let row = SkillRow {
                         guid,
                         skill,
@@ -218,6 +257,11 @@ impl SourceWorldSession {
             TutorialState::New => RowOperation::Insert(RowInsert::Tutorial(row)),
         };
         observe(SourcePlayerSaveObservation::Row(op))
+    }
+
+    // WorldSession.cpp:1183.
+    pub(super) fn acknowledge_tutorials(&mut self) {
+        self.tutorial_state = TutorialState::Unchanged;
     }
 }
 

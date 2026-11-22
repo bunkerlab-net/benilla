@@ -88,6 +88,14 @@ pub(super) struct PlayerSkillInputs {
 }
 
 impl PlayerSkillInputs {
+    #[cfg(feature = "synthetic-native-tests")]
+    pub(super) fn authored_save_language(id: u16) -> Self {
+        Self {
+            categories: BTreeMap::from([(id, 10)]),
+            ..Default::default()
+        }
+    }
+
     pub fn load(catalog: &mut VerifiedCatalog) -> Result<Self> {
         let mut inputs = Self::default();
         {
