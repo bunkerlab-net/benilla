@@ -1020,7 +1020,8 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         .unwrap();
     assert!(objects.get(handle).is_err());
     assert_eq!(placed.len(), 8);
-    for item in placed {
+    assert!(placed.iter().all(Option::is_some));
+    for item in placed.into_iter().flatten() {
         assert!(objects.get(item).is_err());
         assert!(live_items.get(item).is_err());
     }

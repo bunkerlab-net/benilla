@@ -68,11 +68,11 @@ pub(super) fn assert_recorded_create_save(
         .unwrap_err();
     assert_eq!(
         stop.id,
-        "execution.player_save.Player_15766.inventory_owner"
+        "execution.player_save.Player_15767.quest_status_owner"
     );
     assert_eq!(read_wall.next(), None);
     assert_eq!(work.0, [game_seconds; 3]);
-    let [SourcePlayerSaveObservation::Begin, SourcePlayerSaveObservation::Row(RowOperation::Delete(RowDelete::Character(guid))), SourcePlayerSaveObservation::Row(RowOperation::Insert(RowInsert::Character(row)))] =
+    let [SourcePlayerSaveObservation::Begin, SourcePlayerSaveObservation::Row(RowOperation::Delete(RowDelete::Character(guid))), SourcePlayerSaveObservation::Row(RowOperation::Insert(RowInsert::Character(row))), inventory @ ..] =
         effects.as_slice()
     else {
         panic!("unexpected save prefix {effects:?}");
@@ -110,6 +110,7 @@ pub(super) fn assert_recorded_create_save(
     assert!(!row.online);
     assert_eq!(logout[18].bytes, 1u32.to_le_bytes()); // Live logout saves before detach.
     assert_eq!(logout[23].bytes, 1795250531u64.to_le_bytes());
+    super::player_items::save_inventory::tests::assert_create_recording(c, inventory);
 }
 
 // Northshire-01 A trace :68134692-68134694 and :68134746-68134747.
@@ -151,9 +152,9 @@ fn save_clocks(path: &Path) -> (i64, i64) {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct Operand {
-    tag: [u8; 2],
-    bytes: Vec<u8>,
+pub(super) struct Operand {
+    pub(super) tag: [u8; 2],
+    pub(super) bytes: Vec<u8>,
 }
 
 fn recording(root: &Path, prepare: usize, execute: usize) -> (Vec<String>, Vec<Operand>) {
@@ -180,12 +181,23 @@ fn recording(root: &Path, prepare: usize, execute: usize) -> (Vec<String>, Vec<O
     assert_eq!(identity["connection"], 4);
     let execute_row = row(rows.nth(execute - prepare - 2).unwrap());
     let bytes = payload(&execute_row);
+    let id = identity["native_statement"]
+        .as_u64()
+        .unwrap()
+        .try_into()
+        .unwrap();
+    (columns, prepared_operands(&bytes, id, 56))
+}
+
+pub(super) fn prepared_operands(bytes: &[u8], id: u32, count: usize) -> Vec<Operand> {
     assert_eq!(bytes[0], 23);
-    let id = u32::from_le_bytes(bytes[1..5].try_into().unwrap());
-    assert_eq!(identity["native_statement"].as_u64(), Some(u64::from(id)));
-    assert_eq!(bytes[10..18], [0, 0, 0, 0, 0, 0, 0, 1]);
-    let mut data = &bytes[130..];
-    let (tags, remainder) = bytes[18..130].as_chunks::<2>();
+    assert_eq!(u32::from_le_bytes(bytes[1..5].try_into().unwrap()), id);
+    let null_end = 10 + count.div_ceil(8);
+    assert!(bytes[10..null_end].iter().all(|&byte| byte == 0));
+    assert_eq!(bytes[null_end], 1);
+    let tag_end = null_end + 1 + 2 * count;
+    let mut data = &bytes[tag_end..];
+    let (tags, remainder) = bytes[null_end + 1..tag_end].as_chunks::<2>();
     assert!(remainder.is_empty());
     let words = tags
         .iter()
@@ -218,10 +230,10 @@ fn recording(root: &Path, prepare: usize, execute: usize) -> (Vec<String>, Vec<O
         })
         .collect();
     assert!(data.is_empty());
-    (columns, words)
+    words
 }
 
-fn payload(row: &Value) -> Vec<u8> {
+pub(super) fn payload(row: &Value) -> Vec<u8> {
     assert_eq!(row["kind"], "request");
     assert_eq!(row["connection"], 4);
     let hex = row["private_payload_hex"].as_str().unwrap();
@@ -321,7 +333,7 @@ fn bind_words(row: &CharacterRow) -> Vec<Operand> {
     ]
 }
 
-fn unsigned<const N: usize>(kind: u8, bytes: [u8; N]) -> Operand {
+pub(super) fn unsigned<const N: usize>(kind: u8, bytes: [u8; N]) -> Operand {
     Operand {
         tag: [kind, 128],
         bytes: bytes.to_vec(),
@@ -477,7 +489,7 @@ fn save_refuses_in_source_order_without_a_commit() {
             0,
             false,
             false,
-            "Player_15766.inventory_owner",
+            "Player_15767.quest_status_owner",
             true,
             true,
         ),

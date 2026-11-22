@@ -26,7 +26,9 @@ pub use player_cast::{SourcePlayerAuraClock, SourcePlayerCastInputs};
 mod player_defense;
 #[path = "player_items.rs"]
 mod player_items;
-pub use player_items::{ItemLifetimeObservation, SourceItem, SourceItems, SourcePlayerItemInputs};
+pub use player_items::{
+    ItemLifetimeObservation, SourceItem, SourceItemState, SourceItems, SourcePlayerItemInputs,
+};
 
 #[path = "player_honor.rs"]
 mod player_honor;
@@ -116,8 +118,11 @@ pub struct SourcePlayer {
     pub last_tick: i64,
     pub played_time: [u32; 2],
     pub items: [Option<ObjectHandle>; 118],
-    // Item.cpp:712-739 queues each placed item once.
-    item_update_queue: Vec<ObjectHandle>,
+    // Item.cpp:712-769 queues each item once and leaves holes on removal.
+    item_update_queue: Vec<Option<ObjectHandle>>,
+    item_update_queue_blocked: bool,
+    // Player.h:2388 starts with an empty enchantment duration list.
+    enchant_durations_active: bool,
     pub race: u8,
     pub gender: u8,
     pub team: u32,
@@ -219,6 +224,8 @@ impl SourcePlayer {
                 played_time: [0; 2],
                 items: [None; 118], // Player.cpp:521; Player.h:550-553.
                 item_update_queue: Vec::new(),
+                item_update_queue_blocked: false, // Player.cpp:603.
+                enchant_durations_active: false,  // Player.h:2388.
                 race: 0,
                 gender: 0,
                 team: 0,

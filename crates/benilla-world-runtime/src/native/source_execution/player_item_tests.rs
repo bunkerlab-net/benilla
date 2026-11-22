@@ -365,7 +365,7 @@ fn equip_refuses_the_unreached_item_callbacks_after_placement() {
             );
             let handle = player.items[slot].unwrap();
             assert_eq!(live.items.get(handle).unwrap().owner.raw(), 1);
-            assert_eq!(player.item_update_queue, [handle]);
+            assert_eq!(player.item_update_queue, [Some(handle)]);
         });
     }
 }
@@ -448,7 +448,7 @@ fn backpack_recheck_excludes_the_moving_bound_item() {
             (23, 1, 1, 1)
         );
         assert_eq!(item.queue_pos, Some(0));
-        assert_eq!(player.item_update_queue, [handle]);
+        assert_eq!(player.item_update_queue, [Some(handle)]);
         assert_eq!(live.objects.construction_count(1), 3);
 
         let proto = live.templates.item_prototype(1).unwrap().unwrap();
@@ -462,7 +462,7 @@ fn backpack_recheck_excludes_the_moving_bound_item() {
         player.recheck_backpack(live).unwrap();
         assert_eq!(live.objects.construction_count(1), 3);
         assert_eq!(player.items[23], Some(handle));
-        assert_eq!(player.item_update_queue, [handle]);
+        assert_eq!(player.item_update_queue, [Some(handle)]);
         assert_eq!(live.objects.get(handle).unwrap().guid, guid);
         let item = live.items.get(handle).unwrap();
         assert_eq!(
@@ -487,7 +487,7 @@ fn backpack_recheck_excludes_the_moving_bound_item() {
             (u8::MAX, 1, 0)
         );
         assert!(player.items[23].is_none());
-        assert_eq!(player.item_update_queue, [handle]);
+        assert_eq!(player.item_update_queue, [Some(handle)]);
     });
 }
 

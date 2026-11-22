@@ -2,6 +2,9 @@
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 use super::*;
 
+#[path = "player_save_inventory.rs"]
+pub(super) mod save_inventory;
+
 // UpdateFields.h:26-54,193-201.
 const ITEM_OWNER: usize = 6;
 const ITEM_CONTAINED: usize = 8;
@@ -26,6 +29,16 @@ pub enum ItemLifetimeObservation {
     Destroyed { guid: SourceGuid },
 }
 
+// Item.h:168-174.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SourceItemState {
+    Unchanged,
+    Changed,
+    #[default]
+    New,
+    Removed,
+}
+
 // Item.cpp:189-198 and Object.cpp:105-108 initialize the live fields.
 #[derive(Debug, Default)]
 pub struct SourceItem {
@@ -37,10 +50,18 @@ pub struct SourceItem {
     pub charges: [i32; 5],
     // Item.cpp:208 calls Object.cpp:105-108. UpdateFields.h:48 and Item.h:147,159.
     enchantments: [[u32; 3]; 7],
+    // Item.cpp:208 calls Object.cpp:105-108. UpdateFields.h:38-39,50-51.
+    creator: SourceGuid,
+    gift_creator: SourceGuid,
+    random_property: i32,
+    text_id: u32,
     pub flags: u32,
     pub durability: u32,
     pub max_durability: u32,
     pub slot: u8,
+    state: SourceItemState,
+    container: Option<ObjectHandle>,
+    loot_state: u8, // Item.cpp:195 and Item.h:176-184. ITEM_LOOT_NONE is zero.
     queue_pos: Option<usize>,
     object_type: u32,
     scale: f32,
@@ -303,7 +324,7 @@ impl SourcePlayer {
             return Ok(());
         };
         let placed = (|| {
-            let item = live.items.get_mut(handle)?;
+            let item = live.items.get(handle)?;
             // Item.cpp:639-681. The plain factory produces no enchantments.
             require(
                 item.duration == 0,
@@ -321,7 +342,7 @@ impl SourcePlayer {
                 self.items.get(slot).is_some_and(Option::is_none),
                 "execution.player.Player_10127.equip_merge_owner",
             )?;
-            self.place_item(live.objects, handle, slot, item, true)?;
+            self.place_item(live, handle, slot, true)?;
             self.finish_equip(live, proto, slot)
         })();
         if placed.is_err() && self.items.get(slot) != Some(&Some(handle)) {
@@ -330,16 +351,17 @@ impl SourcePlayer {
         placed
     }
 
-    // Player.cpp:10216-10226. The live item supplies the visible entry.
+    // Player.cpp:9986-10000,10216-10226. The live item supplies the visible entry.
     fn place_item(
         &mut self,
-        objects: &SourceObjects,
+        live: &mut Outfit<'_>,
         handle: ObjectHandle,
         slot: usize,
-        item: &mut SourceItem,
         equip: bool,
     ) -> Result<()> {
+        let objects = &mut *live.objects;
         self.set_item_slot(objects, slot, Some(handle))?;
+        let item = live.items.get_mut(handle)?;
         let owner = objects
             .get(self.object)?
             .guid
@@ -347,6 +369,7 @@ impl SourcePlayer {
         objects.set_update_guid(handle, ITEM_CONTAINED, &mut item.contained, owner)?;
         objects.set_update_guid(handle, ITEM_OWNER, &mut item.owner, owner)?;
         item.slot = slot as u8;
+        item.container = None;
         // Player.cpp:10173-10187. Creator, enchantment and property words remain zero.
         if equip && item.entry != 0 {
             objects.force_update_field(self.object, PLAYER_VISIBLE_ENTRY + 12 * slot)?;
@@ -357,12 +380,14 @@ impl SourcePlayer {
                 "execution.player.Player_9996.store_in_world_owner",
             )?;
         }
-        // Item.cpp:684-739. An item marked CHANGED while NEW stays NEW.
-        if item.queue_pos.is_none() {
-            item.queue_pos = Some(self.item_update_queue.len());
-            self.item_update_queue.push(handle);
-        }
-        Ok(())
+        SourceItem::set_state(
+            handle,
+            SourceItemState::Changed,
+            self,
+            objects,
+            live.items,
+            live.observe,
+        )
     }
 
     // Player.cpp:9986-9992,10216-10221,10277-10289. Keep the handle as the only
@@ -836,9 +861,10 @@ impl SourcePlayer {
             live.objects
                 .update_flags(handle, ITEM_FLAGS, &mut item.flags, 1, true)?;
         }
-        self.place_item(live.objects, handle, slot, item, false)?;
+        let duration = item.duration;
+        self.place_item(live, handle, slot, false)?;
         require(
-            item.duration == 0,
+            duration == 0,
             "execution.player.Player_18607.item_duration_owner",
         )
     }

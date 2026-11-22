@@ -46,7 +46,7 @@ impl SourcePlayer {
         self.save_to_db_prefix(inputs, observe)
     }
 
-    /// Player.cpp:15602-15766. This prefix never commits a transaction.
+    /// Player.cpp:15602-15767. This prefix never commits a transaction.
     pub fn save_to_db_prefix(
         &mut self,
         inputs: &mut SourcePlayerSaveInputs<'_, impl WorldStartupWork>,
@@ -85,6 +85,9 @@ impl SourcePlayer {
             !self.save_fields.bg_dirty,
             "execution.player_save.Player_19840.battleground_save_owner",
         )?;
-        Err(refuse("execution.player_save.Player_15766.inventory_owner"))
+        self.save_inventory(inputs.objects, inputs.items, guid, &mut observe)?;
+        Err(refuse(
+            "execution.player_save.Player_15767.quest_status_owner",
+        ))
     }
 }
