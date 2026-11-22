@@ -61,6 +61,27 @@ impl SourceDynamicMap {
             )
             .map_err(dynamic_error)
     }
+    /// Map.cpp:2758-2765 combines static terrain and the live dynamic tree.
+    pub(super) fn map_height(
+        &mut self,
+        models: &SourceDynamicModels,
+        terrain: &mut SourceTerrainManager,
+        [x, y, z]: [f32; 3],
+        swim: bool,
+    ) -> Result<f32> {
+        use benilla_native_terrain::{
+            grid_height::DEFAULT_HEIGHT_SEARCH, grid_liquid::DEFAULT_WATER_SEARCH,
+        };
+        let distance = if swim {
+            DEFAULT_WATER_SEARCH
+        } else {
+            DEFAULT_HEIGHT_SEARCH
+        };
+        let ground = terrain.height_static(self.map.map, [x, y, z], true, distance)?;
+        let search_z = 2.0 + if z < ground { ground } else { z };
+        let dynamic = self.height(models, &terrain.vmap, [x, y, search_z], search_z - ground)?;
+        Ok(if ground < dynamic { dynamic } else { ground })
+    }
     pub fn hit_position(
         &mut self,
         models: &SourceDynamicModels,

@@ -2088,6 +2088,7 @@ impl PersistentEffects for InitialEffects<'_> {
 struct DragonBindings<'a> {
     definitions: TemporaryCreatureDefinitions<'a>,
     terrain: &'a mut SourceTerrainManager,
+    dynamic_models: &'a SourceDynamicModels,
     config: &'a [u8],
 }
 
@@ -2395,6 +2396,7 @@ impl WorldTailOwner for Owner<'_> {
             settings,
             &bindings.definitions,
             bindings.terrain,
+            bindings.dynamic_models,
             1,
             &mut random,
             |key| active_init::creature_uint_config(bindings.config, key),
@@ -7441,6 +7443,7 @@ pub(super) fn continue_startup(
             immunities: &creature_immunities,
         },
         terrain: geometry,
+        dynamic_models: &dynamic_models,
         config: &config,
     });
     let refusal = initialize_world_tail(

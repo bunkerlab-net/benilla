@@ -143,3 +143,58 @@ fn height_static_runs_full_grid_upgrade_before_disabled_vmap_branch_without_weak
     );
     assert_eq!(random.cursor().raw, 1);
 }
+
+#[test]
+#[cfg(target_arch = "x86_64")]
+fn allowed_position_z_clamps_walkers_and_preserves_flight_above_ground() {
+    use benilla_sim::creature_capabilities::MOVEFLAG_HOVER;
+    let mut files = SourceTerrainFiles::default();
+    files.bytes(0, 32, 32, map(1, 0));
+    let mut terrain = SourceTerrainManager::new(files, SourceTerrainDbc::default());
+    terrain
+        .vmap
+        .collision
+        .files
+        .observe(b"000.vmtree", FileState::Absent)
+        .unwrap();
+    terrain.mmap.files.map_bytes(
+        0,
+        include_bytes!("../../../../../benilla-native-nav/tools/fixtures/authored.mmap").to_vec(),
+    );
+    terrain.mmap.load_map_instance(0, 0).unwrap();
+    terrain.mmap.files.source_tile_absent(0, 32, 32).unwrap();
+    let mut mt = Mt19937::from_seed(5489);
+    let mut cursor = DrawCursor::default();
+    let mut sink = |_| {};
+    let mut random = SourceRandom::new(1, &mut mt, &mut cursor, &mut sink).unwrap();
+    terrain.load_terrain(0, &mut random).unwrap();
+    let mut dynamic_map = SourceDynamicMap::new(MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    });
+    let models = SourceDynamicModels::default();
+    let collision = SourceCollisionModels::default();
+    let mut unit = SourceUnitFields::constructed_creature();
+    // Unit.cpp:11850-11862. The flat grid is at -8 and the dynamic tree is empty.
+    unit.movement = Some(SourceCreatureMovement::construct());
+    for (flags, z, expected) in [
+        (0, 2.0, -8.0),
+        (0, -10.0, -8.0),
+        (MOVEFLAG_HOVER, 2.0, 2.0),
+        (MOVEFLAG_HOVER, -10.0, -8.0),
+    ] {
+        unit.movement.as_mut().unwrap().flags = Some(flags);
+        assert_eq!(
+            unit.update_allowed_position_z(
+                [0.0, 0.0, z],
+                &mut dynamic_map,
+                &models,
+                &mut terrain,
+                &collision,
+            )
+            .unwrap(),
+            expected
+        );
+    }
+}

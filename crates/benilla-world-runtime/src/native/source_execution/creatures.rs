@@ -1837,13 +1837,14 @@ where
     }
 }
 
-// Object.cpp:2028-2060 and Creature.cpp:900-906 create a creature with null CreatureData.
+// Object.cpp:2028-2060 and Creature.cpp:900-909 create a creature with null CreatureData.
 #[allow(clippy::too_many_arguments)]
 pub fn summon_source_emerald_dragon(
     map: &mut SourceContinent,
     settings: EmeraldDragonSummon,
     definitions: &TemporaryCreatureDefinitions<'_>,
     terrain: &mut SourceTerrainManager,
+    dynamic_models: &SourceDynamicModels,
     thread: u64,
     random: &mut dyn CreatureRandom,
     config: impl FnMut(CreatureEntryConfig) -> Result<u32>,
@@ -1902,20 +1903,34 @@ pub fn summon_source_emerald_dragon(
         None,
         None,
     )?;
-    if state.is_none() {
-        // Object.cpp:2056-2059 deletes the candidate when Create returns false.
-        CreatureConstruction::discard_loaded_candidate(
-            object,
-            &mut map.units,
-            &mut map.passengers,
-            &mut map.motions,
-        )?;
-        map.objects.destroy(object, &mut map.cells)?;
-        return Ok(None);
+    if let Some(state) = state {
+        // Creature.cpp:105-120,906. The fixed summon has neither a close object nor a DB row.
+        let [x, y, z, orientation] = state.position;
+        let z = map
+            .units
+            .get(&map.objects, object)?
+            .update_allowed_position_z(
+                [x, y, z],
+                &mut map.dynamic_tree,
+                dynamic_models,
+                terrain,
+                definitions.collision_models,
+            )?;
+        if relocate_source_creature_for_create(&mut map.objects, object, [x, y, z, orientation])? {
+            return Err(refuse(
+                "execution.creature.Creature_912.create_notifications_owner",
+            ));
+        }
     }
-    Err(refuse(
-        "execution.creature.Creature_906.select_final_point_owner",
-    ))
+    // Object.cpp:2056-2059 deletes the candidate when Create returns false.
+    CreatureConstruction::discard_loaded_candidate(
+        object,
+        &mut map.units,
+        &mut map.passengers,
+        &mut map.motions,
+    )?;
+    map.objects.destroy(object, &mut map.cells)?;
+    Ok(None)
 }
 
 /// Selected construction only. EventAI keeps its existing definition/build/base owner path.
@@ -2072,6 +2087,49 @@ fn loaded_creature_can_fly(live: &SourceUnitFields) -> Result<bool> {
         .ok_or_else(|| refuse("execution.creature.Creature_1706.CanFly_movement_flags_owner"))?;
     Ok(flags & (MOVEFLAG_LEVITATING | MOVEFLAG_HOVER | MOVEFLAG_CAN_FLY) != 0)
 }
+
+impl SourceUnitFields {
+    /// Unit.cpp:11835-11864 uses the unit's own map when atMap is null.
+    pub(super) fn update_allowed_position_z(
+        &self,
+        [x, y, z]: [f32; 3],
+        map: &mut SourceDynamicMap,
+        models: &SourceDynamicModels,
+        terrain: &mut SourceTerrainManager,
+        collision_models: &SourceCollisionModels,
+    ) -> Result<f32> {
+        use benilla_native_terrain::grid_height::INVALID_HEIGHT;
+        let fly = loaded_creature_can_fly(self)?;
+        let swim = !fly && self.can_swim; // Creature.h:644.
+        let ground = map.map_height(models, terrain, [x, y, z], swim)?;
+        if fly {
+            return Ok(if z < ground { ground } else { z });
+        }
+        let maximum = if swim {
+            let scale = self
+                .loaded_creature
+                .scale
+                .map(f32::from_bits)
+                .ok_or_else(|| refuse("execution.unit.Unit_11932.collision_scale_owner"))?;
+            let height =
+                collision_models.collision_height(self.loaded_creature.native_display, scale)?;
+            let water_walk = self.auras.has_aura_type(104); // SpellAuraDefines.h:239.
+            terrain.water_or_ground_level(map.map().map, [x, y, z], ground, !water_walk, height)?
+        } else {
+            ground
+        };
+        if maximum > INVALID_HEIGHT {
+            if z > maximum {
+                return Ok(maximum);
+            }
+            if z < ground {
+                return Ok(ground);
+            }
+        }
+        Ok(z)
+    }
+}
+
 fn dead<D, P, F>(
     factory: &mut F,
     state: &mut CreatureConstruction,

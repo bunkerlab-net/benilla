@@ -223,7 +223,12 @@ impl WorldStateEvidence {
         assert_eq!(live.entry, guid.entry());
         assert_eq!(live.loaded_creature.native_display, 15363); // initial-classicmangos.sql:430292.
         assert!(live.temporary_spawn.is_some() && live.spawner.is_none());
-        assert!(!object.in_world && !object.database_spawn_data && object.pose.is_none());
+        assert!(!object.in_world && !object.database_spawn_data);
+        // Trace :61740831-41 queries the relocated point. Object.cpp:2062 has not run.
+        assert_eq!(
+            object.pose,
+            Some(SourcePose([0xc622f333, 0xc3c41687, 0x42300be4, 0x3f6eb021]))
+        );
         let pose = object.respawn_pose.unwrap();
         assert_eq!(
             pose,
