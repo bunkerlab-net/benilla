@@ -1,0 +1,11 @@
+# label	classification	invoked
+cold_no_tail	cold_uninitialized	0
+active_zero_reference	invalid_reference	0
+invalid_retained_reference	invalid_reference	0
+active_over_capacity	active_bounds	0
+nonfinite_endpoint	coordinate_domain	0
+nan_width	width_domain	0
+negative_width	width_domain	0
+active_normalization	normalization_unsupported	0
+invalid_type	type_domain	0
+sample_operational_bound	sample_bound	0

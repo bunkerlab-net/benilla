@@ -1,6 +1,6 @@
 //! Doodad-hull welding: world-static hulls batch into a few dozen welded trimeshes instead of
-//! thousands of colliders, with the same triangles, layers and [`PickOccluder`] clamp (the clamp
-//! reads a distance, and hover picks cast against pick meshes, never these hulls).
+//! thousands of colliders, with the same triangles and layers. A hull never occludes the mouse
+//! pick, which tests a doodad's drawn render batches ([`crate::interact::DoodadOccluders`]).
 //!
 //! - WMO props weld per placement (uniqueId) and despawn with it, as the single hulls did.
 //! - ADT doodads weld per the placement's first-registering tile and despawn with that tile. A
@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use bevy::prelude::*;
 
 use super::collider::{build_collider_task, doodad_hulls_bare, PendingCollider};
-use crate::collision::PickOccluder;
+use super::native_coverage::NativeHullId;
 use crate::interact::WorldObject;
 use crate::model_render::ModelKind;
 
@@ -32,6 +32,8 @@ struct WeldAcc {
     verts: Vec<Vec3>,
     tris: Vec<[u32; 3]>,
     hulls: u32,
+    /// Exact namespaced source IDs in append order.
+    native_sources: Vec<NativeHullId>,
     /// [`HullWelds::frame`] at the last append: the idle clock.
     last_add: u32,
 }
@@ -66,7 +68,13 @@ pub struct HullWelds {
 }
 
 impl HullWelds {
-    pub(super) fn add_tile(&mut self, tile: (i32, i32), verts: Vec<Vec3>, tris: Vec<[u32; 3]>) {
+    pub(super) fn add_tile(
+        &mut self,
+        tile: (i32, i32),
+        unique_id: u32,
+        verts: Vec<Vec3>,
+        tris: Vec<[u32; 3]>,
+    ) {
         let frame = self.frame;
         self.tiles
             .entry(tile)
@@ -74,12 +82,24 @@ impl HullWelds {
                 verts: Vec::new(),
                 tris: Vec::new(),
                 hulls: 0,
+                native_sources: Vec::new(),
                 last_add: frame,
             })
             .append(verts, tris, frame);
+        self.tiles
+            .get_mut(&tile)
+            .unwrap()
+            .native_sources
+            .push(NativeHullId::M2(unique_id));
     }
 
-    pub(super) fn add_prop(&mut self, uid: u32, verts: Vec<Vec3>, tris: Vec<[u32; 3]>) {
+    pub(super) fn add_prop(
+        &mut self,
+        uid: u32,
+        doodad_index: u32,
+        verts: Vec<Vec3>,
+        tris: Vec<[u32; 3]>,
+    ) {
         let frame = self.frame;
         self.props
             .entry(uid)
@@ -87,9 +107,15 @@ impl HullWelds {
                 verts: Vec::new(),
                 tris: Vec::new(),
                 hulls: 0,
+                native_sources: Vec::new(),
                 last_add: frame,
             })
             .append(verts, tris, frame);
+        self.props
+            .get_mut(&uid)
+            .unwrap()
+            .native_sources
+            .push(NativeHullId::WmoDoodad(uid, doodad_index));
     }
 
     /// Accumulators not yet flushed, counted into `colliders_pending` so the settle release waits
@@ -147,14 +173,14 @@ pub(super) fn flush_hull_welds(
 }
 
 /// One closed batch as one off-thread trimesh build with a single hull's components: default
-/// layers, the pick clamp and a static body unless `doodad_hulls_bare`. Not pickable.
+/// layers and a static body unless `doodad_hulls_bare`. Not pickable, and no pick occluder.
 fn spawn_weld(commands: &mut Commands, acc: &mut WeldAcc) -> Entity {
     let verts = std::mem::take(&mut acc.verts);
     let tris = std::mem::take(&mut acc.tris);
     commands
         .spawn((
             PendingCollider::new(build_collider_task(verts, tris), None, !doodad_hulls_bare()),
-            PickOccluder,
+            super::native_coverage::StaticColliderSources(std::mem::take(&mut acc.native_sources)),
             WorldObject {
                 kind: ModelKind::Doodad,
                 label: "hull-weld".into(),
@@ -187,19 +213,7 @@ mod tests {
     }
 
     fn blank_tile() -> TileState {
-        TileState {
-            handle: Default::default(),
-            entity: None,
-            material: None,
-            next_cell: 0,
-            furnished: false,
-            placements: Vec::new(),
-            liquid: Vec::new(),
-            wall: None,
-            clutter: Vec::new(),
-            welds: Vec::new(),
-            merged: Vec::new(),
-        }
+        TileState::requested(Default::default())
     }
 
     fn blank_placement() -> Placement {
@@ -221,8 +235,8 @@ mod tests {
     fn append_rebases_indices() {
         let mut welds = HullWelds::default();
         let (v, t) = hull();
-        welds.add_tile((0, 0), v.clone(), t.clone());
-        welds.add_tile((0, 0), v, t);
+        welds.add_tile((0, 0), 1, v.clone(), t.clone());
+        welds.add_tile((0, 0), 1, v, t);
         let acc = welds.tiles.get(&(0, 0)).unwrap();
         assert_eq!(acc.hulls, 2);
         assert_eq!(acc.verts.len(), 6);
@@ -241,7 +255,7 @@ mod tests {
             let mut welds = app.world_mut().resource_mut::<HullWelds>();
             for _ in 0..WELD_MAX_HULLS {
                 let (v, t) = hull();
-                welds.add_tile((3, 4), v, t);
+                welds.add_tile((3, 4), 1, v, t);
             }
         }
         app.world_mut().run_system_once(flush_hull_welds).unwrap();
@@ -250,7 +264,12 @@ mod tests {
         let owned = streamer.tiles.get(&(3, 4)).unwrap().welds.clone();
         assert_eq!(owned.len(), 1);
         assert!(app.world().get::<PendingCollider>(owned[0]).is_some());
-        assert!(app.world().get::<PickOccluder>(owned[0]).is_some());
+        assert!(
+            app.world()
+                .get::<crate::collision::PickOccluder>(owned[0])
+                .is_none(),
+            "a hull never occludes the mouse pick"
+        );
     }
 
     #[test]
@@ -264,7 +283,7 @@ mod tests {
         {
             let mut welds = app.world_mut().resource_mut::<HullWelds>();
             let (v, t) = hull();
-            welds.add_tile((0, 0), v, t);
+            welds.add_tile((0, 0), 1, v, t);
         }
         for _ in 0..(WELD_IDLE_FRAMES - 1) {
             app.world_mut().run_system_once(flush_hull_welds).unwrap();
@@ -283,7 +302,7 @@ mod tests {
             let mut welds = app.world_mut().resource_mut::<HullWelds>();
             for _ in 0..WELD_MAX_HULLS {
                 let (v, t) = hull();
-                welds.add_tile((9, 9), v, t);
+                welds.add_tile((9, 9), 1, v, t);
             }
         }
         let before = app.world().entities().len();
@@ -303,7 +322,7 @@ mod tests {
             let mut welds = app.world_mut().resource_mut::<HullWelds>();
             for _ in 0..WELD_MAX_HULLS {
                 let (v, t) = hull();
-                welds.add_prop(7, v, t);
+                welds.add_prop(7, 0, v, t);
             }
         }
         app.world_mut().run_system_once(flush_hull_welds).unwrap();

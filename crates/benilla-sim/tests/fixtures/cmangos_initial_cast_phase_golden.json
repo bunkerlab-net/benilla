@@ -1,0 +1,6629 @@
+{
+  "schema_version": 1,
+  "source_pin": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "manifest_sha256": "4237fb93a91b19d2cccff099a8bb54562b146fcc3edd1e0eeb4492ba40c4e23e",
+  "provenance": "authored synthetic inputs and resolved phase prerequisites; not SQL/DBC capture, loader order, full spell engine or gameplay admission",
+  "cases": [
+    {
+      "name": "dodge81_roll_0",
+      "spells": [
+        {
+          "spell_id": 81,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 90,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 6,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 4294967295,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [
+        0
+      ],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "draw",
+          "spell_index": 0,
+          "slot": 0,
+          "low": 0,
+          "high": 6,
+          "value": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "dodge81_roll_1",
+      "spells": [
+        {
+          "spell_id": 81,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 90,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 6,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 4294967295,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [
+        1
+      ],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "draw",
+          "spell_index": 0,
+          "slot": 0,
+          "low": 0,
+          "high": 6,
+          "value": 1
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 1,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "dodge81_roll_2",
+      "spells": [
+        {
+          "spell_id": 81,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 90,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 6,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 4294967295,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [
+        2
+      ],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "draw",
+          "spell_index": 0,
+          "slot": 0,
+          "low": 0,
+          "high": 6,
+          "value": 2
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 2,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "dodge81_roll_3",
+      "spells": [
+        {
+          "spell_id": 81,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 90,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 6,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 4294967295,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [
+        3
+      ],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "draw",
+          "spell_index": 0,
+          "slot": 0,
+          "low": 0,
+          "high": 6,
+          "value": 3
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 3,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "dodge81_roll_4",
+      "spells": [
+        {
+          "spell_id": 81,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 90,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 6,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 4294967295,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [
+        4
+      ],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "draw",
+          "spell_index": 0,
+          "slot": 0,
+          "low": 0,
+          "high": 6,
+          "value": 4
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 4,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "dodge81_roll_5",
+      "spells": [
+        {
+          "spell_id": 81,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 90,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 6,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 4294967295,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [
+        5
+      ],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "draw",
+          "spell_index": 0,
+          "slot": 0,
+          "low": 0,
+          "high": 6,
+          "value": 5
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 5,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "dodge81_roll_6",
+      "spells": [
+        {
+          "spell_id": 81,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 90,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 6,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 4294967295,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [
+        6
+      ],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "draw",
+          "spell_index": 0,
+          "slot": 0,
+          "low": 0,
+          "high": 6,
+          "value": 6
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 6,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "dodge81_die_0_no_draw",
+      "spells": [
+        {
+          "spell_id": 81,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 90,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "dodge81_die_1_no_draw",
+      "spells": [
+        {
+          "spell_id": 81,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 90,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "detect3050_no_dispatch",
+      "spells": [
+        {
+          "spell_id": 3050,
+          "effects": [
+            {
+              "opcode": 49,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -1,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 1084227584,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 4294967295,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        0
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "proficiency_slot_order_and_masks",
+      "spells": [
+        {
+          "spell_id": 227,
+          "effects": [
+            {
+              "opcode": 25,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 60,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 2,
+          "item_mask": 1024,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 2382,
+          "effects": [
+            {
+              "opcode": 25,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 60,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 2,
+          "item_mask": 16384,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 5009,
+          "effects": [
+            {
+              "opcode": 25,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 60,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 2,
+          "item_mask": 524288,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 9078,
+          "effects": [
+            {
+              "opcode": 60,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 4,
+          "item_mask": 2,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 9125,
+          "effects": [
+            {
+              "opcode": 60,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 4,
+          "item_mask": 1,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 25,
+          "target": "targetless"
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 60,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 1
+        },
+        {
+          "kind": "amount",
+          "spell_index": 1,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 1,
+          "slot": 0,
+          "value": 25,
+          "target": "targetless"
+        },
+        {
+          "kind": "amount",
+          "spell_index": 1,
+          "slot": 1,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 1,
+          "slot": 1,
+          "value": 60,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 1
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 2
+        },
+        {
+          "kind": "amount",
+          "spell_index": 2,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 2,
+          "slot": 0,
+          "value": 25,
+          "target": "targetless"
+        },
+        {
+          "kind": "amount",
+          "spell_index": 2,
+          "slot": 1,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 2,
+          "slot": 1,
+          "value": 60,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 2
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 3
+        },
+        {
+          "kind": "amount",
+          "spell_index": 3,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 3,
+          "slot": 0,
+          "value": 60,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 3
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 4
+        },
+        {
+          "kind": "amount",
+          "spell_index": 4,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 4,
+          "slot": 0,
+          "value": 60,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 4
+        }
+      ],
+      "final_weapon_mask": 541696,
+      "final_armor_mask": 3,
+      "rank_queries": 0,
+      "targetless_masks": [
+        3,
+        3,
+        3,
+        1,
+        1
+      ],
+      "self_masks": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "name": "proficiency_already_known",
+      "spells": [
+        {
+          "spell_id": 227,
+          "effects": [
+            {
+              "opcode": 25,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 60,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 2,
+          "item_mask": 1024,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 9078,
+          "effects": [
+            {
+              "opcode": 60,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 4,
+          "item_mask": 2,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 1024,
+      "initial_armor_mask": 2,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 25,
+          "target": "targetless"
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 60,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 1
+        },
+        {
+          "kind": "amount",
+          "spell_index": 1,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 1,
+          "slot": 0,
+          "value": 60,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 1
+        }
+      ],
+      "final_weapon_mask": 1024,
+      "final_armor_mask": 2,
+      "rank_queries": 0,
+      "targetless_masks": [
+        3,
+        1
+      ],
+      "self_masks": [
+        0,
+        0
+      ]
+    },
+    {
+      "name": "sword20597_two_auras",
+      "spells": [
+        {
+          "spell_id": 20597,
+          "effects": [
+            {
+              "opcode": 6,
+              "aura": 98,
+              "misc": 43,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 1,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 6,
+              "aura": 98,
+              "misc": 55,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 1,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": -1
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "holder_create",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 5,
+          "target": "self"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 6,
+          "target": "self"
+        },
+        {
+          "kind": "aura_construct",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 5
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 5,
+          "target": "self"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 6,
+          "target": "self"
+        },
+        {
+          "kind": "aura_construct",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 5
+        },
+        {
+          "kind": "aura_register",
+          "spell_index": 0,
+          "slot": 0
+        },
+        {
+          "kind": "aura_register",
+          "spell_index": 0,
+          "slot": 1
+        },
+        {
+          "kind": "aura_apply",
+          "spell_index": 0,
+          "slot": 0
+        },
+        {
+          "kind": "aura_apply",
+          "spell_index": 0,
+          "slot": 1
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        0
+      ],
+      "self_masks": [
+        3
+      ]
+    },
+    {
+      "name": "mace20864_two_auras",
+      "spells": [
+        {
+          "spell_id": 20864,
+          "effects": [
+            {
+              "opcode": 6,
+              "aura": 98,
+              "misc": 54,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 1,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 6,
+              "aura": 98,
+              "misc": 160,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 1,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": -1
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "holder_create",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 5,
+          "target": "self"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 6,
+          "target": "self"
+        },
+        {
+          "kind": "aura_construct",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 5
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 5,
+          "target": "self"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 6,
+          "target": "self"
+        },
+        {
+          "kind": "aura_construct",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 5
+        },
+        {
+          "kind": "aura_register",
+          "spell_index": 0,
+          "slot": 0
+        },
+        {
+          "kind": "aura_register",
+          "spell_index": 0,
+          "slot": 1
+        },
+        {
+          "kind": "aura_apply",
+          "spell_index": 0,
+          "slot": 0
+        },
+        {
+          "kind": "aura_apply",
+          "spell_index": 0,
+          "slot": 1
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        0
+      ],
+      "self_masks": [
+        3
+      ]
+    },
+    {
+      "name": "spirit20598_self_aura",
+      "spells": [
+        {
+          "spell_id": 20598,
+          "effects": [
+            {
+              "opcode": 6,
+              "aura": 137,
+              "misc": 4,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 1,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": -1
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "holder_create",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 5,
+          "target": "self"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 6,
+          "target": "self"
+        },
+        {
+          "kind": "aura_construct",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 5
+        },
+        {
+          "kind": "aura_register",
+          "spell_index": 0,
+          "slot": 0
+        },
+        {
+          "kind": "aura_apply",
+          "spell_index": 0,
+          "slot": 0
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        0
+      ],
+      "self_masks": [
+        1
+      ]
+    },
+    {
+      "name": "diplomacy20599_amount10",
+      "spells": [
+        {
+          "spell_id": 20599,
+          "effects": [
+            {
+              "opcode": 6,
+              "aura": 156,
+              "misc": 0,
+              "base_points": 9,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 1,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": -1
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "holder_create",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 10,
+          "target": "self"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 6,
+          "target": "self"
+        },
+        {
+          "kind": "aura_construct",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 10
+        },
+        {
+          "kind": "aura_register",
+          "spell_index": 0,
+          "slot": 0
+        },
+        {
+          "kind": "aura_apply",
+          "spell_index": 0,
+          "slot": 0
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        0
+      ],
+      "self_masks": [
+        1
+      ]
+    },
+    {
+      "name": "authored_direct_passive_projection",
+      "spells": [
+        {
+          "spell_id": 81,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 90,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 6,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 4294967295,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 203,
+          "effects": [
+            {
+              "opcode": 25,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 2,
+          "item_mask": 8192,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 204,
+          "effects": [
+            {
+              "opcode": 26,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 227,
+          "effects": [
+            {
+              "opcode": 25,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 60,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 2,
+          "item_mask": 1024,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 522,
+          "effects": [
+            {
+              "opcode": 37,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 4294967295,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 668,
+          "effects": [
+            {
+              "opcode": 39,
+              "aura": 0,
+              "misc": 7,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 4294967295,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 2382,
+          "effects": [
+            {
+              "opcode": 25,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 60,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 2,
+          "item_mask": 16384,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 3050,
+          "effects": [
+            {
+              "opcode": 49,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -1,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 1084227584,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 4294967295,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 5009,
+          "effects": [
+            {
+              "opcode": 25,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 60,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 2,
+          "item_mask": 524288,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 9078,
+          "effects": [
+            {
+              "opcode": 60,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 4,
+          "item_mask": 2,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 9125,
+          "effects": [
+            {
+              "opcode": 60,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 4,
+          "item_mask": 1,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        },
+        {
+          "spell_id": 20597,
+          "effects": [
+            {
+              "opcode": 6,
+              "aura": 98,
+              "misc": 43,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 1,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 6,
+              "aura": 98,
+              "misc": 55,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 1,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": -1
+        },
+        {
+          "spell_id": 20598,
+          "effects": [
+            {
+              "opcode": 6,
+              "aura": 137,
+              "misc": 4,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 1,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": -1
+        },
+        {
+          "spell_id": 20599,
+          "effects": [
+            {
+              "opcode": 6,
+              "aura": 156,
+              "misc": 0,
+              "base_points": 9,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 1,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": -1
+        },
+        {
+          "spell_id": 20864,
+          "effects": [
+            {
+              "opcode": 6,
+              "aura": 98,
+              "misc": 54,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 1,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 6,
+              "aura": 98,
+              "misc": 160,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 1,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": -1
+        }
+      ],
+      "rolls": [
+        4
+      ],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "draw",
+          "spell_index": 0,
+          "slot": 0,
+          "low": 0,
+          "high": 6,
+          "value": 4
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 4,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 1
+        },
+        {
+          "kind": "amount",
+          "spell_index": 1,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 1,
+          "slot": 0,
+          "value": 25,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 1
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 2
+        },
+        {
+          "kind": "amount",
+          "spell_index": 2,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 2,
+          "slot": 0,
+          "value": 26,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 2
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 3
+        },
+        {
+          "kind": "amount",
+          "spell_index": 3,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 3,
+          "slot": 0,
+          "value": 25,
+          "target": "targetless"
+        },
+        {
+          "kind": "amount",
+          "spell_index": 3,
+          "slot": 1,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 3,
+          "slot": 1,
+          "value": 60,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 3
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 4
+        },
+        {
+          "kind": "amount",
+          "spell_index": 4,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 4,
+          "slot": 0,
+          "value": 37,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 4
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 5
+        },
+        {
+          "kind": "amount",
+          "spell_index": 5,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 5,
+          "slot": 0,
+          "value": 39,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 5
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 6
+        },
+        {
+          "kind": "amount",
+          "spell_index": 6,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 6,
+          "slot": 0,
+          "value": 25,
+          "target": "targetless"
+        },
+        {
+          "kind": "amount",
+          "spell_index": 6,
+          "slot": 1,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 6,
+          "slot": 1,
+          "value": 60,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 6
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 7
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 7
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 8
+        },
+        {
+          "kind": "amount",
+          "spell_index": 8,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 8,
+          "slot": 0,
+          "value": 25,
+          "target": "targetless"
+        },
+        {
+          "kind": "amount",
+          "spell_index": 8,
+          "slot": 1,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 8,
+          "slot": 1,
+          "value": 60,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 8
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 9
+        },
+        {
+          "kind": "amount",
+          "spell_index": 9,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 9,
+          "slot": 0,
+          "value": 60,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 9
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 10
+        },
+        {
+          "kind": "amount",
+          "spell_index": 10,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 10,
+          "slot": 0,
+          "value": 60,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 10
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 11
+        },
+        {
+          "kind": "holder_create",
+          "spell_index": 11
+        },
+        {
+          "kind": "amount",
+          "spell_index": 11,
+          "slot": 0,
+          "value": 5,
+          "target": "self"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 11,
+          "slot": 0,
+          "value": 6,
+          "target": "self"
+        },
+        {
+          "kind": "aura_construct",
+          "spell_index": 11,
+          "slot": 0,
+          "value": 5
+        },
+        {
+          "kind": "amount",
+          "spell_index": 11,
+          "slot": 1,
+          "value": 5,
+          "target": "self"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 11,
+          "slot": 1,
+          "value": 6,
+          "target": "self"
+        },
+        {
+          "kind": "aura_construct",
+          "spell_index": 11,
+          "slot": 1,
+          "value": 5
+        },
+        {
+          "kind": "aura_register",
+          "spell_index": 11,
+          "slot": 0
+        },
+        {
+          "kind": "aura_register",
+          "spell_index": 11,
+          "slot": 1
+        },
+        {
+          "kind": "aura_apply",
+          "spell_index": 11,
+          "slot": 0
+        },
+        {
+          "kind": "aura_apply",
+          "spell_index": 11,
+          "slot": 1
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 11
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 12
+        },
+        {
+          "kind": "holder_create",
+          "spell_index": 12
+        },
+        {
+          "kind": "amount",
+          "spell_index": 12,
+          "slot": 0,
+          "value": 5,
+          "target": "self"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 12,
+          "slot": 0,
+          "value": 6,
+          "target": "self"
+        },
+        {
+          "kind": "aura_construct",
+          "spell_index": 12,
+          "slot": 0,
+          "value": 5
+        },
+        {
+          "kind": "aura_register",
+          "spell_index": 12,
+          "slot": 0
+        },
+        {
+          "kind": "aura_apply",
+          "spell_index": 12,
+          "slot": 0
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 12
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 13
+        },
+        {
+          "kind": "holder_create",
+          "spell_index": 13
+        },
+        {
+          "kind": "amount",
+          "spell_index": 13,
+          "slot": 0,
+          "value": 10,
+          "target": "self"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 13,
+          "slot": 0,
+          "value": 6,
+          "target": "self"
+        },
+        {
+          "kind": "aura_construct",
+          "spell_index": 13,
+          "slot": 0,
+          "value": 10
+        },
+        {
+          "kind": "aura_register",
+          "spell_index": 13,
+          "slot": 0
+        },
+        {
+          "kind": "aura_apply",
+          "spell_index": 13,
+          "slot": 0
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 13
+        },
+        {
+          "kind": "cast_start",
+          "spell_index": 14
+        },
+        {
+          "kind": "holder_create",
+          "spell_index": 14
+        },
+        {
+          "kind": "amount",
+          "spell_index": 14,
+          "slot": 0,
+          "value": 5,
+          "target": "self"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 14,
+          "slot": 0,
+          "value": 6,
+          "target": "self"
+        },
+        {
+          "kind": "aura_construct",
+          "spell_index": 14,
+          "slot": 0,
+          "value": 5
+        },
+        {
+          "kind": "amount",
+          "spell_index": 14,
+          "slot": 1,
+          "value": 5,
+          "target": "self"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 14,
+          "slot": 1,
+          "value": 6,
+          "target": "self"
+        },
+        {
+          "kind": "aura_construct",
+          "spell_index": 14,
+          "slot": 1,
+          "value": 5
+        },
+        {
+          "kind": "aura_register",
+          "spell_index": 14,
+          "slot": 0
+        },
+        {
+          "kind": "aura_register",
+          "spell_index": 14,
+          "slot": 1
+        },
+        {
+          "kind": "aura_apply",
+          "spell_index": 14,
+          "slot": 0
+        },
+        {
+          "kind": "aura_apply",
+          "spell_index": 14,
+          "slot": 1
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 14
+        }
+      ],
+      "final_weapon_mask": 541696,
+      "final_armor_mask": 3,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1,
+        1,
+        1,
+        3,
+        1,
+        1,
+        3,
+        0,
+        3,
+        1,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "self_masks": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        1,
+        1,
+        3
+      ]
+    },
+    {
+      "name": "targetless_before_self_despite_slot_order",
+      "spells": [
+        {
+          "spell_id": 900001,
+          "effects": [
+            {
+              "opcode": 6,
+              "aura": 98,
+              "misc": 43,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 1,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 6,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 26,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": -1
+        }
+      ],
+      "rolls": [
+        3
+      ],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "draw",
+          "spell_index": 0,
+          "slot": 1,
+          "low": 0,
+          "high": 6,
+          "value": 3
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 3,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 2,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 2,
+          "value": 26,
+          "target": "targetless"
+        },
+        {
+          "kind": "holder_create",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 5,
+          "target": "self"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 6,
+          "target": "self"
+        },
+        {
+          "kind": "aura_construct",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 5
+        },
+        {
+          "kind": "aura_register",
+          "spell_index": 0,
+          "slot": 0
+        },
+        {
+          "kind": "aura_apply",
+          "spell_index": 0,
+          "slot": 0
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        6
+      ],
+      "self_masks": [
+        1
+      ]
+    },
+    {
+      "name": "proficiency_partial_mask_overlap",
+      "spells": [
+        {
+          "spell_id": 900002,
+          "effects": [
+            {
+              "opcode": 25,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 60,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 2,
+          "item_mask": 17408,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 1024,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 25,
+          "target": "targetless"
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 1,
+          "value": 60,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 1024,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        3
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_0_die_0",
+      "spells": [
+        {
+          "spell_id": 900100,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -16777217,
+              "base_dice": 16777218,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 2,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_0_die_1",
+      "spells": [
+        {
+          "spell_id": 900100,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -16777217,
+              "base_dice": 16777218,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 2,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_1_die_0",
+      "spells": [
+        {
+          "spell_id": 900101,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -16777219,
+              "base_dice": 16777220,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_1_die_1",
+      "spells": [
+        {
+          "spell_id": 900101,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -16777219,
+              "base_dice": 16777220,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_2_die_0",
+      "spells": [
+        {
+          "spell_id": 900102,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -16777216,
+              "base_dice": 16777217,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_2_die_1",
+      "spells": [
+        {
+          "spell_id": 900102,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -16777216,
+              "base_dice": 16777217,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_3_die_0",
+      "spells": [
+        {
+          "spell_id": 900103,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -16777215,
+              "base_dice": 16777216,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 1,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_3_die_1",
+      "spells": [
+        {
+          "spell_id": 900103,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -16777215,
+              "base_dice": 16777216,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 1,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_4_die_0",
+      "spells": [
+        {
+          "spell_id": 900104,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -2147483647,
+              "base_dice": 2147483647,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_4_die_1",
+      "spells": [
+        {
+          "spell_id": 900104,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -2147483647,
+              "base_dice": 2147483647,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_5_die_0",
+      "spells": [
+        {
+          "spell_id": 900105,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 16777217,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 16777216,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_5_die_1",
+      "spells": [
+        {
+          "spell_id": 900105,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 16777217,
+              "base_dice": 0,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 16777216,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_6_die_0",
+      "spells": [
+        {
+          "spell_id": 900106,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 16777217,
+              "base_dice": 1,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 16777216,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_6_die_1",
+      "spells": [
+        {
+          "spell_id": 900106,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 16777217,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 16777216,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_7_die_0",
+      "spells": [
+        {
+          "spell_id": 900107,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -32769,
+              "base_dice": 1,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": -32768,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_7_die_1",
+      "spells": [
+        {
+          "spell_id": 900107,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -32769,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": -32768,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_8_die_0",
+      "spells": [
+        {
+          "spell_id": 900108,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 32766,
+              "base_dice": 1,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 32767,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_8_die_1",
+      "spells": [
+        {
+          "spell_id": 900108,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 32766,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 32767,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_9_die_0",
+      "spells": [
+        {
+          "spell_id": 900109,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 32767,
+              "base_dice": 1,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 32768,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_9_die_1",
+      "spells": [
+        {
+          "spell_id": 900109,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 32767,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 32768,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_10_die_0",
+      "spells": [
+        {
+          "spell_id": 900110,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -1,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": -1,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_10_die_1",
+      "spells": [
+        {
+          "spell_id": 900110,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": -1,
+              "base_dice": 0,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": -1,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_11_die_0",
+      "spells": [
+        {
+          "spell_id": 900111,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 1,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 1,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "binary32_constant_11_die_1",
+      "spells": [
+        {
+          "spell_id": 900111,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": true,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 1,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "rank_zero_no_scaling_no_rank_query",
+      "spells": [
+        {
+          "spell_id": 204,
+          "effects": [
+            {
+              "opcode": 26,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": -1,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": false,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 26,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "source_only_scaling_rank_0",
+      "spells": [
+        {
+          "spell_id": 900200,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 1084227584,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 1,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": true,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 0,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 1,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "source_only_scaling_rank_5",
+      "spells": [
+        {
+          "spell_id": 900200,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 1084227584,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 5,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 1,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": true,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 5,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 1,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "source_only_scaling_rank_100",
+      "spells": [
+        {
+          "spell_id": 900200,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 4,
+              "base_dice": 1,
+              "die_sides": 1,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 1084227584,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 100,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 1,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": true,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 100,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 1,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "source_only_negative_die_range",
+      "spells": [
+        {
+          "spell_id": 900201,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 1,
+              "die_sides": -3,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [
+        -2
+      ],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": true,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "draw",
+          "spell_index": 0,
+          "slot": 0,
+          "low": -3,
+          "high": 1,
+          "value": -2
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": -2,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    },
+    {
+      "name": "source_only_reversed_positive_die_range",
+      "spells": [
+        {
+          "spell_id": 900202,
+          "effects": [
+            {
+              "opcode": 20,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 6,
+              "die_sides": 2,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            },
+            {
+              "opcode": 0,
+              "aura": 0,
+              "misc": 0,
+              "base_points": 0,
+              "base_dice": 0,
+              "die_sides": 0,
+              "target_a": 0,
+              "target_b": 0,
+              "points_per_level_bits": 0,
+              "dice_per_level_bits": 0,
+              "combo_points_bits": 0
+            }
+          ],
+          "item_class": 0,
+          "item_mask": 0,
+          "spell_rank": 0,
+          "max_level": 0,
+          "base_level": 0,
+          "spell_level": 0,
+          "resolved_cast_time_ms": 0,
+          "resolved_duration_ms": 0
+        }
+      ],
+      "rolls": [
+        4
+      ],
+      "initial_weapon_mask": 0,
+      "initial_armor_mask": 0,
+      "mechanism_only": false,
+      "source_only": true,
+      "events": [
+        {
+          "kind": "cast_start",
+          "spell_index": 0
+        },
+        {
+          "kind": "draw",
+          "spell_index": 0,
+          "slot": 0,
+          "low": 2,
+          "high": 6,
+          "value": 4
+        },
+        {
+          "kind": "amount",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 4,
+          "target": "targetless"
+        },
+        {
+          "kind": "dispatch",
+          "spell_index": 0,
+          "slot": 0,
+          "value": 20,
+          "target": "targetless"
+        },
+        {
+          "kind": "cast_complete",
+          "spell_index": 0
+        }
+      ],
+      "final_weapon_mask": 0,
+      "final_armor_mask": 0,
+      "rank_queries": 0,
+      "targetless_masks": [
+        1
+      ],
+      "self_masks": [
+        0
+      ]
+    }
+  ]
+}

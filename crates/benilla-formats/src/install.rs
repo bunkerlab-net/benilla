@@ -3,8 +3,9 @@
 //!
 //! 1. `$WOW_DATA`. Set and empty (`WOW_DATA=`) means no install and ends the search, so the
 //!    no-install path runs on a machine that has one.
-//! 2. `<project folder>/WoW/Data`, `dev` builds only ([`project_folder`]).
-//! 3. `<exe dir>/Data`, then `<exe dir>/WoW/Data`, the release layouts.
+//! 2. `wow.data` from the launcher config, if supplied (an explicit path, no fallback).
+//! 3. `<project folder>/WoW/Data`, `dev` builds only ([`project_folder`]).
+//! 4. `<exe dir>/Data`, then `<exe dir>/WoW/Data`, the release layouts.
 //!
 //! `dev` is a default feature here, so every dependent declares `default-features = false` and
 //! re-exports it; otherwise feature unification puts the source-tree path in a player build.
@@ -16,6 +17,13 @@ use std::sync::OnceLock;
 
 /// The launcher's project folder, handed in by its entry point ([`set_project_folder`]).
 static LAUNCHER_FOLDER: OnceLock<PathBuf> = OnceLock::new();
+static CONFIGURED_DATA: OnceLock<PathBuf> = OnceLock::new();
+
+/// Fork startup configuration supplies an absolute path before any plugins are built. The
+/// environment override still takes precedence, including `WOW_DATA=` disabling all data.
+pub fn set_configured_data(dir: PathBuf) -> Result<(), PathBuf> {
+    CONFIGURED_DATA.set(dir)
+}
 
 /// Record the launcher's project folder, as its build stamp names it (`BuildId::project_dir`); an
 /// empty stamp, a player build's, records nothing. The entry point calls this once, before
@@ -59,13 +67,35 @@ pub fn wow_data() -> Option<PathBuf> {
 
 /// Every place [`wow_data`] looks, in order, whether or not it exists, for a "looked in" message.
 pub fn candidates() -> Vec<PathBuf> {
-    candidates_from(
+    configured_candidates(
         std::env::var_os("WOW_DATA").map(PathBuf::from),
+        CONFIGURED_DATA.get().map(PathBuf::as_path),
         project_folder(),
         std::env::current_exe()
             .ok()
             .and_then(|e| e.parent().map(Path::to_path_buf)),
     )
+}
+
+fn configured_candidates(
+    override_dir: Option<PathBuf>,
+    configured: Option<&Path>,
+    project: Option<&Path>,
+    exe_dir: Option<PathBuf>,
+) -> Vec<PathBuf> {
+    if let Some(configured) = configured {
+        if override_dir
+            .as_ref()
+            .is_some_and(|p| p.as_os_str().is_empty())
+        {
+            return Vec::new();
+        }
+        let mut result = override_dir.into_iter().collect::<Vec<_>>();
+        result.push(configured.to_owned());
+        result
+    } else {
+        candidates_from(override_dir, project, exe_dir)
+    }
 }
 
 /// [`candidates`] with the environment passed in: a test that set `$WOW_DATA` would change the
@@ -212,6 +242,36 @@ mod tests {
             project_folder(),
             exe.map(PathBuf::from),
         )
+    }
+
+    #[test]
+    fn configured_data_preserves_environment_override_and_never_silently_falls_back() {
+        let configured = Path::new("/configured/Data");
+        assert_eq!(
+            configured_candidates(
+                None,
+                Some(configured),
+                Some(Path::new("/project")),
+                Some(PathBuf::from("/exe"))
+            ),
+            vec![configured.to_owned()]
+        );
+        assert_eq!(
+            configured_candidates(
+                Some(PathBuf::from("/override")),
+                Some(configured),
+                None,
+                None
+            ),
+            vec![PathBuf::from("/override"), configured.to_owned()]
+        );
+        assert!(
+            configured_candidates(Some(PathBuf::new()), Some(configured), None, None).is_empty()
+        );
+        assert_eq!(
+            configured_candidates(None, None, None, Some(PathBuf::from("/exe"))),
+            candidates_from(None, None, Some(PathBuf::from("/exe")))
+        );
     }
 
     #[test]

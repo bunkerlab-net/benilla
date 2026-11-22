@@ -1,0 +1,513 @@
+{
+  "format": "benilla-server-dbc-layouts-v1",
+  "core_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "source_files": {
+    "formats": "src/game/Server/DBCfmt.h",
+    "loaders": "src/game/Server/DBCStores.cpp",
+    "decoder": "src/shared/Database/DBCFileLoader.cpp"
+  },
+  "loaders": [
+    {
+      "file": "AreaTable.dbc",
+      "format": "niiiixxxxxissssssssxixxxi",
+      "format_symbol": "AreaTableEntryfmt",
+      "loader_line": 251,
+      "format_line": 22,
+      "record_bytes": 100
+    },
+    {
+      "file": "AreaTrigger.dbc",
+      "format": "niffffffff",
+      "format_symbol": "AreaTriggerEntryfmt",
+      "loader_line": 267,
+      "format_line": 23,
+      "record_bytes": 40
+    },
+    {
+      "file": "AuctionHouse.dbc",
+      "format": "niiixxxxxxxxx",
+      "format_symbol": "AuctionHouseEntryfmt",
+      "loader_line": 268,
+      "format_line": 24,
+      "record_bytes": 52
+    },
+    {
+      "file": "BankBagSlotPrices.dbc",
+      "format": "ni",
+      "format_symbol": "BankBagSlotPricesEntryfmt",
+      "loader_line": 269,
+      "format_line": 25,
+      "record_bytes": 8
+    },
+    {
+      "file": "CharStartOutfit.dbc",
+      "format": "diiiiiiiiiiiiixxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "format_symbol": "CharStartOutfitEntryfmt",
+      "loader_line": 270,
+      "format_line": 30,
+      "record_bytes": 152
+    },
+    {
+      "file": "ChatChannels.dbc",
+      "format": "iixssssssssxxxxxxxxxx",
+      "format_symbol": "ChatChannelsEntryfmt",
+      "loader_line": 271,
+      "format_line": 31,
+      "record_bytes": 84
+    },
+    {
+      "file": "CharacterFacialHairStyles.dbc",
+      "format": "iiixxxxxx",
+      "format_symbol": "CharacterFacialHairStylesfmt",
+      "loader_line": 273,
+      "format_line": 27,
+      "record_bytes": 36
+    },
+    {
+      "file": "CharSections.dbc",
+      "format": "diiiiixxxi",
+      "format_symbol": "CharSectionsEntryfmt",
+      "loader_line": 279,
+      "format_line": 26,
+      "record_bytes": 40
+    },
+    {
+      "file": "ChrClasses.dbc",
+      "format": "nxxixssssssssxxix",
+      "format_symbol": "ChrClassesEntryfmt",
+      "loader_line": 285,
+      "format_line": 28,
+      "record_bytes": 68
+    },
+    {
+      "file": "ChrRaces.dbc",
+      "format": "nxixiixxixxxxxixissssssssxxxx",
+      "format_symbol": "ChrRacesEntryfmt",
+      "loader_line": 286,
+      "format_line": 29,
+      "record_bytes": 116
+    },
+    {
+      "file": "CinematicCamera.dbc",
+      "format": "nsiffff",
+      "format_symbol": "CinematicCameraEntryfmt",
+      "loader_line": 287,
+      "format_line": 32,
+      "record_bytes": 28
+    },
+    {
+      "file": "CinematicSequences.dbc",
+      "format": "nxixxxxxxx",
+      "format_symbol": "CinematicSequencesEntryfmt",
+      "loader_line": 288,
+      "format_line": 33,
+      "record_bytes": 40
+    },
+    {
+      "file": "CreatureDisplayInfo.dbc",
+      "format": "nixifxxxxxxx",
+      "format_symbol": "CreatureDisplayInfofmt",
+      "loader_line": 289,
+      "format_line": 34,
+      "record_bytes": 48
+    },
+    {
+      "file": "CreatureDisplayInfoExtra.dbc",
+      "format": "nixxxxxxxxxxxxxxxxx",
+      "format_symbol": "CreatureDisplayInfoExtrafmt",
+      "loader_line": 290,
+      "format_line": 35,
+      "record_bytes": 76
+    },
+    {
+      "file": "CreatureFamily.dbc",
+      "format": "nfifiiiissssssssxx",
+      "format_symbol": "CreatureFamilyfmt",
+      "loader_line": 291,
+      "format_line": 36,
+      "record_bytes": 72
+    },
+    {
+      "file": "CreatureModelData.dbc",
+      "format": "nixxfxxxxxxxxxff",
+      "format_symbol": "CreatureModelDatafmt",
+      "loader_line": 292,
+      "format_line": 37,
+      "record_bytes": 64
+    },
+    {
+      "file": "CreatureSpellData.dbc",
+      "format": "niiiixxxx",
+      "format_symbol": "CreatureSpellDatafmt",
+      "loader_line": 293,
+      "format_line": 38,
+      "record_bytes": 36
+    },
+    {
+      "file": "CreatureType.dbc",
+      "format": "nxxxxxxxxxx",
+      "format_symbol": "CreatureTypefmt",
+      "loader_line": 294,
+      "format_line": 39,
+      "record_bytes": 44
+    },
+    {
+      "file": "DurabilityCosts.dbc",
+      "format": "niiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+      "format_symbol": "DurabilityCostsfmt",
+      "loader_line": 295,
+      "format_line": 40,
+      "record_bytes": 120
+    },
+    {
+      "file": "DurabilityQuality.dbc",
+      "format": "nf",
+      "format_symbol": "DurabilityQualityfmt",
+      "loader_line": 296,
+      "format_line": 41,
+      "record_bytes": 8
+    },
+    {
+      "file": "Emotes.dbc",
+      "format": "nxxiiix",
+      "format_symbol": "EmotesEntryfmt",
+      "loader_line": 297,
+      "format_line": 42,
+      "record_bytes": 28
+    },
+    {
+      "file": "EmotesText.dbc",
+      "format": "nxixxxxxxxxxxxxxxxx",
+      "format_symbol": "EmotesTextEntryfmt",
+      "loader_line": 298,
+      "format_line": 46,
+      "record_bytes": 76
+    },
+    {
+      "file": "Faction.dbc",
+      "format": "niiiiiiiiiiiiiiiiiissssssssxxxxxxxxxx",
+      "format_symbol": "FactionEntryfmt",
+      "loader_line": 299,
+      "format_line": 47,
+      "record_bytes": 148
+    },
+    {
+      "file": "FactionTemplate.dbc",
+      "format": "niiiiiiiiiiiii",
+      "format_symbol": "FactionTemplateEntryfmt",
+      "loader_line": 321,
+      "format_line": 48,
+      "record_bytes": 56
+    },
+    {
+      "file": "GameObjectArtKit.dbc",
+      "format": "nxxxxxxx",
+      "format_symbol": "GameObjectArtKitfmt",
+      "loader_line": 322,
+      "format_line": 49,
+      "record_bytes": 32
+    },
+    {
+      "file": "GameObjectDisplayInfo.dbc",
+      "format": "nsxxxxxxxxxx",
+      "format_symbol": "GameObjectDisplayInfofmt",
+      "loader_line": 323,
+      "format_line": 50,
+      "record_bytes": 48
+    },
+    {
+      "file": "GMSurveyCurrentSurvey.dbc",
+      "format": "ni",
+      "format_symbol": "GMSurveyCurrentSurveyfmt",
+      "loader_line": 325,
+      "format_line": 51,
+      "record_bytes": 8
+    },
+    {
+      "file": "GMSurveyQuestions.dbc",
+      "format": "nssssssssx",
+      "format_symbol": "GMSurveyQuestionsfmt",
+      "loader_line": 326,
+      "format_line": 53,
+      "record_bytes": 40
+    },
+    {
+      "file": "GMSurveySurveys.dbc",
+      "format": "niiiiiiiiii",
+      "format_symbol": "GMSurveySurveysfmt",
+      "loader_line": 327,
+      "format_line": 52,
+      "record_bytes": 44
+    },
+    {
+      "file": "GMTicketCategory.dbc",
+      "format": "nssssssssx",
+      "format_symbol": "GMTicketCategoryfmt",
+      "loader_line": 328,
+      "format_line": 54,
+      "record_bytes": 40
+    },
+    {
+      "file": "ItemBagFamily.dbc",
+      "format": "nxxxxxxxxx",
+      "format_symbol": "ItemBagFamilyfmt",
+      "loader_line": 330,
+      "format_line": 55,
+      "record_bytes": 40
+    },
+    {
+      "file": "ItemClass.dbc",
+      "format": "nxxssssssssx",
+      "format_symbol": "ItemClassfmt",
+      "loader_line": 331,
+      "format_line": 56,
+      "record_bytes": 48
+    },
+    {
+      "file": "ItemRandomProperties.dbc",
+      "format": "nxiiixxxxxxxxxxx",
+      "format_symbol": "ItemRandomPropertiesfmt",
+      "loader_line": 334,
+      "format_line": 61,
+      "record_bytes": 64
+    },
+    {
+      "file": "ItemSet.dbc",
+      "format": "dssssssssxxxxxxxxxxxxxxxxxxiiiiiiiiiiiiiiiiii",
+      "format_symbol": "ItemSetEntryfmt",
+      "loader_line": 335,
+      "format_line": 63,
+      "record_bytes": 180
+    },
+    {
+      "file": "LiquidType.dbc",
+      "format": "niii",
+      "format_symbol": "LiquidTypefmt",
+      "loader_line": 336,
+      "format_line": 64,
+      "record_bytes": 16
+    },
+    {
+      "file": "Lock.dbc",
+      "format": "niiiiiiiiiiiiiiiiiiiiiiiixxxxxxxx",
+      "format_symbol": "LockEntryfmt",
+      "loader_line": 337,
+      "format_line": 65,
+      "record_bytes": 132
+    },
+    {
+      "file": "MailTemplate.dbc",
+      "format": "nxxxxxxxxx",
+      "format_symbol": "MailTemplateEntryfmt",
+      "loader_line": 338,
+      "format_line": 66,
+      "record_bytes": 40
+    },
+    {
+      "file": "Map.dbc",
+      "format": "nxixssssssssxxxxxxxixxxxxxxxxxxxxxxxxxixxx",
+      "format_symbol": "MapEntryfmt",
+      "loader_line": 339,
+      "format_line": 67,
+      "record_bytes": 168
+    },
+    {
+      "file": "QuestSort.dbc",
+      "format": "nxxxxxxxxx",
+      "format_symbol": "QuestSortEntryfmt",
+      "loader_line": 340,
+      "format_line": 68,
+      "record_bytes": 40
+    },
+    {
+      "file": "SkillLine.dbc",
+      "format": "nixssssssssxxxxxxxxxxi",
+      "format_symbol": "SkillLinefmt",
+      "loader_line": 341,
+      "format_line": 69,
+      "record_bytes": 88
+    },
+    {
+      "file": "SkillLineAbility.dbc",
+      "format": "niiiixxiiiiixxi",
+      "format_symbol": "SkillLineAbilityfmt",
+      "loader_line": 342,
+      "format_line": 70,
+      "record_bytes": 60
+    },
+    {
+      "file": "SkillRaceClassInfo.dbc",
+      "format": "diiiiiix",
+      "format_symbol": "SkillRaceClassInfofmt",
+      "loader_line": 343,
+      "format_line": 71,
+      "record_bytes": 32
+    },
+    {
+      "file": "SkillTiers.dbc",
+      "format": "niiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii",
+      "format_symbol": "SkillTiersfmt",
+      "loader_line": 344,
+      "format_line": 72,
+      "record_bytes": 132
+    },
+    {
+      "file": "SoundEntries.dbc",
+      "format": "nxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "format_symbol": "SoundEntriesfmt",
+      "loader_line": 345,
+      "format_line": 73,
+      "record_bytes": 116
+    },
+    {
+      "file": "SpellCastTimes.dbc",
+      "format": "niii",
+      "format_symbol": "SpellCastTimefmt",
+      "loader_line": 382,
+      "format_line": 74,
+      "record_bytes": 16
+    },
+    {
+      "file": "SpellCategory.dbc",
+      "format": "ni",
+      "format_symbol": "SpellCategoryfmt",
+      "loader_line": 383,
+      "format_line": 75,
+      "record_bytes": 8
+    },
+    {
+      "file": "SpellDuration.dbc",
+      "format": "niii",
+      "format_symbol": "SpellDurationfmt",
+      "loader_line": 384,
+      "format_line": 76,
+      "record_bytes": 16
+    },
+    {
+      "file": "SpellFocusObject.dbc",
+      "format": "nxxxxxxxxx",
+      "format_symbol": "SpellFocusObjectfmt",
+      "loader_line": 385,
+      "format_line": 77,
+      "record_bytes": 40
+    },
+    {
+      "file": "SpellItemEnchantment.dbc",
+      "format": "niiiiiixxxiiissssssssxii",
+      "format_symbol": "SpellItemEnchantmentfmt",
+      "loader_line": 386,
+      "format_line": 78,
+      "record_bytes": 96
+    },
+    {
+      "file": "SpellRadius.dbc",
+      "format": "nfxx",
+      "format_symbol": "SpellRadiusfmt",
+      "loader_line": 399,
+      "format_line": 79,
+      "record_bytes": 16
+    },
+    {
+      "file": "SpellRange.dbc",
+      "format": "nffixxxxxxxxxxxxxxxxxx",
+      "format_symbol": "SpellRangefmt",
+      "loader_line": 400,
+      "format_line": 80,
+      "record_bytes": 88
+    },
+    {
+      "file": "SpellShapeshiftForm.dbc",
+      "format": "nxxxxxxxxxxiix",
+      "format_symbol": "SpellShapeshiftfmt",
+      "loader_line": 401,
+      "format_line": 81,
+      "record_bytes": 56
+    },
+    {
+      "file": "StableSlotPrices.dbc",
+      "format": "ni",
+      "format_symbol": "StableSlotPricesfmt",
+      "loader_line": 402,
+      "format_line": 82,
+      "record_bytes": 8
+    },
+    {
+      "file": "Talent.dbc",
+      "format": "niiiiiiiixxxxixxixxxi",
+      "format_symbol": "TalentEntryfmt",
+      "loader_line": 403,
+      "format_line": 83,
+      "record_bytes": 84
+    },
+    {
+      "file": "TalentTab.dbc",
+      "format": "nxxxxxxxxxxxiix",
+      "format_symbol": "TalentTabEntryfmt",
+      "loader_line": 415,
+      "format_line": 84,
+      "record_bytes": 60
+    },
+    {
+      "file": "TaxiNodes.dbc",
+      "format": "nifffssssssssxii",
+      "format_symbol": "TaxiNodesEntryfmt",
+      "loader_line": 482,
+      "format_line": 85,
+      "record_bytes": 64
+    },
+    {
+      "file": "TaxiPath.dbc",
+      "format": "niii",
+      "format_symbol": "TaxiPathEntryfmt",
+      "loader_line": 484,
+      "format_line": 86,
+      "record_bytes": 16
+    },
+    {
+      "file": "TaxiPathNode.dbc",
+      "format": "diiifffii",
+      "format_symbol": "TaxiPathNodeEntryfmt",
+      "loader_line": 491,
+      "format_line": 87,
+      "record_bytes": 36
+    },
+    {
+      "file": "TransportAnimation.dbc",
+      "format": "diifffx",
+      "format_symbol": "TransportAnimationfmt",
+      "loader_line": 552,
+      "format_line": 90,
+      "record_bytes": 28
+    },
+    {
+      "file": "WorldMapArea.dbc",
+      "format": "xinxffff",
+      "format_symbol": "WorldMapAreaEntryfmt",
+      "loader_line": 554,
+      "format_line": 89,
+      "record_bytes": 32
+    },
+    {
+      "file": "WMOAreaTable.dbc",
+      "format": "niiixxxxxiissssssssx",
+      "format_symbol": "WMOAreaTableEntryfmt",
+      "loader_line": 555,
+      "format_line": 88,
+      "record_bytes": 80
+    }
+  ],
+  "disabled": {
+    "EmotesTextSound.dbc": "DBCStores.cpp:310-319 ENABLE_PLAYERBOTS disabled",
+    "ItemDisplayInfo.dbc": "DBCStores.cpp:332 commented out",
+    "ItemCondExtCosts.dbc": "DBCStores.cpp:333 commented out",
+    "WorldMapOverlay.dbc": "DBCStores.cpp:563 commented out",
+    "WorldSafeLocs.dbc": "DBCStores.cpp:564 commented out",
+    "Spell.dbc": "Globals/ObjectMgr.cpp:7721-7723 and Server/SQLStorages.cpp:40,55 use SQL spell_template"
+  },
+  "zero_byte_archive": [
+    "CharacterCreateCameras.dbc",
+    "SoundCharacterMacroLines.dbc",
+    "SpellAuraNames.dbc",
+    "SpellEffectNames.dbc"
+  ]
+}

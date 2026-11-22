@@ -1,0 +1,26 @@
+# item	value
+GLIBCXX_RELEASE	14
+GLIBCXX_DATE	20250315
+GLIBCXX_USE_CXX11_ABI	1
+GLIBCXX_DEBUG	undefined
+GLIBCXX_ASSERTIONS	undefined
+cplusplus	201703
+sizeof_uint16	2
+sizeof_size_t	8
+sizeof_pointer	8
+sizeof_set	56
+sizeof_node	16
+alignof_node	8
+sizeof_prime_policy	16
+hash_cached	0
+small_size_threshold	0
+max_load_factor	1
+hash_identity_checked_keys	65536
+bucket_capacity_bound	131072
+maximum_observed_bucket_count	85229
+measured_cardinalities	65537
+cases	753
+checkpoints	7901
+full_permutation_growth_checks	262144
+literal_input_u16_count	613908
+literal_iteration_u16_count	2378875

@@ -5,6 +5,7 @@
 //! fanning from the centre. The arrays keep MCVT's stride-17 order: outer `(r,c)` at `r·17+c`,
 //! inner at `r·17+9+c`. A hole (`MCNK+0x3C`) omits a 2×2-cell block's triangles; its verts stay.
 
+use sha2::{Digest, Sha256};
 use std::io::Cursor;
 
 use crate::Chain;
@@ -272,6 +273,13 @@ pub struct WmoInstance {
 /// One ADT tile: its chunk meshes, placed doodads and buildings.
 #[derive(Debug, Clone)]
 pub struct TileMesh {
+    /// Complete dry raw ADT records with fully resolved M2/WMO placement references.
+    pub native_static_coverage_safe: bool,
+    /// SHA-256 of the exact source ADT bytes, not its filtered render representation.
+    pub native_source_digest: [u8; 32],
+    /// Strict native coverage witness before rendering drops unresolved placements/liquids.
+    /// Only complete, placement-free, wholly dry raw terrain can enter the initial adapter.
+    pub native_coverage_safe: bool,
     pub chunks: Vec<ChunkMesh>,
     pub doodads: Vec<Doodad>,
     pub wmos: Vec<WmoInstance>,
@@ -292,12 +300,184 @@ pub(crate) fn snap_to_lattice(coord: f32) -> f32 {
     (map_center - idx * unit) as f32
 }
 
+mod native_inventory;
+mod native_static;
+pub use native_inventory::{
+    NativeInventoryReceipt, NativeInventorySource, NativeM2MapInventory, NativeWmoMapModel,
+};
+
+/// Prove that the indexed display reader and the raw native witness consume the same records.
+fn native_indexed_layout_safe(bytes: &[u8]) -> bool {
+    let word = |at: usize| {
+        bytes
+            .get(at..at.checked_add(4)?)
+            .map(|v| u32::from_le_bytes(v.try_into().unwrap()) as usize)
+    };
+    if bytes.get(..4) != Some(b"REVM")
+        || word(4) != Some(4)
+        || word(8) != Some(18)
+        || bytes.get(12..16) != Some(b"RDHM")
+        || word(16) != Some(64)
+    {
+        return false;
+    }
+    let tags = [
+        *b"NICM", *b"XETM", *b"XDMM", *b"DIMM", *b"OMWM", *b"DIWM", *b"FDDM", *b"FDOM",
+    ];
+    let mut tables = [0usize; 8];
+    let mut chunks = [0usize; 256];
+    let mut count = 0;
+    let mut cursor = 84usize;
+    while cursor < bytes.len() {
+        let Some(header) = bytes.get(cursor..cursor.saturating_add(8)) else {
+            return false;
+        };
+        let size = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
+        let Some(end) = cursor.checked_add(8).and_then(|at| at.checked_add(size)) else {
+            return false;
+        };
+        if end > bytes.len() {
+            return false;
+        }
+        if let Some(slot) = tags.iter().position(|tag| header[..4] == *tag) {
+            if tables[slot] != 0 || (slot == 0 && size != 4096) {
+                return false;
+            }
+            tables[slot] = cursor;
+        } else if &header[..4] == b"KNCM" {
+            if count == 256 {
+                return false;
+            }
+            chunks[count] = cursor;
+            count += 1;
+        } else if matches!(&header[..4], b"REVM" | b"RDHM") {
+            return false;
+        }
+        cursor = end;
+    }
+    if count != 256 || tables[0] == 0 {
+        return false;
+    }
+    for (slot, &record) in tables.iter().enumerate() {
+        let Some(offset) = word(24 + slot * 4) else {
+            return false;
+        };
+        if (offset == 0 && record != 0) || (offset != 0 && offset.checked_add(20) != Some(record)) {
+            return false;
+        }
+    }
+    let mut indexed = [0usize; 256];
+    for (slot, record) in indexed.iter_mut().enumerate() {
+        let Some(offset) = word(tables[0] + 8 + slot * 16) else {
+            return false;
+        };
+        *record = offset;
+    }
+    indexed.sort_unstable();
+    indexed == chunks
+}
+
+/// Rendering intentionally tolerates missing records. Native coverage cannot: inspect raw
+/// chunk framing and liquid offsets before any parser/filter can omit a placement or pool.
+fn native_raw_coverage_safe(bytes: &[u8]) -> bool {
+    if !native_indexed_layout_safe(bytes) {
+        return false;
+    }
+    let mut cursor = 0usize;
+    let mut terrain = 0usize;
+    while cursor < bytes.len() {
+        let Some(header) = bytes.get(cursor..cursor.saturating_add(8)) else {
+            return false;
+        };
+        let size = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
+        let Some(end) = cursor.checked_add(8).and_then(|n| n.checked_add(size)) else {
+            return false;
+        };
+        let Some(data) = bytes.get(cursor + 8..end) else {
+            return false;
+        };
+        match &header[..4] {
+            b"FDDM" | b"FDOM" if !data.is_empty() => return false,
+            // Later ADT liquid storage is outside the vanilla decoder's source domain.
+            b"O2HM" => return false,
+            b"KNCM" => {
+                terrain += 1;
+                if terrain > 256 || data.len() < 128 {
+                    return false;
+                }
+                let word = |at| u32::from_le_bytes(data[at..at + 4].try_into().unwrap());
+                if word(0) & 0x3c != 0
+                    || word(0x60) != 0
+                    || word(0x64) != 0
+                    || word(0x10) != 0
+                    || word(0x38) != 0
+                {
+                    return false;
+                }
+                // The display parser clamps nested lengths. That must not turn a truncated
+                // or oversized MCVT into a native height-coverage certificate.
+                if native_subchunk(data, word(0x14), b"TVCM")
+                    .is_none_or(|heights| heights.len() != 145 * 4)
+                {
+                    return false;
+                }
+                // Zero counts do not excuse an unresolved or nonempty placement-reference
+                // record. An absent MCRF or an explicitly empty one can prove this subset.
+                if word(0x20) != 0
+                    && native_subchunk(data, word(0x20), b"FRCM")
+                        .is_none_or(|references| !references.is_empty())
+                {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+        cursor = end;
+    }
+    terrain == 256
+}
+
+/// Locate the same two offset conventions as the display parser, with strict payload bounds.
+/// Native geometry records must start after the MCNK header and fit completely inside it.
+fn native_subchunk<'a>(data: &'a [u8], offset: u32, magic: &[u8; 4]) -> Option<&'a [u8]> {
+    let offset = offset as usize;
+    for start in [Some(offset), offset.checked_sub(8)].into_iter().flatten() {
+        if start < 128 {
+            continue;
+        }
+        let Some(header) = start.checked_add(8).and_then(|end| data.get(start..end)) else {
+            continue;
+        };
+        if &header[..4] != magic {
+            continue;
+        }
+        let size = u32::from_le_bytes(header[4..8].try_into().unwrap()) as usize;
+        let payload = start.checked_add(8)?;
+        return data.get(payload..payload.checked_add(size)?);
+    }
+    None
+}
+
 /// Build per-chunk meshes from one vanilla (monolithic) ADT file's bytes.
 pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
     let mut cursor = Cursor::new(adt_bytes);
     let parsed = parse_adt(&mut cursor).map_err(|e| anyhow::anyhow!("parsing ADT: {e}"))?;
     // A vanilla ADT is always one monolithic root.
     let ParsedAdt::Root(root) = parsed;
+    let native_source_digest = Sha256::digest(adt_bytes).into();
+    let native_coverage_safe = native_raw_coverage_safe(adt_bytes)
+        && root.doodad_placements.is_empty()
+        && root.wmo_placements.is_empty()
+        && root.mcnk_chunks.len() == 256
+        && root.mcnk_chunks.iter().all(|chunk| {
+            // Raw flag bits also reject a malformed MCLQ silently omitted by the decoder.
+            chunk.header.flags & 0x3c == 0
+                && chunk.liquids.is_empty()
+                && chunk
+                    .heights
+                    .as_ref()
+                    .is_some_and(|h| h.heights.len() == 145)
+        });
 
     let mut chunks = Vec::new();
     for mcnk in &root.mcnk_chunks {
@@ -310,8 +490,7 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
         // The header's `position` is already WoW `[X north, Y west, Z up]`.
         let [wx, wy, wz] = mcnk.header.position;
 
-        // MCNR is one normal per MCVT vertex, disk bytes already WoW `[X, Y, Z]`; `to_normalized`
-        // returns `[b0, b2, b1]`, which the destructure below undoes.
+        // MCNR is one normal per MCVT vertex, its bytes WoW's `[X, Y, Z]` (`0x6aff10`).
         let mcnr = mcnk.normals.as_ref().filter(|n| n.normals.len() >= 145);
 
         // Each row's 9 outer verts, then its 8 inner ones half a cell in, horizontally only; the
@@ -330,8 +509,7 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
                     wz + h,                                       // WoW Z (up): height over base
                 ]);
                 if let Some(mcnr) = mcnr {
-                    let [x, z, y] = mcnr.normals[idx].to_normalized();
-                    normals.push([x, y, z]);
+                    normals.push(mcnr.normals[idx].to_normalized());
                 }
                 uvs.push([col as f32 / 8.0, row as f32 / 8.0]);
             }
@@ -346,8 +524,7 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
                         wz + h,
                     ]);
                     if let Some(mcnr) = mcnr {
-                        let [x, z, y] = mcnr.normals[idx].to_normalized();
-                        normals.push([x, y, z]);
+                        normals.push(mcnr.normals[idx].to_normalized());
                     }
                     uvs.push([(col as f32 + 0.5) / 8.0, (row as f32 + 0.5) / 8.0]);
                 }
@@ -397,10 +574,13 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
         let layer_effect_ids: Vec<u32> = layers.iter().map(|(_, e)| *e).collect();
         let base_texture = layer_textures.first().cloned();
 
-        // Layers 1..3 into one RGBA map; 1.12 alpha is 4-bit, last row and column duplicated.
+        // Layers 1..3 into one RGBA map; 1.12 alpha is 4-bit. A map is stored 63 × 63 with its last
+        // column and row copied, unless the chunk's flag bit 15 says 64 × 64 (`0x6b0a60`).
         let alpha_map = (layer_textures.len() > 1).then(|| {
             CombinedAlphaMap::new(
-                mcnk, /* has_big_alpha */ false, /* fix_alpha */ true,
+                mcnk,
+                /* has_big_alpha */ false,
+                /* fix_alpha */ !mcnk.header.alpha_maps_whole(),
             )
             .as_slice()
             .to_vec()
@@ -507,6 +687,10 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
         .collect();
 
     Ok(TileMesh {
+        native_static_coverage_safe: native_static::complete(adt_bytes)
+            && root.mcnk_chunks.len() == 256,
+        native_source_digest,
+        native_coverage_safe,
         chunks,
         doodads,
         wmos,
@@ -676,6 +860,111 @@ mod tests {
         }
     }
 
+    fn chunk_record(magic: &[u8; 4], payload: &[u8]) -> Vec<u8> {
+        [&magic[..], &(payload.len() as u32).to_le_bytes(), payload].concat()
+    }
+
+    /// A tile as the files lay one out: MVER, MHDR, MCIN with entry 0 pointing at the one MCNK
+    /// `mcnk` (its sub-record offsets counted from its magic), MTEX naming `a.blp` and `b.blp`.
+    fn one_chunk_tile(mcnk: &[u8]) -> Vec<u8> {
+        let mut out = chunk_record(b"REVM", &18u32.to_le_bytes());
+        out.extend(chunk_record(b"RDHM", &[0u8; 64]));
+        let mhdr_data = 20;
+        let mcin = out.len() - mhdr_data;
+        out.extend(chunk_record(b"NICM", &[0u8; 4096]));
+        let mtex = out.len() - mhdr_data;
+        out.extend(chunk_record(b"XETM", b"a.blp\0b.blp\0"));
+        out[mhdr_data + 0x04..mhdr_data + 0x08].copy_from_slice(&(mcin as u32).to_le_bytes());
+        out[mhdr_data + 0x08..mhdr_data + 0x0c].copy_from_slice(&(mtex as u32).to_le_bytes());
+        let mcin_entry = mhdr_data + mcin + 8;
+        let record = out.len() as u32;
+        out[mcin_entry..mcin_entry + 4].copy_from_slice(&record.to_le_bytes());
+        out.extend(chunk_record(b"KNCM", mcnk));
+        out
+    }
+
+    /// One tile of a single flat MCNK (heights 0 over a base of 50) whose every MCNR normal is the
+    /// bytes `n`.
+    fn flat_tile(n: [u8; 3]) -> Vec<u8> {
+        let mcvt = chunk_record(b"TVCM", &[0u8; 145 * 4]);
+        let mcnr = chunk_record(b"RNCM", &[n.repeat(145), vec![0; 13]].concat());
+        let mut h = vec![0u8; 128];
+        h[0x14..0x18].copy_from_slice(&(8u32 + 128).to_le_bytes()); // MCVT, from the MCNK's magic
+        h[0x18..0x1c].copy_from_slice(&(8 + 128 + mcvt.len() as u32).to_le_bytes()); // MCNR
+        h[0x70..0x74].copy_from_slice(&50f32.to_le_bytes()); // base height
+        one_chunk_tile(&[h, mcvt, mcnr].concat())
+    }
+
+    /// A tile of one flat MCNK with MCNK `flags`, a base layer and one alpha layer: nibble 15 in
+    /// column 63 and row 63, 0 elsewhere.
+    fn alpha_edge_tile(flags: u32) -> Vec<u8> {
+        let alpha: Vec<u8> = (0..64)
+            .flat_map(|y| {
+                (0..32).map(move |k| {
+                    if y == 63 {
+                        0xff
+                    } else if k == 31 {
+                        0xf0
+                    } else {
+                        0
+                    }
+                })
+            })
+            .collect();
+        let mut layers = vec![0u8; 32];
+        layers[16..20].copy_from_slice(&1u32.to_le_bytes()); // layer 1: texture 1
+        layers[20..24].copy_from_slice(&0x100u32.to_le_bytes()); // …with an alpha map at MCAL offset 0
+        let mcvt = chunk_record(b"TVCM", &[0u8; 145 * 4]);
+        let mcly = chunk_record(b"YLCM", &layers);
+        let mcal = chunk_record(b"LACM", &alpha);
+        let mut h = vec![0u8; 128];
+        let at = |len: usize| (8 + 128 + len) as u32;
+        let mut put = |o: usize, v: u32| h[o..o + 4].copy_from_slice(&v.to_le_bytes());
+        put(0x00, flags);
+        put(0x14, at(0)); // MCVT
+        put(0x1c, at(mcvt.len())); // MCLY
+        put(0x24, at(mcvt.len() + mcly.len())); // MCAL
+        put(0x28, mcal.len() as u32); // its size
+        one_chunk_tile(&[h, mcvt, mcly, mcal].concat())
+    }
+
+    /// Layer 1's weight at `(x, y)` in the map handed to the terrain shader.
+    fn alpha_weight(flags: u32, x: usize, y: usize) -> u8 {
+        adt_to_tile_mesh(&alpha_edge_tile(flags)).unwrap().chunks[0]
+            .alpha_map
+            .as_ref()
+            .unwrap()[(y * 64 + x) * 4]
+    }
+
+    /// MCNK flag bit 15 set: the map is stored whole at 64 × 64 (`0x6b0ac0`), so the authored
+    /// column 63 and row 63 stand. Clear: 63 × 63, column 62 and row 62 copied over them
+    /// (`0x6b0bf0`); the dispatcher `0x6b0a60` picks on the bit.
+    #[test]
+    fn alpha_edge_follows_mcnk_flag_bit_15() {
+        // nibble 15 is full coverage, read as n / 15.
+        for (x, y) in [(63, 10), (10, 63), (63, 63)] {
+            assert_eq!(alpha_weight(0x8000, x, y), 255, "whole map, ({x}, {y})");
+            assert_eq!(
+                alpha_weight(0, x, y),
+                0,
+                "63 x 63 map, ({x}, {y}) copied from 62"
+            );
+        }
+        assert_eq!(alpha_weight(0x8000, 62, 10), 0);
+        assert_eq!(alpha_weight(0, 62, 10), 0);
+    }
+
+    /// `CMapChunk::LoadNormals` (`0x6aff10`) keeps the MCNR bytes in file order, X, Y, Z, so the
+    /// mesh's normal is the bytes over 127 with no swap.
+    #[test]
+    fn the_mesh_normals_are_the_mcnr_bytes_in_file_order() {
+        let mesh = adt_to_tile_mesh(&flat_tile([0, 0, 127])).unwrap();
+        assert_eq!(mesh.chunks[0].normals[0], [0.0, 0.0, 1.0]);
+        let mesh = adt_to_tile_mesh(&flat_tile([127, 64, 0])).unwrap();
+        assert_eq!(mesh.chunks[0].normals[0], [1.0, 64.0 / 127.0, 0.0]);
+        assert_eq!(mesh.chunks[0].normals.len(), 145);
+    }
+
     #[test]
     fn height_at_interpolates_inside_and_misses_holes_and_off_footprint() {
         // The north half is one quad rising to z=10 at the middle; the south half is a hole.
@@ -835,5 +1124,195 @@ mod tests {
             hits > 12000,
             "the sample grid should land on terrain almost everywhere: {hits}"
         );
+    }
+}
+
+#[cfg(test)]
+mod native_coverage_tests {
+    use super::*;
+    pub(super) const FIRST_DATA: usize = 84 + 8 + 4096 + 8;
+    pub(super) fn chunk(magic: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut b = magic.to_vec();
+        b.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        b.extend_from_slice(data);
+        b
+    }
+    pub(super) fn source() -> Vec<u8> {
+        let mut b = chunk(b"REVM", &18u32.to_le_bytes());
+        let mut mhdr = [0; 64];
+        mhdr[4..8].copy_from_slice(&64u32.to_le_bytes());
+        b.extend(chunk(b"RDHM", &mhdr));
+        b.extend(chunk(b"NICM", &[0; 4096]));
+        for row in 0..16u32 {
+            for col in 0..16u32 {
+                let mut h = vec![0u8; 128];
+                h[4..8].copy_from_slice(&col.to_le_bytes());
+                h[8..12].copy_from_slice(&row.to_le_bytes());
+                h[0x14..0x18].copy_from_slice(&128u32.to_le_bytes());
+                h[0x68..0x6c].copy_from_slice(&(-(row as f32) * CHUNK_SIZE).to_le_bytes());
+                h[0x6c..0x70].copy_from_slice(&(-(col as f32) * CHUNK_SIZE).to_le_bytes());
+                h[0x70..0x74].copy_from_slice(&5.0f32.to_le_bytes());
+                h.extend(chunk(b"TVCM", &vec![0; 145 * 4]));
+                let entry = 92 + (row * 16 + col) as usize * 16;
+                let record = b.len() as u32;
+                b[entry..entry + 4].copy_from_slice(&record.to_le_bytes());
+                b[entry + 4..entry + 8].copy_from_slice(&((h.len() + 8) as u32).to_le_bytes());
+                b.extend(chunk(b"KNCM", &h));
+            }
+        }
+        b
+    }
+
+    pub(super) fn append_record(bytes: &mut Vec<u8>, magic: &[u8; 4], data: &[u8]) {
+        let field = match magic {
+            b"XETM" => 0x08,
+            b"XDMM" => 0x0c,
+            b"DIMM" => 0x10,
+            b"OMWM" => 0x14,
+            b"DIWM" => 0x18,
+            b"FDDM" => 0x1c,
+            b"FDOM" => 0x20,
+            _ => unreachable!(),
+        };
+        let offset = bytes.len() as u32 - 20;
+        bytes[20 + field..24 + field].copy_from_slice(&offset.to_le_bytes());
+        bytes.extend(chunk(magic, data));
+    }
+    #[test]
+    fn native_coverage_source_digest_and_positive_raw_tile() {
+        let b = source();
+        let t = adt_to_tile_mesh(&b).unwrap();
+        assert!(t.native_coverage_safe);
+        assert_eq!(t.chunks.len(), 256);
+        assert_eq!(t.native_source_digest, <[u8; 32]>::from(Sha256::digest(&b)));
+    }
+    #[test]
+    fn native_coverage_never_confuses_filtered_placements_with_absence() {
+        let mut b = source();
+        append_record(&mut b, b"FDDM", &[0; 36]);
+        let t = adt_to_tile_mesh(&b).unwrap();
+        assert!(t.doodads.is_empty());
+        assert!(!t.native_coverage_safe);
+        // MHDR can redirect the display reader to an empty record, not erase the raw witness.
+        append_record(&mut b, b"FDDM", &[]);
+        assert!(!adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
+    }
+    #[test]
+    fn native_coverage_rejects_missing_liquid_payload_and_bad_framing() {
+        let mut b = source();
+        b[FIRST_DATA..FIRST_DATA + 4].copy_from_slice(&4u32.to_le_bytes());
+        let t = adt_to_tile_mesh(&b).unwrap();
+        assert!(t.chunks[0].liquids.is_empty());
+        assert!(!t.native_coverage_safe);
+        b = source();
+        b[FIRST_DATA + 0x64..FIRST_DATA + 0x68].copy_from_slice(&9u32.to_le_bytes());
+        assert!(!adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
+        b = source();
+        b.push(0);
+        assert!(!native_raw_coverage_safe(&b));
+    }
+
+    pub(super) fn append_first_chunk(bytes: &mut Vec<u8>, record: &[u8]) -> u32 {
+        let first = FIRST_DATA - 8;
+        let size = u32::from_le_bytes(bytes[first + 4..first + 8].try_into().unwrap());
+        let end = FIRST_DATA + size as usize;
+        bytes.splice(end..end, record.iter().copied());
+        bytes[first + 4..first + 8].copy_from_slice(&(size + record.len() as u32).to_le_bytes());
+        bytes[96..100].copy_from_slice(&(size + record.len() as u32 + 8).to_le_bytes());
+        for slot in 1..256 {
+            let entry = 92 + slot * 16;
+            let at = u32::from_le_bytes(bytes[entry..entry + 4].try_into().unwrap());
+            bytes[entry..entry + 4].copy_from_slice(&(at + record.len() as u32).to_le_bytes());
+        }
+        for field in (8..=32).step_by(4) {
+            let at = 20 + field;
+            let offset = u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+            if offset != 0 && offset as usize + 20 >= end {
+                bytes[at..at + 4].copy_from_slice(&(offset + record.len() as u32).to_le_bytes());
+            }
+        }
+        size
+    }
+
+    #[test]
+    fn native_coverage_rejects_clamped_nested_height_lengths() {
+        for size in [0u32, 579, 581, u32::MAX] {
+            let mut b = source();
+            b[FIRST_DATA + 128 + 4..FIRST_DATA + 128 + 8].copy_from_slice(&size.to_le_bytes());
+            let tile = adt_to_tile_mesh(&b).unwrap();
+            if size > 580 {
+                assert_eq!(tile.chunks.len(), 256, "render parser clamps the payload");
+            }
+            assert!(!tile.native_coverage_safe, "declared MCVT length {size}");
+        }
+    }
+
+    #[test]
+    fn native_coverage_rejects_dangling_or_hidden_placement_references() {
+        for offset in [0x10, 0x38, 0x20] {
+            let mut b = source();
+            b[FIRST_DATA + offset..FIRST_DATA + offset + 4].copy_from_slice(&1u32.to_le_bytes());
+            let tile = adt_to_tile_mesh(&b).unwrap();
+            assert!(tile.doodads.is_empty() && tile.wmos.is_empty());
+            assert!(!tile.native_coverage_safe, "MCNK field {offset:#x}");
+        }
+        let mut b = source();
+        let offset = append_first_chunk(&mut b, &chunk(b"FRCM", &[0; 4]));
+        b[FIRST_DATA + 0x20..FIRST_DATA + 0x24].copy_from_slice(&offset.to_le_bytes());
+        let tile = adt_to_tile_mesh(&b).unwrap();
+        assert!(tile.doodads.is_empty() && tile.wmos.is_empty());
+        assert!(!tile.native_coverage_safe, "nonempty MCRF with zero counts");
+    }
+
+    #[test]
+    fn native_coverage_accepts_both_bounded_subchunk_offset_conventions() {
+        for origin_adjustment in [0u32, 8] {
+            let mut b = source();
+            b[FIRST_DATA + 0x14..FIRST_DATA + 0x18]
+                .copy_from_slice(&(128u32 + origin_adjustment).to_le_bytes());
+            let offset = append_first_chunk(&mut b, &chunk(b"FRCM", &[]));
+            b[FIRST_DATA + 0x20..FIRST_DATA + 0x24]
+                .copy_from_slice(&(offset + origin_adjustment).to_le_bytes());
+            assert!(adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
+        }
+    }
+
+    #[test]
+    fn native_coverage_requires_complete_unique_indexed_records() {
+        for value in [0u32, 1, (FIRST_DATA - 8) as u32] {
+            let mut b = source();
+            b[108..112].copy_from_slice(&value.to_le_bytes());
+            assert!(!adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
+            assert!(!native_static::complete(&b));
+        }
+        let mut b = source();
+        let first: [u8; 16] = b[92..108].try_into().unwrap();
+        let second: [u8; 16] = b[108..124].try_into().unwrap();
+        b[92..108].copy_from_slice(&second);
+        b[108..124].copy_from_slice(&first);
+        assert!(adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
+        assert!(native_static::complete(&b));
+    }
+
+    #[test]
+    fn native_coverage_rejects_hidden_or_redirected_header_tables() {
+        let mut b = source();
+        append_record(&mut b, b"FDDM", &[]);
+        assert!(adt_to_tile_mesh(&b).unwrap().native_coverage_safe);
+        for value in [0u32, 1, 64] {
+            let mut bad = b.clone();
+            bad[48..52].copy_from_slice(&value.to_le_bytes());
+            assert!(!adt_to_tile_mesh(&bad).unwrap().native_coverage_safe);
+            assert!(!native_static::complete(&bad));
+        }
+    }
+
+    #[test]
+    fn native_coverage_rejects_unhandled_liquid_storage() {
+        let mut b = source();
+        b.extend(chunk(b"O2HM", &[0; 256 * 12]));
+        let tile = adt_to_tile_mesh(&b).unwrap();
+        assert!(tile.chunks.iter().all(|chunk| chunk.liquids.is_empty()));
+        assert!(!tile.native_coverage_safe);
     }
 }

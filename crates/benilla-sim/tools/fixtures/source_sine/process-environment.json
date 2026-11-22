@@ -1,0 +1,18 @@
+{
+  "format": "benilla-reference-actual-process-environment-v2",
+  "source_process_receipt_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "source_acquisition_bindings": {
+    "REFERENCE_MANIFEST_SHA256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "REFERENCE_SCHEMA_SHA256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "REFERENCE_INSTRUMENTATION_SHA256": "4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "cpu_flags": ["fma", "avx2"],
+  "platform": "x86_64",
+  "loader_environment": {"GLIBC_TUNABLES": null, "LD_HWCAP_MASK": null},
+  "resolved_functions_before_gameplay": [{
+    "function": "sin",
+    "module_sha256": "7f2ca87f652f56b094462474b076749e90e689d0ecb9cb63c7679820b271b4e7",
+    "relative_offset": "0x702c0"
+  }],
+  "observed_inside_actual_source_process": true
+}

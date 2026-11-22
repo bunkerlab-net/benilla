@@ -378,7 +378,9 @@ fn taxi_probe(
             let moved = (player.pos - landed_pos).with_y(0.0).length();
             let first_move = match first_move {
                 None if moved > 0.5 => {
-                    info!("PROBE taxi: post-land — movement began after {since:.1}s (W held from landing)");
+                    info!(
+                        "PROBE taxi: post-land — movement began after {since:.1}s (W held from landing)"
+                    );
                     Some(since)
                 }
                 fm => fm,

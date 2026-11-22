@@ -1,0 +1,26 @@
+{
+  "image": "sha256:7f8acd0cd855b63046cfdf49f21ed319ae6b981758f5fafe2100aed8b4ef21e8",
+  "revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "source_sha256": "314dc41311ead73d64f8bf009b1bff67b5f68f7d0110ba40cc8793c37023bbb5",
+  "compile_command": [
+    "g++",
+    "-std=c++17",
+    "-O3",
+    "-DNDEBUG",
+    "-ffp-contract=off",
+    "-fno-fast-math",
+    "-fno-omit-frame-pointer",
+    "-g",
+    "/evidence/oracle.cpp",
+    "-ldl",
+    "-o",
+    "/evidence/oracle"
+  ],
+  "oracle_sha256": "2a04e829f5e1e02b00cc41f436f683bd65c9e61ab338e03ceb2e7f1352b6e21f",
+  "inputs_sha256": "4d46fd68f2995748fc4edbba619a48313c503515a603d9a78ac007faabb98cec",
+  "output_sha256": "5c061e9852f7ca592150778de213087e2d4b27a4141045699d5a5779ba821977",
+  "binary_sha256": "30cae89497db7de6ea197c0a4cc439c8268499c0a6e5fad78b8e8bce144edb55",
+  "cases": 560,
+  "rows": 13840,
+  "scope": "Authored source-numeric components, not sealed F1 execution"
+}

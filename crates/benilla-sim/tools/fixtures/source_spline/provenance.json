@@ -1,0 +1,121 @@
+{
+  "image": "sha256:7f8acd0cd855b63046cfdf49f21ed319ae6b981758f5fafe2100aed8b4ef21e8",
+  "core_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "source_sha256": {
+    "src/game/Movement/typedefs.h": "aa559d277bf28b5b0b13a1485a954a7d31f4967ce7161f53180d8823b5e75b04",
+    "src/game/Movement/spline.h": "8ad5607f2d2ec4953badd9fccd5df95e497399a225aab8d96ec433fce3191ebe",
+    "src/game/Movement/spline.impl.h": "9ce12bd8c7f34d067c5af71dd9ea581c9f7d085a0518943a9444c6dd6d2f55ef",
+    "src/game/Movement/MoveSplineInitArgs.h": "208d04b71cd4a293238fcecb1055dded216e924892f0cc1cfc8620611167c461",
+    "src/game/Movement/MoveSplineFlag.h": "8b82e9e6160b448c9dfcd55133989f41729e80c2a9415f21d22c526cdeb2435e",
+    "src/game/Movement/MoveSpline.h": "4f458dcb94b9c18a4c124b6778ffce0eae6d71cf79f674205d6f6c53a0977954",
+    "src/game/Movement/spline.cpp": "7e8340b710694f360e4582c6c509c133b7a360edbfcb6673e76dcfad71e27c70",
+    "src/game/Movement/MoveSpline.cpp": "fcd3a74dc4f8b49a9ff11c268a550815fd4a41c755cfc66c27530e4b73397c08",
+    "src/game/Movement/util.cpp": "28e59f145ccbbcf91d18f95b5c4801311f1e493053ee0c81995aba1009995c5d",
+    "dep/g3dlite/Vector4.cpp": "f3f725b43dfaeec67c1dc225fa074eb1f44408a4de4b488b1c0b82fb34064d1f",
+    "dep/g3dlite/Matrix4.cpp": "ec71009c5258e22d5b26c65dcd79a5c719a4db3e428e6946984ef2077f7d90a6",
+    "dep/g3dlite/G3D/Vector3.h": "75b8fa263ade1337c4a06d5e6918aa0a7d28bcb107ed405487e62235838125e2",
+    "dep/g3dlite/G3D/Vector4.h": "dc17cec5d74f622fe61fd215da3e27d0664ce90666b94987f1d31da2cdfce6bb",
+    "dep/g3dlite/G3D/Matrix4.h": "9db0803131f0b01307611e9b38b5817135c7898764f3ada3491b80bf24f5fcc0",
+    "dep/g3dlite/G3D/g3dmath.h": "61503fbfe922cceaab848ba6571a67f9001ae1023684ad6625cb173e42f17b2f",
+    "src/shared/Util/ByteBuffer.h": "4130fd296bb013c4c41c57687dc1ea6f725ada6b2b62cf9ffaf248de662f9245",
+    "src/game/Entities/Unit.cpp": "03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0",
+    "src/shared/Common.h": "5d07c692b1a729cf8e4045812c5633e096c8d47c81b2530c641b2ee4c0aefc32"
+  },
+  "compile_command": [
+    "g++",
+    "-std=c++17",
+    "-O3",
+    "-DNDEBUG",
+    "-ffp-contract=off",
+    "-fno-fast-math",
+    "-fno-omit-frame-pointer",
+    "-g",
+    "-I/evidence",
+    "-I/source/dep/g3dlite",
+    "/evidence/oracle.cpp",
+    "-o",
+    "/evidence/oracle"
+  ],
+  "oracle_sha256": "6568c59ff2d0ac5d6a0873e628a2aa5ba4a0fcdb9c958fe4270e5a73b047bdea",
+  "inputs_sha256": "e58514e29c7a98b4672df29ea37d721b34577ba9da7de47c1e13f50b7fdcb9ff",
+  "output_sha256": "da2888f7438d0c47c9323974dea9b9397df00516028fc0778518b37ddc0f7091",
+  "binary_sha256": "6dd5e157864424bfdb8ab2f1713a99437b0e628dc121b2002bb46c00f073452a",
+  "cases": 34,
+  "rows": 220,
+  "ubsan": [
+    {
+      "case": 0,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:485:18: runtime error: inf is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 1,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:485:18: runtime error: nan is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 2,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:485:18: runtime error: inf is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 3,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:469:92: runtime error: 3.32513e+09 is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 4,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:661:40: runtime error: signed integer overflow: 2147483647 + 1 cannot be represented in type 'int'\n"
+    },
+    {
+      "case": 5,
+      "returncode": 1,
+      "stderr": "/evidence/spline.impl.h:86:20: runtime error: 2.14748e+09 is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 6,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:661:86: runtime error: signed integer overflow: 2147483647 + 1 cannot be represented in type 'int'\n"
+    },
+    {
+      "case": 7,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:663:27: runtime error: division by zero\n"
+    },
+    {
+      "case": 9,
+      "returncode": 1,
+      "stderr": "/source/dep/g3dlite/G3D/g3dmath.h:577:23: runtime error: 2.14748e+09 is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 10,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:19:32: runtime error: 2.14748e+09 is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 11,
+      "returncode": 1,
+      "stderr": "/evidence/oracle.cpp:19:32: runtime error: -2.14748e+09 is outside the range of representable values of type 'int'\n"
+    },
+    {
+      "case": 12,
+      "returncode": 1,
+      "stderr": "/source/dep/g3dlite/G3D/g3dmath.h:577:23: runtime error: nan is outside the range of representable values of type 'int'\n"
+    }
+  ],
+  "asan": {
+    "case": 8,
+    "returncode": 1,
+    "kind": "heap-buffer-overflow"
+  },
+  "init_arithmetic_rows": 14,
+  "init_arithmetic_sha256": "cbebc666592ff469b9d7e768cabdd835adc275e65041bc394385f11150e849de",
+  "unit_orientation_binding": {
+    "overload": "float atan2(float,float)",
+    "callee": "atan2f",
+    "addition": "binary32 addss",
+    "disassembly": "73b0:\tf3 0f 10 5f 04       \tmovss  0x4(%rdi),%xmm3\n    73b5:\tf3 0f 10 27          \tmovss  (%rdi),%xmm4\n    73b9:\t0f 28 d0             \tmovaps %xmm0,%xmm2\n    73bc:\t0f 2e cb             \tucomiss %xmm3,%xmm1\n    73bf:\t7a 0f                \tjp     73d0 <UnitFacingOracle::run(float, float)+0x20>\n    73c1:\t75 0d                \tjne    73d0 <UnitFacingOracle::run(float, float)+0x20>\n    73c3:\t0f 2e c4             \tucomiss %xmm4,%xmm0\n    73c6:\t7a 08                \tjp     73d0 <UnitFacingOracle::run(float, float)+0x20>\n    73c8:\t75 06                \tjne    73d0 <UnitFacingOracle::run(float, float)+0x20>\n    73ca:\tf3 0f 10 47 08       \tmovss  0x8(%rdi),%xmm0\n    73cf:\tc3                   \tret\n    73d0:\tf3 0f 5c cb          \tsubss  %xmm3,%xmm1\n    73d4:\t55                   \tpush   %rbp\n    73d5:\tf3 0f 5c d4          \tsubss  %xmm4,%xmm2\n    73d9:\t0f 28 c1             \tmovaps %xmm1,%xmm0\n    73dc:\t48 89 e5             \tmov    %rsp,%rbp\n    73df:\t0f 28 ca             \tmovaps %xmm2,%xmm1\n    73e2:\te8 99 ad ff ff       \tcall   2180 <atan2f@plt>\n    73e7:\t66 0f ef c9          \tpxor   %xmm1,%xmm1\n    73eb:\t0f 2f c1             \tcomiss %xmm1,%xmm0\n    73ee:\t72 08                \tjb     73f8 <UnitFacingOracle::run(float, float)+0x48>\n    73f0:\t5d                   \tpop    %rbp\n    73f1:\tc3                   \tret\n    73f2:\t66 0f 1f 44 00 00    \tnopw   0x0(%rax,%rax,1)\n    73f8:\tf3 0f 58 05 cc 0d 00 \taddss  0xdcc(%rip),%xmm0        # 81cc <_IO_stdin_used+0x1cc>\n    73ff:\t00 \n    7400:\t5d                   \tpop    %rbp\n    7401:\tc3                   \tret\n    7402:\t66 2e 0f 1f 84 00 00 \tcs nopw 0x0(%rax,%rax,1)\n    7409:\t00 00 00 \n    740c:\t0f 1f 40 00          \tnopl   0x0(%rax)"
+  },
+  "scope": "Authored source numerical components, not sealed F1 execution"
+}

@@ -1,0 +1,44 @@
+CMaNGOS Classic revision 8ec338a1704e7dcb1c0213eb7ed58f9231ade40f
+https://github.com/cmangos/mangos-classic/tree/8ec338a1704e7dcb1c0213eb7ed58f9231ade40f
+
+native/Recast and native/Detour originate from dep/recastnavigation/Recast and
+dep/recastnavigation/Detour at the pinned revision, under the included Zlib
+notice (native/RECAST-DETOUR-LICENSE.txt and source-file headers). All files remain
+unchanged except the explicitly marked generator DetourNavMeshBuilder.cpp:
+Benilla stable-BV compatibility policy v1 replaces libc-dependent equal-minimum
+qsort ordering with stable incoming-subrange ordering at each recursive split.
+Tracked, checked scratch allocation and allocation-failure propagation are added.
+Quantization, axis selection, median splits, bounds, escapes and wire layout remain
+unchanged. See README.md for resource bounds and compatibility scope. The separate
+production reader and original oracle sources are not modified.
+
+native/generator.cpp is an adaptation of contrib/mmap/src/MapBuilder.cpp and
+src/game/MotionGenerators/MoveMapSharedDefines.h, Copyright CMaNGOS Project.
+The original GPL notice is preserved. Adaptations replace file/asset discovery
+with a bounded binary mesh protocol, explicit source config, checked RAII ownership,
+tracked allocation limits, error propagation and separate-process output. Recast
+stage order, subtile loops, merge order, source flags and empty/625 skip are retained.
+The library is only a pure Rust protocol codec. Native generator code links only
+into the benilla-native-navigation executable. No original game assets are bundled.
+
+See CMANGOS-LICENSE.txt and CMANGOS-AUTHORS.md for upstream license and authors.
+
+source_config/config.json and source_config/offmesh.txt are unchanged copies of
+contrib/extractor_scripts/config.json and contrib/extractor_scripts/offmesh.txt
+at the same pinned CMaNGOS revision. Their SHA-256 values are recorded alongside
+them in source_config/SHA256SUMS. The bounded parent resolves their effective
+source defaults/map/tile merge semantics and rejects selected off-mesh connections
+until those arrays are implemented. These are source configuration, not game assets.
+
+The allocator adaptation zeroes allocation payloads so that partially initialized
+upstream contour owners can be safely unwound after allocation-budget exceptions.
+Apart from the marked generator BV-ordering adaptation above, vendored source is
+unchanged; exact authored-output parity is checked separately.
+
+The adapter also stores the serialized tile in a separately owned buffer whose
+base is shifted four bytes when required to align original 64-bit dtLink entries.
+addTile receives flags=0 and the owner outlives the navmesh; serialized bytes remain
+unchanged. A partially initialized dtNavMesh is not passed to the original
+fully-initialized-state destructor: its scalar/pointer object's raw storage is
+freed and the tracked allocation registry reclaims partial child blocks. This
+preserves the navmesh initialization code while making failed initialization safe.

@@ -1,0 +1,4030 @@
+{
+  "core_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "database_revision": "ec4f596146be6467ea93c57397858e329e2db852",
+  "format": "benilla-classic-catalog-coverage-v3",
+  "loaders": {
+    "AI/EventAI/CreatureEventAIMgr:211": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, creature_id, event_type, event_inverse_phase_mask, event_chance, event_flags, event_param1, event_param2, event_param3, event_param4, event_param5, event_param6, action1_type, action1_param1, action1_param2, action1_param3, action2_type, action2_param1, action2_param2, action2_param3, action3_type, action3_param1, action3_param2, action3_param3 FROM creature_ai_scripts ORDER BY id",
+      "relations": [
+        "creature_ai_scripts"
+      ],
+      "source": "src/game/AI/EventAI/CreatureEventAIMgr.cpp:211"
+    },
+    "AI/EventAI/CreatureEventAIMgr:41": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, position_x, position_y, position_z, orientation, spawntimesecs FROM creature_ai_summons",
+      "relations": [
+        "creature_ai_summons"
+      ],
+      "source": "src/game/AI/EventAI/CreatureEventAIMgr.cpp:41"
+    },
+    "AI/ScriptDevAI/ScriptDevAIMgr:480": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT DISTINCT(ScriptName) FROM creature_template WHERE ScriptName <> '' UNION SELECT DISTINCT(ScriptName) FROM gameobject_template WHERE ScriptName <> '' UNION SELECT DISTINCT(ScriptName) FROM item_template WHERE ScriptName <> '' UNION SELECT DISTINCT(ScriptName) FROM scripted_areatrigger WHERE ScriptName <> '' UNION SELECT DISTINCT(ScriptName) FROM scripted_event_id WHERE ScriptName <> '' UNION SELECT DISTINCT(ScriptName) FROM instance_template WHERE ScriptName <> '' UNION SELECT DISTINCT(ScriptName) FROM world_template WHERE ScriptName <> ''",
+      "relations": [
+        "creature_template",
+        "gameobject_template",
+        "item_template",
+        "scripted_areatrigger",
+        "scripted_event_id",
+        "instance_template",
+        "world_template"
+      ],
+      "source": "src/game/AI/ScriptDevAI/ScriptDevAIMgr.cpp:480"
+    },
+    "AI/ScriptDevAI/ScriptDevAIMgr:550": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, ScriptName FROM scripted_areatrigger",
+      "relations": [
+        "scripted_areatrigger"
+      ],
+      "source": "src/game/AI/ScriptDevAI/ScriptDevAIMgr.cpp:550"
+    },
+    "AI/ScriptDevAI/ScriptDevAIMgr:593": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, ScriptName FROM scripted_event_id",
+      "relations": [
+        "scripted_event_id"
+      ],
+      "source": "src/game/AI/ScriptDevAI/ScriptDevAIMgr.cpp:593"
+    },
+    "AI/ScriptDevAI/system/system:68": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT COUNT(Entry) FROM script_waypoint GROUP BY Entry",
+      "relations": [
+        "script_waypoint"
+      ],
+      "source": "src/game/AI/ScriptDevAI/system/system.cpp:68"
+    },
+    "AI/ScriptDevAI/system/system:75": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Entry, PathId, Point, PositionX, PositionY, PositionZ, Orientation, WaitTime, ScriptId FROM script_waypoint ORDER BY Entry, PathId, Point",
+      "relations": [
+        "script_waypoint"
+      ],
+      "source": "src/game/AI/ScriptDevAI/system/system.cpp:75"
+    },
+    "BattleGround/BattleGroundMgr:437": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, MinPlayersPerTeam,MaxPlayersPerTeam,MinLvl,MaxLvl,AllianceStartLoc,HordeStartLoc,StartMaxDist,PlayerSkinReflootId FROM battleground_template",
+      "relations": [
+        "battleground_template"
+      ],
+      "source": "src/game/BattleGround/BattleGroundMgr.cpp:437"
+    },
+    "BattleGround/BattleGroundMgr:630": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry,bg_template FROM battlemaster_entry",
+      "relations": [
+        "battlemaster_entry"
+      ],
+      "source": "src/game/BattleGround/BattleGroundMgr.cpp:630"
+    },
+    "BattleGround/BattleGroundMgr:740": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT data.typ, data.guid1, data.ev1 AS ev1, data.ev2 AS ev2, data.map AS m, data.guid2, description.map, description.event1, description.event2, description.description FROM (SELECT '1' AS typ, a.guid AS guid1, a.event1 AS ev1, a.event2 AS ev2, b.map AS map, b.guid AS guid2 FROM gameobject_battleground AS a LEFT OUTER JOIN gameobject AS b ON a.guid = b.guid UNION SELECT '2' AS typ, a.guid AS guid1, a.event1 AS ev1, a.event2 AS ev2, b.map AS map, b.guid AS guid2 FROM creature_battleground AS a LEFT OUTER JOIN creature AS b ON a.guid = b.guid ) data RIGHT OUTER JOIN battleground_events AS description ON data.map = description.map AND data.ev1 = description.event1 AND data.ev2 = description.event2 UNION SELECT data.typ, data.guid1, data.ev1, data.ev2, data.map, data.guid2, description.map, description.event1, description.event2, description.description FROM (SELECT '1' AS typ, a.guid AS guid1, a.event1 AS ev1, a.event2 AS ev2, b.map AS map, b.guid AS guid2 FROM gameobject_battleground AS a LEFT OUTER JOIN gameobject AS b ON a.guid = b.guid UNION SELECT '2' AS typ, a.guid AS guid1, a.event1 AS ev1, a.event2 AS ev2, b.map AS map, b.guid AS guid2 FROM creature_battleground AS a LEFT OUTER JOIN creature AS b ON a.guid = b.guid ) data LEFT OUTER JOIN battleground_events AS description ON data.map = description.map AND data.ev1 = description.event1 AND data.ev2 = description.event2 ORDER BY m, ev1, ev2",
+      "relations": [
+        "gameobject_battleground",
+        "gameobject",
+        "creature_battleground",
+        "creature",
+        "battleground_events"
+      ],
+      "source": "src/game/BattleGround/BattleGroundMgr.cpp:740"
+    },
+    "DBScripts/ScriptMgr:1164": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, Name FROM string_id",
+      "relations": [
+        "string_id"
+      ],
+      "source": "src/game/DBScripts/ScriptMgr.cpp:1164"
+    },
+    "DBScripts/ScriptMgr:1230": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, type, target_id, chance FROM dbscript_random_templates",
+      "relations": [
+        "dbscript_random_templates"
+      ],
+      "source": "src/game/DBScripts/ScriptMgr.cpp:1230"
+    },
+    "Entities/CreatureLinkingMgr:120": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT guid, master_guid, flag FROM creature_linking",
+      "relations": [
+        "creature_linking"
+      ],
+      "source": "src/game/Entities/CreatureLinkingMgr.cpp:120"
+    },
+    "Entities/CreatureLinkingMgr:236": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT guid FROM creature WHERE id=%u AND map=%u LIMIT 2",
+      "relations": [
+        "creature"
+      ],
+      "source": "src/game/Entities/CreatureLinkingMgr.cpp:236"
+    },
+    "Entities/CreatureLinkingMgr:75": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, map, master_entry, flag, search_range FROM creature_linking_template",
+      "relations": [
+        "creature_linking_template"
+      ],
+      "source": "src/game/Entities/CreatureLinkingMgr.cpp:75"
+    },
+    "Entities/Transports:39": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, name, period FROM transports",
+      "relations": [
+        "transports"
+      ],
+      "source": "src/game/Entities/Transports.cpp:39"
+    },
+    "Entities/Transports:99": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT gameobject.guid,gameobject.id,transports.name FROM gameobject,transports WHERE gameobject.id = transports.entry",
+      "relations": [
+        "gameobject"
+      ],
+      "source": "src/game/Entities/Transports.cpp:99"
+    },
+    "GameEvents/GameEventMgr:107": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry,schedule_type,occurence,length,holiday,linkedTo,description FROM game_event",
+      "relations": [
+        "game_event"
+      ],
+      "source": "src/game/GameEvents/GameEventMgr.cpp:107"
+    },
+    "GameEvents/GameEventMgr:196": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, start_time, end_time FROM game_event_time",
+      "relations": [
+        "game_event_time"
+      ],
+      "source": "src/game/GameEvents/GameEventMgr.cpp:196"
+    },
+    "GameEvents/GameEventMgr:237": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT creature.guid, game_event_creature.guid, game_event_creature.event FROM game_event_creature LEFT OUTER JOIN creature ON creature.guid = game_event_creature.guid",
+      "relations": [
+        "game_event_creature",
+        "creature"
+      ],
+      "source": "src/game/GameEvents/GameEventMgr.cpp:237"
+    },
+    "GameEvents/GameEventMgr:319": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT gameobject.guid, game_event_gameobject.guid, game_event_gameobject.event FROM game_event_gameobject LEFT OUTER JOIN gameobject ON gameobject.guid=game_event_gameobject.guid",
+      "relations": [
+        "game_event_gameobject",
+        "gameobject"
+      ],
+      "source": "src/game/GameEvents/GameEventMgr.cpp:319"
+    },
+    "GameEvents/GameEventMgr:410": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT creature.guid, game_event_creature_data.event, game_event_creature_data.modelid,game_event_creature_data.equipment_id, game_event_creature_data.entry_id, game_event_creature_data.spell_start, game_event_creature_data.spell_end, game_event_creature_data.guid FROM game_event_creature_data LEFT OUTER JOIN creature ON creature.guid=game_event_creature_data.guid",
+      "relations": [
+        "game_event_creature_data",
+        "creature"
+      ],
+      "source": "src/game/GameEvents/GameEventMgr.cpp:410"
+    },
+    "GameEvents/GameEventMgr:499": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT quest, event FROM game_event_quest",
+      "relations": [
+        "game_event_quest"
+      ],
+      "source": "src/game/GameEvents/GameEventMgr.cpp:499"
+    },
+    "GameEvents/GameEventMgr:557": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT event, raceMask, quest, mailTemplateId, senderEntry FROM game_event_mail",
+      "relations": [
+        "game_event_mail"
+      ],
+      "source": "src/game/GameEvents/GameEventMgr.cpp:557"
+    },
+    "GameEvents/GameEventMgr:92": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT MAX(entry) FROM game_event",
+      "relations": [
+        "game_event"
+      ],
+      "source": "src/game/GameEvents/GameEventMgr.cpp:92"
+    },
+    "Globals/CombatCondition:37": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT * FROM combat_condition",
+      "relations": [
+        "combat_condition"
+      ],
+      "source": "src/game/Globals/CombatCondition.cpp:37"
+    },
+    "Globals/ObjectMgr:1010": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, Name, ChanceSupportAction, ChanceRangedAttack FROM creature_spell_list_entry",
+      "relations": [
+        "creature_spell_list_entry"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:1010"
+    },
+    "Globals/ObjectMgr:1032": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, Position, SpellId, Flags, CombatCondition, TargetId, ScriptId, Availability, Probability, InitialMin, InitialMax, RepeatMin, RepeatMax FROM creature_spell_list",
+      "relations": [
+        "creature_spell_list"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:1032"
+    },
+    "Globals/ObjectMgr:1125": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, Name, Type, MaxCount, WorldState, WorldStateExpression, Flags, StringId, RespawnOverrideMin, RespawnOverrideMax FROM spawn_group",
+      "relations": [
+        "spawn_group"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:1125"
+    },
+    "Globals/ObjectMgr:1192": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, FormationType, FormationSpread, FormationOptions, PathId, MovementType, Comment FROM spawn_group_formation",
+      "relations": [
+        "spawn_group_formation"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:1192"
+    },
+    "Globals/ObjectMgr:1250": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, Guid, SlotId, Chance FROM spawn_group_spawn",
+      "relations": [
+        "spawn_group_spawn"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:1250"
+    },
+    "Globals/ObjectMgr:1355": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, Entry, MinCount, MaxCount, Chance FROM spawn_group_entry",
+      "relations": [
+        "spawn_group_entry"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:1355"
+    },
+    "Globals/ObjectMgr:1398": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, LinkedId FROM spawn_group_linked_group",
+      "relations": [
+        "spawn_group_linked_group"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:1398"
+    },
+    "Globals/ObjectMgr:1426": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, SquadId, Guid, Entry FROM spawn_group_squad",
+      "relations": [
+        "spawn_group_squad"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:1426"
+    },
+    "Globals/ObjectMgr:1762": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Entry, NpcFlags, UnitFlags, Faction, ModelId, EquipmentId, CurHealth, CurMana, SpawnFlags, RelayId, StringId, Name FROM creature_spawn_data_template",
+      "relations": [
+        "creature_spawn_data_template"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:1762"
+    },
+    "Globals/ObjectMgr:1830": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT guid, entry FROM creature_spawn_entry",
+      "relations": [
+        "creature_spawn_entry"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:1830"
+    },
+    "Globals/ObjectMgr:1877": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT creature.guid, creature.id, map,position_x, position_y, position_z, orientation, spawntimesecsmin, spawntimesecsmax, spawndist,MovementType, spawnMask, event,pool_creature.pool_entry, pool_creature_template.pool_entry,creature_spawn_data.id FROM creature LEFT OUTER JOIN game_event_creature ON creature.guid = game_event_creature.guid LEFT OUTER JOIN pool_creature ON creature.guid = pool_creature.guid LEFT OUTER JOIN pool_creature_template ON creature.id = pool_creature_template.id LEFT OUTER JOIN creature_spawn_data ON creature.guid = creature_spawn_data.guid ",
+      "relations": [
+        "creature",
+        "game_event_creature",
+        "pool_creature",
+        "pool_creature_template",
+        "creature_spawn_data"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:1877"
+    },
+    "Globals/ObjectMgr:191": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry,name_loc1,subname_loc1,name_loc2,subname_loc2,name_loc3,subname_loc3,name_loc4,subname_loc4,name_loc5,subname_loc5,name_loc6,subname_loc6,name_loc7,subname_loc7,name_loc8,subname_loc8 FROM locales_creature",
+      "relations": [
+        "locales_creature"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:191"
+    },
+    "Globals/ObjectMgr:2086": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT gameobject.guid, gameobject.id, map, position_x, position_y, position_z, orientation,rotation0, rotation1, rotation2, rotation3, spawntimesecsmin, spawntimesecsmax, spawnMask, event,pool_gameobject.pool_entry, pool_gameobject_template.pool_entry FROM gameobject LEFT OUTER JOIN game_event_gameobject ON gameobject.guid = game_event_gameobject.guid LEFT OUTER JOIN pool_gameobject ON gameobject.guid = pool_gameobject.guid LEFT OUTER JOIN pool_gameobject_template ON gameobject.id = pool_gameobject_template.id",
+      "relations": [
+        "gameobject",
+        "game_event_gameobject",
+        "pool_gameobject",
+        "pool_gameobject_template"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:2086"
+    },
+    "Globals/ObjectMgr:2252": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT guid, animprogress, state, stringId FROM gameobject_addon",
+      "relations": [
+        "gameobject_addon"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:2252"
+    },
+    "Globals/ObjectMgr:2289": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT guid, entry FROM gameobject_spawn_entry",
+      "relations": [
+        "gameobject_spawn_entry"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:2289"
+    },
+    "Globals/ObjectMgr:2486": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry,name_loc1,description_loc1,name_loc2,description_loc2,name_loc3,description_loc3,name_loc4,description_loc4,name_loc5,description_loc5,name_loc6,description_loc6,name_loc7,description_loc7,name_loc8,description_loc8 FROM locales_item",
+      "relations": [
+        "locales_item"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:2486"
+    },
+    "Globals/ObjectMgr:256": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT menu_id,id,option_text_loc1,box_text_loc1,option_text_loc2,box_text_loc2,option_text_loc3,box_text_loc3,option_text_loc4,box_text_loc4,option_text_loc5,box_text_loc5,option_text_loc6,box_text_loc6,option_text_loc7,box_text_loc7,option_text_loc8,box_text_loc8 FROM locales_gossip_menu_option",
+      "relations": [
+        "locales_gossip_menu_option"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:256"
+    },
+    "Globals/ObjectMgr:2866": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry,type,targetEntry FROM item_required_target",
+      "relations": [
+        "item_required_target"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:2866"
+    },
+    "Globals/ObjectMgr:2964": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT creature_entry, level, hp, mana, str, agi, sta, inte, spi, armor FROM pet_levelstats",
+      "relations": [
+        "pet_levelstats"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:2964"
+    },
+    "Globals/ObjectMgr:3076": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT race, class, map, zone, position_x, position_y, position_z, orientation FROM playercreateinfo",
+      "relations": [
+        "playercreateinfo"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:3076"
+    },
+    "Globals/ObjectMgr:3157": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT race, class, itemid, amount FROM playercreateinfo_item",
+      "relations": [
+        "playercreateinfo_item"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:3157"
+    },
+    "Globals/ObjectMgr:3228": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT raceMask, classMask, skill, step FROM playercreateinfo_skills",
+      "relations": [
+        "playercreateinfo_skills"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:3228"
+    },
+    "Globals/ObjectMgr:3336": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT race, class, Spell FROM playercreateinfo_spell",
+      "relations": [
+        "playercreateinfo_spell"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:3336"
+    },
+    "Globals/ObjectMgr:3396": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT race, class, button, action, type FROM playercreateinfo_action",
+      "relations": [
+        "playercreateinfo_action"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:3396"
+    },
+    "Globals/ObjectMgr:342": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry,icon_name_loc1,icon_name_loc2,icon_name_loc3,icon_name_loc4,icon_name_loc5,icon_name_loc6,icon_name_loc7,icon_name_loc8 FROM locales_points_of_interest",
+      "relations": [
+        "locales_points_of_interest"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:342"
+    },
+    "Globals/ObjectMgr:3456": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT class, level, basehp, basemana FROM player_classlevelstats",
+      "relations": [
+        "player_classlevelstats"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:3456"
+    },
+    "Globals/ObjectMgr:3552": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT race, class, level, str, agi, sta, inte, spi FROM player_levelstats",
+      "relations": [
+        "player_levelstats"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:3552"
+    },
+    "Globals/ObjectMgr:3668": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT lvl, xp_for_next_level FROM player_xp_for_level",
+      "relations": [
+        "player_xp_for_level"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:3668"
+    },
+    "Globals/ObjectMgr:4239": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, Method, ZoneOrSort, MinLevel, MaxLevel, QuestLevel, Type, RequiredClasses, RequiredRaces, RequiredSkill, RequiredSkillValue,RepObjectiveFaction, RepObjectiveValue, RequiredMinRepFaction, RequiredMinRepValue, RequiredMaxRepFaction, RequiredMaxRepValue, SuggestedPlayers, LimitTime,QuestFlags, SpecialFlags, PrevQuestId, NextQuestId, ExclusiveGroup, NextQuestInChain, SrcItemId, SrcItemCount, SrcSpell,Title, Details, Objectives, OfferRewardText, RequestItemsText, EndText, ObjectiveText1, ObjectiveText2, ObjectiveText3, ObjectiveText4,ReqItemId1, ReqItemId2, ReqItemId3, ReqItemId4, ReqItemCount1, ReqItemCount2, ReqItemCount3, ReqItemCount4,ReqSourceId1, ReqSourceId2, ReqSourceId3, ReqSourceId4, ReqSourceCount1, ReqSourceCount2, ReqSourceCount3, ReqSourceCount4,ReqCreatureOrGOId1, ReqCreatureOrGOId2, ReqCreatureOrGOId3, ReqCreatureOrGOId4, ReqCreatureOrGOCount1, ReqCreatureOrGOCount2, ReqCreatureOrGOCount3, ReqCreatureOrGOCount4,ReqSpellCast1, ReqSpellCast2, ReqSpellCast3, ReqSpellCast4,RewChoiceItemId1, RewChoiceItemId2, RewChoiceItemId3, RewChoiceItemId4, RewChoiceItemId5, RewChoiceItemId6,RewChoiceItemCount1, RewChoiceItemCount2, RewChoiceItemCount3, RewChoiceItemCount4, RewChoiceItemCount5, RewChoiceItemCount6,RewItemId1, RewItemId2, RewItemId3, RewItemId4, RewItemCount1, RewItemCount2, RewItemCount3, RewItemCount4,RewRepFaction1, RewRepFaction2, RewRepFaction3, RewRepFaction4, RewRepFaction5, RewRepValue1, RewRepValue2, RewRepValue3, RewRepValue4, RewRepValue5,RewOrReqMoney, RewMoneyMaxLevel, RewSpell, RewSpellCast, RewMailTemplateId, RewMailDelaySecs, PointMapId, PointX, PointY, PointOpt,DetailsEmote1, DetailsEmote2, DetailsEmote3, DetailsEmote4, DetailsEmoteDelay1, DetailsEmoteDelay2, DetailsEmoteDelay3, DetailsEmoteDelay4,IncompleteEmote, IncompleteEmoteDelay, CompleteEmote, CompleteEmoteDelay,  OfferRewardEmote1, OfferRewardEmote2, OfferRewardEmote3, OfferRewardEmote4,OfferRewardEmoteDelay1, OfferRewardEmoteDelay2, OfferRewardEmoteDelay3, OfferRewardEmoteDelay4,StartScript, CompleteScript, RequiredCondition, BreadcrumbForQuestId, RewFactionFlags FROM quest_template",
+      "relations": [
+        "quest_template"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:4239"
+    },
+    "Globals/ObjectMgr:4886": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry,Title_loc1,Details_loc1,Objectives_loc1,OfferRewardText_loc1,RequestItemsText_loc1,EndText_loc1,ObjectiveText1_loc1,ObjectiveText2_loc1,ObjectiveText3_loc1,ObjectiveText4_loc1,Title_loc2,Details_loc2,Objectives_loc2,OfferRewardText_loc2,RequestItemsText_loc2,EndText_loc2,ObjectiveText1_loc2,ObjectiveText2_loc2,ObjectiveText3_loc2,ObjectiveText4_loc2,Title_loc3,Details_loc3,Objectives_loc3,OfferRewardText_loc3,RequestItemsText_loc3,EndText_loc3,ObjectiveText1_loc3,ObjectiveText2_loc3,ObjectiveText3_loc3,ObjectiveText4_loc3,Title_loc4,Details_loc4,Objectives_loc4,OfferRewardText_loc4,RequestItemsText_loc4,EndText_loc4,ObjectiveText1_loc4,ObjectiveText2_loc4,ObjectiveText3_loc4,ObjectiveText4_loc4,Title_loc5,Details_loc5,Objectives_loc5,OfferRewardText_loc5,RequestItemsText_loc5,EndText_loc5,ObjectiveText1_loc5,ObjectiveText2_loc5,ObjectiveText3_loc5,ObjectiveText4_loc5,Title_loc6,Details_loc6,Objectives_loc6,OfferRewardText_loc6,RequestItemsText_loc6,EndText_loc6,ObjectiveText1_loc6,ObjectiveText2_loc6,ObjectiveText3_loc6,ObjectiveText4_loc6,Title_loc7,Details_loc7,Objectives_loc7,OfferRewardText_loc7,RequestItemsText_loc7,EndText_loc7,ObjectiveText1_loc7,ObjectiveText2_loc7,ObjectiveText3_loc7,ObjectiveText4_loc7,Title_loc8,Details_loc8,Objectives_loc8,OfferRewardText_loc8,RequestItemsText_loc8,EndText_loc8,ObjectiveText1_loc8,ObjectiveText2_loc8,ObjectiveText3_loc8,ObjectiveText4_loc8 FROM locales_quest",
+      "relations": [
+        "locales_quest"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:4886"
+    },
+    "Globals/ObjectMgr:5022": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, Spell1, Spell2, Spell3, Spell4 FROM petcreateinfo_spell",
+      "relations": [
+        "petcreateinfo_spell"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:5022"
+    },
+    "Globals/ObjectMgr:5237": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry,text_loc1,text_loc2,text_loc3,text_loc4,text_loc5,text_loc6,text_loc7,text_loc8 FROM locales_page_text",
+      "relations": [
+        "locales_page_text"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:5237"
+    },
+    "Globals/ObjectMgr:5290": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, creditType, creditEntry, lastEncounterDungeon FROM instance_encounters",
+      "relations": [
+        "instance_encounters"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:5290"
+    },
+    "Globals/ObjectMgr:5490": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, Name FROM worldstate_name",
+      "relations": [
+        "worldstate_name"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:5490"
+    },
+    "Globals/ObjectMgr:5571": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT * FROM npc_text",
+      "relations": [
+        "npc_text"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:5571"
+    },
+    "Globals/ObjectMgr:5624": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id,Prob0,Prob1,Prob2,Prob3,Prob4,Prob5,Prob6,Prob7,BroadcastTextId0,BroadcastTextId1,BroadcastTextId2,BroadcastTextId3,BroadcastTextId4,BroadcastTextId5,BroadcastTextId6,BroadcastTextId7 FROM npc_text_broadcast_text",
+      "relations": [
+        "npc_text_broadcast_text"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:5624"
+    },
+    "Globals/ObjectMgr:5695": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry,Text0_0_loc1,Text0_1_loc1,Text1_0_loc1,Text1_1_loc1,Text2_0_loc1,Text2_1_loc1,Text3_0_loc1,Text3_1_loc1,Text4_0_loc1,Text4_1_loc1,Text5_0_loc1,Text5_1_loc1,Text6_0_loc1,Text6_1_loc1,Text7_0_loc1,Text7_1_loc1,Text0_0_loc2,Text0_1_loc2,Text1_0_loc2,Text1_1_loc2,Text2_0_loc2,Text2_1_loc2,Text3_0_loc2,Text3_1_loc2,Text4_0_loc2,Text4_1_loc2,Text5_0_loc2,Text5_1_loc2,Text6_0_loc2,Text6_1_loc2,Text7_0_loc2,Text7_1_loc2,Text0_0_loc3,Text0_1_loc3,Text1_0_loc3,Text1_1_loc3,Text2_0_loc3,Text2_1_loc3,Text3_0_loc3,Text3_1_loc3,Text4_0_loc3,Text4_1_loc3,Text5_0_loc3,Text5_1_loc3,Text6_0_loc3,Text6_1_loc3,Text7_0_loc3,Text7_1_loc3,Text0_0_loc4,Text0_1_loc4,Text1_0_loc4,Text1_1_loc4,Text2_0_loc4,Text2_1_loc4,Text3_0_loc4,Text3_1_loc4,Text4_0_loc4,Text4_1_loc4,Text5_0_loc4,Text5_1_loc4,Text6_0_loc4,Text6_1_loc4,Text7_0_loc4,Text7_1_loc4,Text0_0_loc5,Text0_1_loc5,Text1_0_loc5,Text1_1_loc5,Text2_0_loc5,Text2_1_loc5,Text3_0_loc5,Text3_1_loc5,Text4_0_loc5,Text4_1_loc5,Text5_0_loc5,Text5_1_loc5,Text6_0_loc5,Text6_1_loc5,Text7_0_loc5,Text7_1_loc5,Text0_0_loc6,Text0_1_loc6,Text1_0_loc6,Text1_1_loc6,Text2_0_loc6,Text2_1_loc6,Text3_0_loc6,Text3_1_loc6,Text4_0_loc6,Text4_1_loc6,Text5_0_loc6,Text5_1_loc6,Text6_0_loc6,Text6_1_loc6,Text7_0_loc6,Text7_1_loc6,Text0_0_loc7,Text0_1_loc7,Text1_0_loc7,Text1_1_loc7,Text2_0_loc7,Text2_1_loc7,Text3_0_loc7,Text3_1_loc7,Text4_0_loc7,Text4_1_loc7,Text5_0_loc7,Text5_1_loc7,Text6_0_loc7,Text6_1_loc7,Text7_0_loc7,Text7_1_loc7, Text0_0_loc8,Text0_1_loc8,Text1_0_loc8,Text1_1_loc8,Text2_0_loc8,Text2_1_loc8,Text3_0_loc8,Text3_1_loc8,Text4_0_loc8,Text4_1_loc8,Text5_0_loc8,Text5_1_loc8,Text6_0_loc8,Text6_1_loc8,Text7_0_loc8,Text7_1_loc8  FROM locales_npc_text",
+      "relations": [
+        "locales_npc_text"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:5695"
+    },
+    "Globals/ObjectMgr:5780": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Entry, Type, Text, EmoteId, EmoteDelay FROM questgiver_greeting",
+      "relations": [
+        "questgiver_greeting"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:5780"
+    },
+    "Globals/ObjectMgr:5848": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Entry, Type, Text_loc1, Text_loc2, Text_loc3, Text_loc4, Text_loc5, Text_loc6, Text_loc7, Text_loc8 FROM locales_questgiver_greeting",
+      "relations": [
+        "locales_questgiver_greeting"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:5848"
+    },
+    "Globals/ObjectMgr:5927": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Entry, Text FROM trainer_greeting",
+      "relations": [
+        "trainer_greeting"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:5927"
+    },
+    "Globals/ObjectMgr:5967": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Entry, Text_loc1, Text_loc2, Text_loc3, Text_loc4, Text_loc5, Text_loc6, Text_loc7, Text_loc8 FROM locales_trainer_greeting",
+      "relations": [
+        "locales_trainer_greeting"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:5967"
+    },
+    "Globals/ObjectMgr:6021": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Entry, Text_loc1, Text_loc2, Text_loc3, Text_loc4, Text_loc5, Text_loc6, Text_loc7, Text_loc8 FROM locales_areatrigger_teleport",
+      "relations": [
+        "locales_areatrigger_teleport"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:6021"
+    },
+    "Globals/ObjectMgr:6246": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id,quest FROM areatrigger_involvedrelation",
+      "relations": [
+        "areatrigger_involvedrelation"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:6246"
+    },
+    "Globals/ObjectMgr:6307": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id FROM areatrigger_tavern",
+      "relations": [
+        "areatrigger_tavern"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:6307"
+    },
+    "Globals/ObjectMgr:6380": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT pathid,takeoff,landing FROM taxi_shortcuts",
+      "relations": [
+        "taxi_shortcuts"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:6380"
+    },
+    "Globals/ObjectMgr:6544": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, required_level, required_item, required_item2, required_quest_done, target_map, target_position_x, target_position_y, target_position_z, target_orientation, condition_id, status_failed_text FROM areatrigger_teleport",
+      "relations": [
+        "areatrigger_teleport"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:6544"
+    },
+    "Globals/ObjectMgr:6789": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT MAX(guid) FROM creature",
+      "relations": [
+        "creature"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:6789"
+    },
+    "Globals/ObjectMgr:6808": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT MAX(guid) FROM gameobject",
+      "relations": [
+        "gameobject"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:6808"
+    },
+    "Globals/ObjectMgr:6876": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry,name_loc1,name_loc2,name_loc3,name_loc4,name_loc5,name_loc6,name_loc7,name_loc8 FROM locales_gameobject",
+      "relations": [
+        "locales_gameobject"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:6876"
+    },
+    "Globals/ObjectMgr:7200": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT level,basexp FROM exploration_basexp",
+      "relations": [
+        "exploration_basexp"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:7200"
+    },
+    "Globals/ObjectMgr:7245": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT word,entry,half FROM pet_name_generation",
+      "relations": [
+        "pet_name_generation"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:7245"
+    },
+    "Globals/ObjectMgr:7298": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT CreatureEntry,SpellId,CombatCondition,TargetId,Comments FROM pet_autocast_spell_list",
+      "relations": [
+        "pet_autocast_spell_list"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:7298"
+    },
+    "Globals/ObjectMgr:7418": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT faction, quest_rate, creature_rate, spell_rate FROM reputation_reward_rate",
+      "relations": [
+        "reputation_reward_rate"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:7418"
+    },
+    "Globals/ObjectMgr:7485": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT creature_id, RewOnKillRepFaction1, RewOnKillRepFaction2,IsTeamAward1, MaxStanding1, RewOnKillRepValue1, IsTeamAward2, MaxStanding2, RewOnKillRepValue2, TeamDependent FROM creature_onkill_reputation",
+      "relations": [
+        "creature_onkill_reputation"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:7485"
+    },
+    "Globals/ObjectMgr:7560": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT faction, faction1, rate_1, rank_1, faction2, rate_2, rank_2, faction3, rate_3, rank_3, faction4, rate_4, rank_4 FROM reputation_spillover_template",
+      "relations": [
+        "reputation_spillover_template"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:7560"
+    },
+    "Globals/ObjectMgr:7677": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, x, y, icon, flags, data, icon_name FROM points_of_interest",
+      "relations": [
+        "points_of_interest"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:7677"
+    },
+    "Globals/ObjectMgr:7786": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, Text, Text1, ChatTypeID, LanguageID, SoundEntriesID1, EmoteID1, EmoteID2, EmoteID3, EmoteDelay1, EmoteDelay2, EmoteDelay3 FROM broadcast_text",
+      "relations": [
+        "broadcast_text"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:7786"
+    },
+    "Globals/ObjectMgr:7834": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, Locale, Text_lang, Text1_lang FROM broadcast_text_locale",
+      "relations": [
+        "broadcast_text_locale"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:7834"
+    },
+    "Globals/ObjectMgr:8041": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT name FROM reserved_name",
+      "relations": [
+        "reserved_name"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:8041"
+    },
+    "Globals/ObjectMgr:8580": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry,skill FROM skill_fishing_base_level",
+      "relations": [
+        "skill_fishing_base_level"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:8580"
+    },
+    "Globals/ObjectMgr:8681": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, position_x, position_y, position_z, orientation, map, name FROM game_tele",
+      "relations": [
+        "game_tele"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:8681"
+    },
+    "Globals/ObjectMgr:9168": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT npc_guid, textid FROM npc_gossip",
+      "relations": [
+        "npc_gossip"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:9168"
+    },
+    "Globals/ObjectMgr:9214": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, text_id, script_id, condition_id FROM gossip_menu",
+      "relations": [
+        "gossip_menu"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:9214"
+    },
+    "Globals/ObjectMgr:9305": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT menu_id, id, option_icon, option_text, option_broadcast_text, option_id, npc_option_npcflag, action_menu_id, action_poi_id, action_script_id, box_coded, box_money, box_text, box_broadcast_text, condition_id FROM gossip_menu_option ORDER BY menu_id, id",
+      "relations": [
+        "gossip_menu_option"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:9305"
+    },
+    "Globals/ObjectMgr:948": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Entry, SetId, Type, Value FROM creature_immunities",
+      "relations": [
+        "creature_immunities"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:948"
+    },
+    "Globals/ObjectMgr:9757": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, setId, spell1, spell2, spell3, spell4, spell5, spell6, spell7, spell8, spell9, spell10 FROM creature_template_spells",
+      "relations": [
+        "creature_template_spells"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:9757"
+    },
+    "Globals/ObjectMgr:9828": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Entry, SpellId, CooldownMin, CooldownMax FROM creature_cooldowns",
+      "relations": [
+        "creature_cooldowns"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:9828"
+    },
+    "Globals/ObjectMgr:984": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, Type, Param1, Param2, Param3, UnitCondition, Comments FROM creature_spell_targeting",
+      "relations": [
+        "creature_spell_targeting"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:984"
+    },
+    "Globals/UnitCondition:33": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT * FROM unit_condition",
+      "relations": [
+        "unit_condition"
+      ],
+      "source": "src/game/Globals/UnitCondition.cpp:33"
+    },
+    "MotionGenerators/WaypointManager:173": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, COUNT(Point) FROM creature_movement GROUP BY Id",
+      "relations": [
+        "creature_movement"
+      ],
+      "source": "src/game/MotionGenerators/WaypointManager.cpp:173"
+    },
+    "MotionGenerators/WaypointManager:198": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, Point, PositionX, PositionY, PositionZ, Orientation, WaitTime, ScriptId FROM creature_movement",
+      "relations": [
+        "creature_movement"
+      ],
+      "source": "src/game/MotionGenerators/WaypointManager.cpp:198"
+    },
+    "MotionGenerators/WaypointManager:246": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, map FROM creature WHERE guid = '%u'",
+      "relations": [
+        "creature"
+      ],
+      "source": "src/game/MotionGenerators/WaypointManager.cpp:246"
+    },
+    "MotionGenerators/WaypointManager:302": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Entry, COUNT(Point) FROM creature_movement_template GROUP BY Entry",
+      "relations": [
+        "creature_movement_template"
+      ],
+      "source": "src/game/MotionGenerators/WaypointManager.cpp:302"
+    },
+    "MotionGenerators/WaypointManager:329": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Entry, PathId, Point, PositionX, PositionY, PositionZ, Orientation, WaitTime, ScriptId FROM creature_movement_template",
+      "relations": [
+        "creature_movement_template"
+      ],
+      "source": "src/game/MotionGenerators/WaypointManager.cpp:329"
+    },
+    "MotionGenerators/WaypointManager:400": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT PathId, COUNT(Point) FROM waypoint_path GROUP BY PathId",
+      "relations": [
+        "waypoint_path"
+      ],
+      "source": "src/game/MotionGenerators/WaypointManager.cpp:400"
+    },
+    "MotionGenerators/WaypointManager:427": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT PathId FROM waypoint_path_name",
+      "relations": [
+        "waypoint_path_name"
+      ],
+      "source": "src/game/MotionGenerators/WaypointManager.cpp:427"
+    },
+    "MotionGenerators/WaypointManager:441": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT PathId, Point, PositionX, PositionY, PositionZ, Orientation, WaitTime, ScriptId FROM waypoint_path",
+      "relations": [
+        "waypoint_path"
+      ],
+      "source": "src/game/MotionGenerators/WaypointManager.cpp:441"
+    },
+    "ObjectMgr:classlevelstats": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Class, Level, BaseMana, BaseMeleeAttackPower, BaseRangedAttackPower, BaseArmor, Strength, Agility, Stamina, Intellect, Spirit, BaseHealthExp0, BaseDamageExp0, BaseDamageExp0OLD FROM creature_template_classlevelstats ORDER BY Class, Level",
+      "relations": [
+        "creature_template_classlevelstats"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:724"
+    },
+    "Pools/PoolManager:606": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT MAX(entry) FROM pool_template",
+      "relations": [
+        "pool_template"
+      ],
+      "source": "src/game/Pools/PoolManager.cpp:606"
+    },
+    "Pools/PoolManager:618": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, max_limit, description FROM pool_template",
+      "relations": [
+        "pool_template"
+      ],
+      "source": "src/game/Pools/PoolManager.cpp:618"
+    },
+    "Pools/PoolManager:656": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT guid, pool_entry, chance FROM pool_creature",
+      "relations": [
+        "pool_creature"
+      ],
+      "source": "src/game/Pools/PoolManager.cpp:656"
+    },
+    "Pools/PoolManager:716": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT guid, pool_entry, chance, pool_creature_template.id FROM pool_creature_template LEFT JOIN creature ON creature.id = pool_creature_template.id",
+      "relations": [
+        "pool_creature_template",
+        "creature"
+      ],
+      "source": "src/game/Pools/PoolManager.cpp:716"
+    },
+    "Pools/PoolManager:792": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT guid, pool_entry, chance FROM pool_gameobject",
+      "relations": [
+        "pool_gameobject"
+      ],
+      "source": "src/game/Pools/PoolManager.cpp:792"
+    },
+    "Pools/PoolManager:853": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT guid, pool_entry, chance, pool_gameobject_template.id FROM pool_gameobject_template LEFT JOIN gameobject ON gameobject.id = pool_gameobject_template.id",
+      "relations": [
+        "pool_gameobject_template",
+        "gameobject"
+      ],
+      "source": "src/game/Pools/PoolManager.cpp:853"
+    },
+    "Pools/PoolManager:927": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT pool_id, mother_pool, chance FROM pool_pool",
+      "relations": [
+        "pool_pool"
+      ],
+      "source": "src/game/Pools/PoolManager.cpp:927"
+    },
+    "SQLStorage:sConditionStorage": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "conditions"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:54"
+    },
+    "SQLStorage:sCreatureConditionalSpawnStore": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "creature_conditional_spawn"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:58"
+    },
+    "SQLStorage:sCreatureDataAddonStorage": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "creature_addon"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:46"
+    },
+    "SQLStorage:sCreatureInfoAddonStorage": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "creature_template_addon"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:48"
+    },
+    "SQLStorage:sCreatureModelStorage": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "creature_model_info"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:47"
+    },
+    "SQLStorage:sCreatureStorage": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "creature_template"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:45"
+    },
+    "SQLStorage:sDungeonEncounterStore": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "instance_dungeon_encounters"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:57"
+    },
+    "SQLStorage:sEquipmentStorage": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "creature_equip_template"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:49"
+    },
+    "SQLStorage:sGOStorage": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "gameobject_template"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:61"
+    },
+    "SQLStorage:sInstanceTemplate": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "instance_template"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:52"
+    },
+    "SQLStorage:sItemStorage": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "item_template"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:50"
+    },
+    "SQLStorage:sPageTextStore": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "page_text"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:51"
+    },
+    "SQLStorage:sSpellCones": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "spell_cone"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:56"
+    },
+    "SQLStorage:sSpellScriptTargetStorage": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "spell_script_target"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:63"
+    },
+    "SQLStorage:sSpellTemplate": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "spell_template"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:55"
+    },
+    "SQLStorage:sWorldSafeLocsStore": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "world_safe_locs"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:59"
+    },
+    "SQLStorage:sWorldTemplate": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql-storage",
+      "occurrence": "required; not acquired by inventory",
+      "query": "MAX, COUNT, SELECT *; SQLStorageImpl.h:306-328",
+      "relations": [
+        "world_template"
+      ],
+      "source": "src/game/Server/SQLStorages.cpp:53"
+    },
+    "Spells/SpellMgr:1054": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, Threat, multiplier, ap_bonus, InverseEffectMask FROM spell_threat",
+      "relations": [
+        "spell_threat"
+      ],
+      "source": "src/game/Spells/SpellMgr.cpp:1054"
+    },
+    "Spells/SpellMgr:1400": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT spell_id, prev_spell, first_spell, `rank`, req_spell FROM spell_chain",
+      "relations": [
+        "spell_chain"
+      ],
+      "source": "src/game/Spells/SpellMgr.cpp:1400"
+    },
+    "Spells/SpellMgr:1668": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, SpellID, Active FROM spell_learn_spell",
+      "relations": [
+        "spell_learn_spell"
+      ],
+      "source": "src/game/Spells/SpellMgr.cpp:1668"
+    },
+    "Spells/SpellMgr:1936": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT spell, pet, aura FROM spell_pet_auras",
+      "relations": [
+        "spell_pet_auras"
+      ],
+      "source": "src/game/Spells/SpellMgr.cpp:1936"
+    },
+    "Spells/SpellMgr:2086": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT spell, area, quest_start, quest_start_active, quest_end, condition_id, aura_spell, racemask, gender, autocast FROM spell_area",
+      "relations": [
+        "spell_area"
+      ],
+      "source": "src/game/Spells/SpellMgr.cpp:2086"
+    },
+    "Spells/SpellMgr:2886": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, effectId, SpellFamilyMask FROM spell_affect",
+      "relations": [
+        "spell_affect"
+      ],
+      "source": "src/game/Spells/SpellMgr.cpp:2886"
+    },
+    "Spells/SpellMgr:2999": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, facingcasterflag FROM spell_facing",
+      "relations": [
+        "spell_facing"
+      ],
+      "source": "src/game/Spells/SpellMgr.cpp:2999"
+    },
+    "Spells/SpellMgr:441": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, target_map, target_position_x, target_position_y, target_position_z, target_orientation FROM spell_target_position",
+      "relations": [
+        "spell_target_position"
+      ],
+      "source": "src/game/Spells/SpellMgr.cpp:441"
+    },
+    "Spells/SpellMgr:695": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, SchoolMask, SpellFamilyName, SpellFamilyMask0, SpellFamilyMask1, SpellFamilyMask2, procFlags, procEx, ppmRate, CustomChance, Cooldown FROM spell_proc_event",
+      "relations": [
+        "spell_proc_event"
+      ],
+      "source": "src/game/Spells/SpellMgr.cpp:695"
+    },
+    "Spells/SpellMgr:756": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, ppmRate FROM spell_proc_item_enchant",
+      "relations": [
+        "spell_proc_item_enchant"
+      ],
+      "source": "src/game/Spells/SpellMgr.cpp:756"
+    },
+    "Spells/SpellMgr:943": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, mask FROM spell_elixir",
+      "relations": [
+        "spell_elixir"
+      ],
+      "source": "src/game/Spells/SpellMgr.cpp:943"
+    },
+    "Spells/SpellStacking:39": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, Rule, Name FROM spell_group",
+      "relations": [
+        "spell_group"
+      ],
+      "source": "src/game/Spells/SpellStacking.cpp:39"
+    },
+    "Spells/SpellStacking:72": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, SpellId FROM spell_group_spell",
+      "relations": [
+        "spell_group_spell"
+      ],
+      "source": "src/game/Spells/SpellStacking.cpp:72"
+    },
+    "Weather/Weather:436": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT zone, spring_rain_chance, spring_snow_chance, spring_storm_chance, summer_rain_chance, summer_snow_chance, summer_storm_chance, fall_rain_chance, fall_snow_chance, fall_storm_chance, winter_rain_chance, winter_snow_chance, winter_storm_chance FROM game_weather",
+      "relations": [
+        "game_weather"
+      ],
+      "source": "src/game/Weather/Weather.cpp:436"
+    },
+    "World/World:2309": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT record FROM spam_records",
+      "relations": [
+        "spam_records"
+      ],
+      "source": "src/game/World/World.cpp:2309"
+    },
+    "World/World:2379": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT version, creature_ai_version FROM db_version LIMIT 1",
+      "relations": [
+        "db_version"
+      ],
+      "source": "src/game/World/World.cpp:2379"
+    },
+    "World/World:2654": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id,ghost_loc,link_kind,faction FROM game_graveyard_zone",
+      "relations": [
+        "game_graveyard_zone"
+      ],
+      "source": "src/game/World/World.cpp:2654"
+    },
+    "World/WorldStateExpression:389": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT * FROM worldstate_expression",
+      "relations": [
+        "worldstate_expression"
+      ],
+      "source": "src/game/World/WorldStateExpression.cpp:389"
+    },
+    "dbscript:dbscripts_on_creature_death": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, delay, command, datalong, datalong2, datalong3, buddy_entry, search_radius, data_flags, dataint, dataint2, dataint3, dataint4, datafloat, x, y, z, o, speed, condition_id FROM dbscripts_on_creature_death ORDER BY priority",
+      "relations": [
+        "dbscripts_on_creature_death"
+      ],
+      "source": "src/game/DBScripts/ScriptMgr.cpp:118"
+    },
+    "dbscript:dbscripts_on_creature_movement": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, delay, command, datalong, datalong2, datalong3, buddy_entry, search_radius, data_flags, dataint, dataint2, dataint3, dataint4, datafloat, x, y, z, o, speed, condition_id FROM dbscripts_on_creature_movement ORDER BY priority",
+      "relations": [
+        "dbscripts_on_creature_movement"
+      ],
+      "source": "src/game/DBScripts/ScriptMgr.cpp:118"
+    },
+    "dbscript:dbscripts_on_event": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, delay, command, datalong, datalong2, datalong3, buddy_entry, search_radius, data_flags, dataint, dataint2, dataint3, dataint4, datafloat, x, y, z, o, speed, condition_id FROM dbscripts_on_event ORDER BY priority",
+      "relations": [
+        "dbscripts_on_event"
+      ],
+      "source": "src/game/DBScripts/ScriptMgr.cpp:118"
+    },
+    "dbscript:dbscripts_on_go_template_use": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, delay, command, datalong, datalong2, datalong3, buddy_entry, search_radius, data_flags, dataint, dataint2, dataint3, dataint4, datafloat, x, y, z, o, speed, condition_id FROM dbscripts_on_go_template_use ORDER BY priority",
+      "relations": [
+        "dbscripts_on_go_template_use"
+      ],
+      "source": "src/game/DBScripts/ScriptMgr.cpp:118"
+    },
+    "dbscript:dbscripts_on_go_use": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, delay, command, datalong, datalong2, datalong3, buddy_entry, search_radius, data_flags, dataint, dataint2, dataint3, dataint4, datafloat, x, y, z, o, speed, condition_id FROM dbscripts_on_go_use ORDER BY priority",
+      "relations": [
+        "dbscripts_on_go_use"
+      ],
+      "source": "src/game/DBScripts/ScriptMgr.cpp:118"
+    },
+    "dbscript:dbscripts_on_gossip": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, delay, command, datalong, datalong2, datalong3, buddy_entry, search_radius, data_flags, dataint, dataint2, dataint3, dataint4, datafloat, x, y, z, o, speed, condition_id FROM dbscripts_on_gossip ORDER BY priority",
+      "relations": [
+        "dbscripts_on_gossip"
+      ],
+      "source": "src/game/DBScripts/ScriptMgr.cpp:118"
+    },
+    "dbscript:dbscripts_on_quest_end": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, delay, command, datalong, datalong2, datalong3, buddy_entry, search_radius, data_flags, dataint, dataint2, dataint3, dataint4, datafloat, x, y, z, o, speed, condition_id FROM dbscripts_on_quest_end ORDER BY priority",
+      "relations": [
+        "dbscripts_on_quest_end"
+      ],
+      "source": "src/game/DBScripts/ScriptMgr.cpp:118"
+    },
+    "dbscript:dbscripts_on_quest_start": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, delay, command, datalong, datalong2, datalong3, buddy_entry, search_radius, data_flags, dataint, dataint2, dataint3, dataint4, datafloat, x, y, z, o, speed, condition_id FROM dbscripts_on_quest_start ORDER BY priority",
+      "relations": [
+        "dbscripts_on_quest_start"
+      ],
+      "source": "src/game/DBScripts/ScriptMgr.cpp:118"
+    },
+    "dbscript:dbscripts_on_relay": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, delay, command, datalong, datalong2, datalong3, buddy_entry, search_radius, data_flags, dataint, dataint2, dataint3, dataint4, datafloat, x, y, z, o, speed, condition_id FROM dbscripts_on_relay ORDER BY priority",
+      "relations": [
+        "dbscripts_on_relay"
+      ],
+      "source": "src/game/DBScripts/ScriptMgr.cpp:118"
+    },
+    "dbscript:dbscripts_on_spell": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, delay, command, datalong, datalong2, datalong3, buddy_entry, search_radius, data_flags, dataint, dataint2, dataint3, dataint4, datafloat, x, y, z, o, speed, condition_id FROM dbscripts_on_spell ORDER BY priority",
+      "relations": [
+        "dbscripts_on_spell"
+      ],
+      "source": "src/game/DBScripts/ScriptMgr.cpp:118"
+    },
+    "enchantments": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, ench, chance FROM item_enchantment_template",
+      "relations": [
+        "item_enchantment_template"
+      ],
+      "source": "src/game/Entities/ItemEnchantmentMgr.cpp:51"
+    },
+    "loot:creature": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, item, ChanceOrQuestChance, groupid, mincountOrRef, maxcount, condition_id FROM creature_loot_template",
+      "relations": [
+        "creature_loot_template"
+      ],
+      "source": "src/game/Loot/LootMgr.cpp:49"
+    },
+    "loot:disenchant": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, item, ChanceOrQuestChance, groupid, mincountOrRef, maxcount, condition_id FROM disenchant_loot_template",
+      "relations": [
+        "disenchant_loot_template"
+      ],
+      "source": "src/game/Loot/LootMgr.cpp:50"
+    },
+    "loot:fishing": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, item, ChanceOrQuestChance, groupid, mincountOrRef, maxcount, condition_id FROM fishing_loot_template",
+      "relations": [
+        "fishing_loot_template"
+      ],
+      "source": "src/game/Loot/LootMgr.cpp:51"
+    },
+    "loot:gameobject": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, item, ChanceOrQuestChance, groupid, mincountOrRef, maxcount, condition_id FROM gameobject_loot_template",
+      "relations": [
+        "gameobject_loot_template"
+      ],
+      "source": "src/game/Loot/LootMgr.cpp:52"
+    },
+    "loot:item": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, item, ChanceOrQuestChance, groupid, mincountOrRef, maxcount, condition_id FROM item_loot_template",
+      "relations": [
+        "item_loot_template"
+      ],
+      "source": "src/game/Loot/LootMgr.cpp:53"
+    },
+    "loot:mail": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, item, ChanceOrQuestChance, groupid, mincountOrRef, maxcount, condition_id FROM mail_loot_template",
+      "relations": [
+        "mail_loot_template"
+      ],
+      "source": "src/game/Loot/LootMgr.cpp:54"
+    },
+    "loot:pickpocketing": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, item, ChanceOrQuestChance, groupid, mincountOrRef, maxcount, condition_id FROM pickpocketing_loot_template",
+      "relations": [
+        "pickpocketing_loot_template"
+      ],
+      "source": "src/game/Loot/LootMgr.cpp:55"
+    },
+    "loot:reference": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, item, ChanceOrQuestChance, groupid, mincountOrRef, maxcount, condition_id FROM reference_loot_template",
+      "relations": [
+        "reference_loot_template"
+      ],
+      "source": "src/game/Loot/LootMgr.cpp:56"
+    },
+    "loot:skinning": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, item, ChanceOrQuestChance, groupid, mincountOrRef, maxcount, condition_id FROM skinning_loot_template",
+      "relations": [
+        "skinning_loot_template"
+      ],
+      "source": "src/game/Loot/LootMgr.cpp:57"
+    },
+    "quest-relation:creature_involvedrelation": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, quest FROM creature_involvedrelation",
+      "relations": [
+        "creature_involvedrelation"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:8027"
+    },
+    "quest-relation:creature_questrelation": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, quest FROM creature_questrelation",
+      "relations": [
+        "creature_questrelation"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:8015"
+    },
+    "quest-relation:gameobject_involvedrelation": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, quest FROM gameobject_involvedrelation",
+      "relations": [
+        "gameobject_involvedrelation"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:8001"
+    },
+    "quest-relation:gameobject_questrelation": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id, quest FROM gameobject_questrelation",
+      "relations": [
+        "gameobject_questrelation"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:7987"
+    },
+    "service:npc_trainer": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "LoadTrainers/LoadVendors(npc_trainer); dynamic query requires occurrence capture",
+      "relations": [
+        "npc_trainer"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:8808"
+    },
+    "service:npc_trainer_template": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "LoadTrainers/LoadVendors(npc_trainer_template); dynamic query requires occurrence capture",
+      "relations": [
+        "npc_trainer_template"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:8980"
+    },
+    "service:npc_vendor": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "LoadTrainers/LoadVendors(npc_vendor); dynamic query requires occurrence capture",
+      "relations": [
+        "npc_vendor"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:9094"
+    },
+    "service:npc_vendor_template": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "LoadTrainers/LoadVendors(npc_vendor_template); dynamic query requires occurrence capture",
+      "relations": [
+        "npc_vendor_template"
+      ],
+      "source": "src/game/Globals/ObjectMgr.cpp:9065"
+    },
+    "spell-scripts": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT Id, ScriptName FROM spell_scripts",
+      "relations": [
+        "spell_scripts"
+      ],
+      "source": "src/game/Spells/Scripts/SpellScript.cpp:78"
+    },
+    "strings:custom_texts": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "LoadMangosStrings(WorldDatabase, custom_texts)",
+      "relations": [
+        "custom_texts"
+      ],
+      "source": "src/game/AI/ScriptDevAI/system/system.cpp:54"
+    },
+    "strings:gossip_texts": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "LoadMangosStrings(WorldDatabase, gossip_texts)",
+      "relations": [
+        "gossip_texts"
+      ],
+      "source": "src/game/AI/ScriptDevAI/system/system.cpp:60"
+    },
+    "strings:mangos_string": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "ObjectMgr::LoadMangosStrings; default mangos_string",
+      "relations": [
+        "mangos_string"
+      ],
+      "source": "src/game/World/World.cpp:875"
+    },
+    "strings:script_texts": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "source-build-condition-review-pending",
+      "kind": "dynamic-sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "LoadMangosStrings(WorldDatabase, script_texts)",
+      "relations": [
+        "script_texts"
+      ],
+      "source": "src/game/AI/ScriptDevAI/system/system.cpp:48"
+    },
+    "Chat/Chat:1028": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "runtime command table",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT name,security,help FROM command",
+      "relations": [
+        "command"
+      ],
+      "source": "src/game/Chat/Chat.cpp:1028",
+      "function": "ChatHandler::getCommandTable"
+    },
+    "Loot/LootMgr:239": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "startup reference loot validation",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT entry, name FROM `reference_loot_template_names`",
+      "relations": [
+        "reference_loot_template_names"
+      ],
+      "source": "src/game/Loot/LootMgr.cpp:239",
+      "function": "LootStore::LoadAndCheckReferenceNames"
+    },
+    "Anticheat/module/Warden/wardenscanmgr:66": {
+      "conversion": "Field.h:43-66; per-loader validation pending",
+      "enabled": "anticheat module; disabled in selected execution",
+      "kind": "sql",
+      "occurrence": "required; not acquired by inventory",
+      "query": "SELECT id,type,str,data,address,length,result,flags,comment FROM warden_scans",
+      "relations": [
+        "warden_scans"
+      ],
+      "source": "src/game/Anticheat/module/Warden/wardenscanmgr.cpp:66",
+      "function": "WardenScanMgr::loadFromDB"
+    }
+  },
+  "review": "pending-owner-content-compiler-review",
+  "startup_calls": [
+    {
+      "call": "LoadConfigSettings();",
+      "source": "src/game/World/World.cpp:858"
+    },
+    {
+      "call": "if (!sObjectMgr.LoadMangosStrings())",
+      "source": "src/game/World/World.cpp:875"
+    },
+    {
+      "call": "sObjectMgr.LoadSpellTemplate();",
+      "source": "src/game/World/World.cpp:894"
+    },
+    {
+      "call": "sSpellStacker.LoadSpellGroups();",
+      "source": "src/game/World/World.cpp:897"
+    },
+    {
+      "call": "sObjectMgr.LoadBroadcastText();",
+      "source": "src/game/World/World.cpp:901"
+    },
+    {
+      "call": "LoadWorldSafeLocs();",
+      "source": "src/game/World/World.cpp:904"
+    },
+    {
+      "call": "LoadDBCStores(m_dataPath);",
+      "source": "src/game/World/World.cpp:908"
+    },
+    {
+      "call": "LoadM2Cameras(m_dataPath);",
+      "source": "src/game/World/World.cpp:924"
+    },
+    {
+      "call": "sScriptDevAIMgr.LoadScriptNames();",
+      "source": "src/game/World/World.cpp:927"
+    },
+    {
+      "call": "sObjectMgr.LoadWorldTemplate();",
+      "source": "src/game/World/World.cpp:930"
+    },
+    {
+      "call": "sObjectMgr.LoadInstanceTemplate();",
+      "source": "src/game/World/World.cpp:933"
+    },
+    {
+      "call": "sSpellMgr.LoadSkillLineAbilityMaps();",
+      "source": "src/game/World/World.cpp:936"
+    },
+    {
+      "call": "sSpellMgr.LoadSkillRaceClassInfoMap();",
+      "source": "src/game/World/World.cpp:939"
+    },
+    {
+      "call": "sObjectMgr.LoadPageTexts();",
+      "source": "src/game/World/World.cpp:956"
+    },
+    {
+      "call": "sScriptMgr.LoadStringIds(); // must be before LoadCreatureSpawnDataTemplates",
+      "source": "src/game/World/World.cpp:959"
+    },
+    {
+      "call": "std::vector<uint32> transportDisplayIds = sObjectMgr.LoadGameobjectInfo();",
+      "source": "src/game/World/World.cpp:962"
+    },
+    {
+      "call": "LoadGameObjectModelList();",
+      "source": "src/game/World/World.cpp:966"
+    },
+    {
+      "call": "sTransportMgr.LoadTransportAnimationAndRotation();",
+      "source": "src/game/World/World.cpp:970"
+    },
+    {
+      "call": "sSpellMgr.LoadSpellChains();",
+      "source": "src/game/World/World.cpp:973"
+    },
+    {
+      "call": "sSpellMgr.LoadSpellElixirs();",
+      "source": "src/game/World/World.cpp:979"
+    },
+    {
+      "call": "sSpellMgr.LoadFacingCasterFlags();",
+      "source": "src/game/World/World.cpp:982"
+    },
+    {
+      "call": "sSpellMgr.LoadSpellLearnSkills();                       // must be after LoadSpellChains",
+      "source": "src/game/World/World.cpp:985"
+    },
+    {
+      "call": "sSpellMgr.LoadSpellLearnSpells();",
+      "source": "src/game/World/World.cpp:988"
+    },
+    {
+      "call": "sSpellMgr.LoadSpellProcEvents();",
+      "source": "src/game/World/World.cpp:991"
+    },
+    {
+      "call": "sSpellMgr.LoadSpellProcItemEnchant();                   // must be after LoadSpellChains",
+      "source": "src/game/World/World.cpp:994"
+    },
+    {
+      "call": "sSpellMgr.LoadSpellThreats();",
+      "source": "src/game/World/World.cpp:997"
+    },
+    {
+      "call": "sObjectMgr.LoadGossipText();",
+      "source": "src/game/World/World.cpp:1000"
+    },
+    {
+      "call": "LoadRandomEnchantmentsTable();",
+      "source": "src/game/World/World.cpp:1003"
+    },
+    {
+      "call": "sObjectMgr.LoadItemPrototypes();",
+      "source": "src/game/World/World.cpp:1006"
+    },
+    {
+      "call": "sObjectMgr.LoadItemTexts();",
+      "source": "src/game/World/World.cpp:1009"
+    },
+    {
+      "call": "sObjectMgr.LoadCreatureModelInfo();",
+      "source": "src/game/World/World.cpp:1012"
+    },
+    {
+      "call": "sObjectMgr.LoadEquipmentTemplates();",
+      "source": "src/game/World/World.cpp:1015"
+    },
+    {
+      "call": "sObjectMgr.LoadCreatureClassLvlStats();",
+      "source": "src/game/World/World.cpp:1018"
+    },
+    {
+      "call": "sObjectMgr.LoadCreatureTemplates();",
+      "source": "src/game/World/World.cpp:1021"
+    },
+    {
+      "call": "sObjectMgr.LoadCreatureImmunities();",
+      "source": "src/game/World/World.cpp:1024"
+    },
+    {
+      "call": "sObjectMgr.LoadConditionsAndExpressions();",
+      "source": "src/game/World/World.cpp:1027"
+    },
+    {
+      "call": "auto spellLists = sObjectMgr.LoadCreatureSpellLists();",
+      "source": "src/game/World/World.cpp:1030"
+    },
+    {
+      "call": "sObjectMgr.LoadCreatureCooldowns();",
+      "source": "src/game/World/World.cpp:1033"
+    },
+    {
+      "call": "sObjectMgr.LoadCreatureTemplateSpells(spellLists);",
+      "source": "src/game/World/World.cpp:1036"
+    },
+    {
+      "call": "sObjectMgr.LoadItemRequiredTarget();",
+      "source": "src/game/World/World.cpp:1039"
+    },
+    {
+      "call": "sObjectMgr.LoadReputationRewardRate();",
+      "source": "src/game/World/World.cpp:1042"
+    },
+    {
+      "call": "sObjectMgr.LoadReputationOnKill();",
+      "source": "src/game/World/World.cpp:1045"
+    },
+    {
+      "call": "sObjectMgr.LoadReputationSpilloverTemplate();",
+      "source": "src/game/World/World.cpp:1048"
+    },
+    {
+      "call": "sObjectMgr.LoadPointsOfInterest();",
+      "source": "src/game/World/World.cpp:1051"
+    },
+    {
+      "call": "sObjectMgr.LoadPetCreateSpells();",
+      "source": "src/game/World/World.cpp:1054"
+    },
+    {
+      "call": "sObjectMgr.LoadCreatureConditionalSpawn();",
+      "source": "src/game/World/World.cpp:1057"
+    },
+    {
+      "call": "sObjectMgr.LoadCreatureSpawnDataTemplates();",
+      "source": "src/game/World/World.cpp:1060"
+    },
+    {
+      "call": "sObjectMgr.LoadCreatureSpawnEntry();",
+      "source": "src/game/World/World.cpp:1063"
+    },
+    {
+      "call": "sObjectMgr.LoadCreatures();",
+      "source": "src/game/World/World.cpp:1066"
+    },
+    {
+      "call": "sObjectMgr.LoadGameObjectSpawnEntry();",
+      "source": "src/game/World/World.cpp:1069"
+    },
+    {
+      "call": "sObjectMgr.LoadGameObjects();",
+      "source": "src/game/World/World.cpp:1072"
+    },
+    {
+      "call": "sSpellMgr.LoadSpellScriptTarget();                      // must be after LoadCreatureTemplates, LoadCreatures and LoadGameobjectInfo",
+      "source": "src/game/World/World.cpp:1081"
+    },
+    {
+      "call": "sObjectMgr.LoadCreatureAddons();                        // must be after LoadCreatureTemplates() and LoadCreatures()",
+      "source": "src/game/World/World.cpp:1087"
+    },
+    {
+      "call": "sCreatureLinkingMgr.LoadFromDB();",
+      "source": "src/game/World/World.cpp:1092"
+    },
+    {
+      "call": "sPoolMgr.LoadFromDB();",
+      "source": "src/game/World/World.cpp:1095"
+    },
+    {
+      "call": "sWeatherMgr.LoadWeatherZoneChances();",
+      "source": "src/game/World/World.cpp:1098"
+    },
+    {
+      "call": "sObjectMgr.LoadQuests();                                // must be loaded after DBCs, creature_template, item_template, gameobject tables",
+      "source": "src/game/World/World.cpp:1101"
+    },
+    {
+      "call": "sObjectMgr.LoadQuestRelations();                        // must be after quest load",
+      "source": "src/game/World/World.cpp:1104"
+    },
+    {
+      "call": "sGameEventMgr.LoadFromDB();",
+      "source": "src/game/World/World.cpp:1109"
+    },
+    {
+      "call": "sObjectMgr.LoadDungeonEncounters();                     // Load DungeonEncounter.dbc from DB",
+      "source": "src/game/World/World.cpp:1114"
+    },
+    {
+      "call": "sObjectMgr.LoadWorldStateNames();",
+      "source": "src/game/World/World.cpp:1117"
+    },
+    {
+      "call": "sObjectMgr.LoadConditions();",
+      "source": "src/game/World/World.cpp:1120"
+    },
+    {
+      "call": "sObjectMgr.LoadSpawnGroups();",
+      "source": "src/game/World/World.cpp:1123"
+    },
+    {
+      "call": "sMapMgr.LoadTransports();",
+      "source": "src/game/World/World.cpp:1127"
+    },
+    {
+      "call": "sLog.outString(\"Creating map persistent states for non-instanceable maps...\");     // must be after PackInstances(), LoadCreatures(), sPoolMgr.LoadFromDB(), sGameEventMgr.LoadFromDB();",
+      "source": "src/game/World/World.cpp:1129"
+    },
+    {
+      "call": "sLog.outString(\"Loading Creature Respawn Data...\");     // must be after LoadCreatures(), and sMapPersistentStateMgr.InitWorldMaps()",
+      "source": "src/game/World/World.cpp:1133"
+    },
+    {
+      "call": "sMapPersistentStateMgr.LoadCreatureRespawnTimes();",
+      "source": "src/game/World/World.cpp:1134"
+    },
+    {
+      "call": "sLog.outString(\"Loading Gameobject Respawn Data...\");   // must be after LoadGameObjects(), and sMapPersistentStateMgr.InitWorldMaps()",
+      "source": "src/game/World/World.cpp:1136"
+    },
+    {
+      "call": "sMapPersistentStateMgr.LoadGameobjectRespawnTimes();",
+      "source": "src/game/World/World.cpp:1137"
+    },
+    {
+      "call": "sSpellMgr.LoadSpellAreas();",
+      "source": "src/game/World/World.cpp:1140"
+    },
+    {
+      "call": "sObjectMgr.LoadAreaTriggerTeleports();                  // must be after item template load",
+      "source": "src/game/World/World.cpp:1143"
+    },
+    {
+      "call": "sObjectMgr.LoadQuestAreaTriggers();                     // must be after LoadQuests",
+      "source": "src/game/World/World.cpp:1146"
+    },
+    {
+      "call": "sObjectMgr.LoadTavernAreaTriggers();",
+      "source": "src/game/World/World.cpp:1149"
+    },
+    {
+      "call": "sScriptDevAIMgr.LoadAreaTriggerScripts();",
+      "source": "src/game/World/World.cpp:1152"
+    },
+    {
+      "call": "sScriptDevAIMgr.LoadEventIdScripts();",
+      "source": "src/game/World/World.cpp:1155"
+    },
+    {
+      "call": "LoadGraveyardZones();",
+      "source": "src/game/World/World.cpp:1158"
+    },
+    {
+      "call": "sObjectMgr.LoadTaxiShortcuts();",
+      "source": "src/game/World/World.cpp:1161"
+    },
+    {
+      "call": "sSpellMgr.LoadSpellTargetPositions();",
+      "source": "src/game/World/World.cpp:1164"
+    },
+    {
+      "call": "sSpellMgr.LoadSpellAffects();",
+      "source": "src/game/World/World.cpp:1167"
+    },
+    {
+      "call": "sSpellMgr.LoadSpellPetAuras();",
+      "source": "src/game/World/World.cpp:1170"
+    },
+    {
+      "call": "sObjectMgr.LoadPlayerInfo();",
+      "source": "src/game/World/World.cpp:1173"
+    },
+    {
+      "call": "sObjectMgr.LoadExplorationBaseXP();",
+      "source": "src/game/World/World.cpp:1178"
+    },
+    {
+      "call": "sObjectMgr.LoadPetNames();",
+      "source": "src/game/World/World.cpp:1181"
+    },
+    {
+      "call": "sObjectMgr.LoadPetNumber();",
+      "source": "src/game/World/World.cpp:1187"
+    },
+    {
+      "call": "sObjectMgr.LoadPetLevelInfo();",
+      "source": "src/game/World/World.cpp:1190"
+    },
+    {
+      "call": "sObjectMgr.LoadPetAutocastInfo();",
+      "source": "src/game/World/World.cpp:1193"
+    },
+    {
+      "call": "sObjectMgr.LoadCorpses();",
+      "source": "src/game/World/World.cpp:1196"
+    },
+    {
+      "call": "LoadLootTables(ids_set);",
+      "source": "src/game/World/World.cpp:1200"
+    },
+    {
+      "call": "sObjectMgr.LoadFishingBaseSkillLevel();",
+      "source": "src/game/World/World.cpp:1205"
+    },
+    {
+      "call": "sObjectMgr.LoadInstanceEncounters();",
+      "source": "src/game/World/World.cpp:1208"
+    },
+    {
+      "call": "sObjectMgr.LoadNpcGossips();                            // must be after load Creature and LoadGossipText",
+      "source": "src/game/World/World.cpp:1211"
+    },
+    {
+      "call": "sScriptMgr.LoadDbScriptRandomTemplates();",
+      "source": "src/game/World/World.cpp:1214"
+    },
+    {
+      "call": "sScriptMgr.LoadScriptMap(SCRIPT_TYPE_RELAY);                // must be first in dbscripts loading",
+      "source": "src/game/World/World.cpp:1217"
+    },
+    {
+      "call": "sScriptMgr.LoadScriptMap(SCRIPT_TYPE_GOSSIP);               // must be before gossip menu options",
+      "source": "src/game/World/World.cpp:1218"
+    },
+    {
+      "call": "sScriptMgr.LoadScriptMap(SCRIPT_TYPE_QUEST_START);          // must be after load Creature/Gameobject(Template/Data) and QuestTemplate",
+      "source": "src/game/World/World.cpp:1219"
+    },
+    {
+      "call": "sScriptMgr.LoadScriptMap(SCRIPT_TYPE_QUEST_END);            // must be after load Creature/Gameobject(Template/Data) and QuestTemplate",
+      "source": "src/game/World/World.cpp:1220"
+    },
+    {
+      "call": "sScriptMgr.LoadScriptMap(SCRIPT_TYPE_SPELL);                // must be after load Creature/Gameobject(Template/Data)",
+      "source": "src/game/World/World.cpp:1221"
+    },
+    {
+      "call": "sScriptMgr.LoadScriptMap(SCRIPT_TYPE_GAMEOBJECT);           // must be after load Creature/Gameobject(Template/Data)",
+      "source": "src/game/World/World.cpp:1222"
+    },
+    {
+      "call": "sScriptMgr.LoadScriptMap(SCRIPT_TYPE_GAMEOBJECT_TEMPLATE);  // must be after load Creature/Gameobject(Template/Data)",
+      "source": "src/game/World/World.cpp:1223"
+    },
+    {
+      "call": "sScriptMgr.LoadScriptMap(SCRIPT_TYPE_EVENT);                // must be after load Creature/Gameobject(Template/Data)",
+      "source": "src/game/World/World.cpp:1224"
+    },
+    {
+      "call": "sScriptMgr.LoadScriptMap(SCRIPT_TYPE_CREATURE_DEATH);       // must be after load Creature/Gameobject(Template/Data)",
+      "source": "src/game/World/World.cpp:1225"
+    },
+    {
+      "call": "sScriptMgr.LoadScriptMap(SCRIPT_TYPE_CREATURE_MOVEMENT);    // before loading from creature_movement",
+      "source": "src/game/World/World.cpp:1226"
+    },
+    {
+      "call": "sObjectMgr.LoadAreatriggerLocales();",
+      "source": "src/game/World/World.cpp:1227"
+    },
+    {
+      "call": "sScriptMgr.LoadDbScriptStrings();",
+      "source": "src/game/World/World.cpp:1232"
+    },
+    {
+      "call": "sObjectMgr.LoadGossipMenus();",
+      "source": "src/game/World/World.cpp:1235"
+    },
+    {
+      "call": "sObjectMgr.LoadVendorTemplates();                       // must be after load ItemTemplate",
+      "source": "src/game/World/World.cpp:1238"
+    },
+    {
+      "call": "sObjectMgr.LoadVendors();                               // must be after load CreatureTemplate, VendorTemplate, and ItemTemplate",
+      "source": "src/game/World/World.cpp:1239"
+    },
+    {
+      "call": "sObjectMgr.LoadTrainerTemplates();                      // must be after load CreatureTemplate",
+      "source": "src/game/World/World.cpp:1242"
+    },
+    {
+      "call": "sObjectMgr.LoadTrainers();                              // must be after load CreatureTemplate, TrainerTemplate",
+      "source": "src/game/World/World.cpp:1243"
+    },
+    {
+      "call": "sWaypointMgr.Load();",
+      "source": "src/game/World/World.cpp:1248"
+    },
+    {
+      "call": "sObjectMgr.LoadReservedPlayersNames();",
+      "source": "src/game/World/World.cpp:1251"
+    },
+    {
+      "call": "sObjectMgr.LoadGameObjectForQuests();",
+      "source": "src/game/World/World.cpp:1254"
+    },
+    {
+      "call": "sBattleGroundMgr.LoadBattleMastersEntry(false);",
+      "source": "src/game/World/World.cpp:1257"
+    },
+    {
+      "call": "sBattleGroundMgr.LoadBattleEventIndexes(false);",
+      "source": "src/game/World/World.cpp:1260"
+    },
+    {
+      "call": "sObjectMgr.LoadGameTele();",
+      "source": "src/game/World/World.cpp:1263"
+    },
+    {
+      "call": "sObjectMgr.LoadQuestgiverGreeting();",
+      "source": "src/game/World/World.cpp:1266"
+    },
+    {
+      "call": "sObjectMgr.LoadTrainerGreetings();",
+      "source": "src/game/World/World.cpp:1269"
+    },
+    {
+      "call": "sObjectMgr.LoadCreatureLocales();                       // must be after CreatureInfo loading",
+      "source": "src/game/World/World.cpp:1273"
+    },
+    {
+      "call": "sObjectMgr.LoadGameObjectLocales();                     // must be after GameobjectInfo loading",
+      "source": "src/game/World/World.cpp:1274"
+    },
+    {
+      "call": "sObjectMgr.LoadItemLocales();                           // must be after ItemPrototypes loading",
+      "source": "src/game/World/World.cpp:1275"
+    },
+    {
+      "call": "sObjectMgr.LoadQuestLocales();                          // must be after QuestTemplates loading",
+      "source": "src/game/World/World.cpp:1276"
+    },
+    {
+      "call": "sObjectMgr.LoadGossipTextLocales();                     // must be after LoadGossipText",
+      "source": "src/game/World/World.cpp:1277"
+    },
+    {
+      "call": "sObjectMgr.LoadPageTextLocales();                       // must be after PageText loading",
+      "source": "src/game/World/World.cpp:1278"
+    },
+    {
+      "call": "sObjectMgr.LoadGossipMenuItemsLocales();                // must be after gossip menu items loading",
+      "source": "src/game/World/World.cpp:1279"
+    },
+    {
+      "call": "sObjectMgr.LoadPointOfInterestLocales();                // must be after POI loading",
+      "source": "src/game/World/World.cpp:1280"
+    },
+    {
+      "call": "sObjectMgr.LoadQuestgiverGreetingLocales();",
+      "source": "src/game/World/World.cpp:1281"
+    },
+    {
+      "call": "sObjectMgr.LoadTrainerGreetingLocales();                // must be after CreatureInfo loading",
+      "source": "src/game/World/World.cpp:1282"
+    },
+    {
+      "call": "sObjectMgr.LoadBroadcastTextLocales();",
+      "source": "src/game/World/World.cpp:1283"
+    },
+    {
+      "call": "sWorld.GetLFGQueue().LoadMeetingStones();",
+      "source": "src/game/World/World.cpp:1289"
+    },
+    {
+      "call": "sAuctionMgr.LoadAuctionItems();",
+      "source": "src/game/World/World.cpp:1294"
+    },
+    {
+      "call": "sAuctionMgr.LoadAuctions();",
+      "source": "src/game/World/World.cpp:1295"
+    },
+    {
+      "call": "sGuildMgr.LoadGuilds();",
+      "source": "src/game/World/World.cpp:1300"
+    },
+    {
+      "call": "sObjectMgr.LoadGroups();",
+      "source": "src/game/World/World.cpp:1303"
+    },
+    {
+      "call": "sTicketMgr.LoadGMTickets();",
+      "source": "src/game/World/World.cpp:1309"
+    },
+    {
+      "call": "sEventAIMgr.LoadCreatureEventAI_Summons(false);         // false, will checked in LoadCreatureEventAI_Scripts",
+      "source": "src/game/World/World.cpp:1313"
+    },
+    {
+      "call": "sEventAIMgr.LoadCreatureEventAI_Scripts();",
+      "source": "src/game/World/World.cpp:1316"
+    },
+    {
+      "call": "/* switch (sScriptMgr.LoadScriptLibrary(MANGOS_SCRIPT_NAME))",
+      "source": "src/game/World/World.cpp:1320"
+    },
+    {
+      "call": "SpellScriptMgr::LoadScripts();",
+      "source": "src/game/World/World.cpp:1338"
+    },
+    {
+      "call": "sObjectMgr.LoadStandingList();",
+      "source": "src/game/World/World.cpp:1409"
+    },
+    {
+      "call": "LoadSpamRecords();",
+      "source": "src/game/World/World.cpp:1412"
+    }
+  ],
+  "tables": {
+    "areatrigger_involvedrelation": {
+      "loaders": [
+        "Globals/ObjectMgr:6246"
+      ],
+      "schema_sha256": "cc7a4f1171426913fa7963d0037148be95c4bae8db396d891c0e25698757ec6e",
+      "status": "consumed"
+    },
+    "areatrigger_tavern": {
+      "loaders": [
+        "Globals/ObjectMgr:6307"
+      ],
+      "schema_sha256": "70655a225268842ccb01df3dcae75ba47720e6d654cd2438074c88f7cb255c40",
+      "status": "consumed"
+    },
+    "areatrigger_teleport": {
+      "loaders": [
+        "Globals/ObjectMgr:6544"
+      ],
+      "schema_sha256": "412d49c4c3589be8cf024911692e259d023c076815c1ae6fc8b8f213b03b075b",
+      "status": "consumed"
+    },
+    "auction": {
+      "loaders": [],
+      "schema_sha256": "7af623c27d2090b681ffd91e8beae00012252a9ebef732799e12aac8e7080d0b",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bauction\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No world read. AuctionHouseMgr::LoadAuctions reads CharacterDatabase, src/game/AuctionHouse/AuctionHouseMgr.cpp:303-325; world.auction is not characters.auction."
+      }
+    },
+    "battleground_events": {
+      "loaders": [
+        "BattleGround/BattleGroundMgr:740"
+      ],
+      "schema_sha256": "e3ef12a9772fef5f9609e03e87264e04529c9b48b1feac22e66204f4a5126506",
+      "status": "consumed"
+    },
+    "battleground_template": {
+      "loaders": [
+        "BattleGround/BattleGroundMgr:437"
+      ],
+      "schema_sha256": "cfb7a821af197b39ad36568d50414981fa5dad899b596e86082deace7d09aff3",
+      "status": "consumed"
+    },
+    "battlemaster_entry": {
+      "loaders": [
+        "BattleGround/BattleGroundMgr:630"
+      ],
+      "schema_sha256": "ac3d78aba68eb09ab7fc9cc83d4dd000c4382c477a234c0e0c6178cd380ee872",
+      "status": "consumed"
+    },
+    "broadcast_text": {
+      "loaders": [
+        "Globals/ObjectMgr:7786"
+      ],
+      "schema_sha256": "e127d63656c0ed771054c60794752ac82580a6fcb644a2949691b4e32b82f394",
+      "status": "consumed"
+    },
+    "broadcast_text_locale": {
+      "loaders": [
+        "Globals/ObjectMgr:7834"
+      ],
+      "schema_sha256": "e111eee3fecdfe33ef3cddd8901a580b73cd2bc173d01d64163a07a730a79c6a",
+      "status": "consumed"
+    },
+    "bugreport": {
+      "loaders": [],
+      "schema_sha256": "6c723295b3909f009a25923c7f774db01e0452d7a574a92d85695cc6bf4462d7",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bbugreport\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No world read. WorldSession::HandleBugOpcode writes CharacterDatabase only, src/game/Entities/MiscHandler.cpp:599-600."
+      }
+    },
+    "combat_condition": {
+      "loaders": [
+        "Globals/CombatCondition:37"
+      ],
+      "schema_sha256": "9fb20c82416b12469ad4065071537d0065f9c2548cc4907b23aab3012c552c2a",
+      "status": "consumed"
+    },
+    "command": {
+      "loaders": [
+        "Chat/Chat:1028"
+      ],
+      "schema_sha256": "7617f938b4f457fb98402139ecff4a8a27b36ac0caf0e0fa72a1e5249c89eada",
+      "status": "consumed"
+    },
+    "conditions": {
+      "loaders": [
+        "SQLStorage:sConditionStorage"
+      ],
+      "schema_sha256": "cbf68f54757f986eb27ab270905ef002bd76c5ef3430ede54dba19e6f0425a3a",
+      "status": "consumed"
+    },
+    "creature": {
+      "loaders": [
+        "Globals/ObjectMgr:1877",
+        "Globals/ObjectMgr:6789",
+        "Pools/PoolManager:716",
+        "GameEvents/GameEventMgr:237",
+        "GameEvents/GameEventMgr:410",
+        "MotionGenerators/WaypointManager:246",
+        "Entities/CreatureLinkingMgr:236",
+        "BattleGround/BattleGroundMgr:740"
+      ],
+      "schema_sha256": "99c4bb9cdbcff38317a7136b25d7c2a969b318db389cf632fef496ef33cf27eb",
+      "status": "consumed"
+    },
+    "creature_addon": {
+      "loaders": [
+        "SQLStorage:sCreatureDataAddonStorage"
+      ],
+      "schema_sha256": "80b04f3f8902a1b7e5760ab1aa26ed8ec29f4314b8f720667f2379179f46ee10",
+      "status": "consumed"
+    },
+    "creature_ai_scripts": {
+      "loaders": [
+        "AI/EventAI/CreatureEventAIMgr:211"
+      ],
+      "schema_sha256": "b34ad14977260c77dc4b5761651e5bc2297cb82eb15e824949b2fe95dd03ac04",
+      "status": "consumed"
+    },
+    "creature_ai_summons": {
+      "loaders": [
+        "AI/EventAI/CreatureEventAIMgr:41"
+      ],
+      "schema_sha256": "c4ebac5514c3fda7c4f54efa874194659e929696f7622fd57d201b9f872b08bd",
+      "status": "consumed"
+    },
+    "creature_ai_texts": {
+      "loaders": [],
+      "schema_sha256": "b739ae0addabfbcd77a7171bc7aee5521921bc68704ea0771614180bba1d0177",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bcreature_ai_texts\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "creature_battleground": {
+      "loaders": [
+        "BattleGround/BattleGroundMgr:740"
+      ],
+      "schema_sha256": "80c1b5b6f8c2af8c7bac6b448924adf4ac70ae92d06e849f67c2b01f3b06690c",
+      "status": "consumed"
+    },
+    "creature_conditional_spawn": {
+      "loaders": [
+        "SQLStorage:sCreatureConditionalSpawnStore"
+      ],
+      "schema_sha256": "89bb86ce5510a031e4fb673b94f21d2892a5498385e40f2a4aad9b6d017ab0f8",
+      "status": "consumed"
+    },
+    "creature_cooldowns": {
+      "loaders": [
+        "Globals/ObjectMgr:9828"
+      ],
+      "schema_sha256": "999a067c1f0b2e4ec8be9041b2f7f98d7648d8904d0ab1cd56dee45c1654b248",
+      "status": "consumed"
+    },
+    "creature_equip_template": {
+      "loaders": [
+        "SQLStorage:sEquipmentStorage"
+      ],
+      "schema_sha256": "1ecda38a7749c65b8e145ba5a6552d017baed3ba7cdd2738be15ee33ac7e0974",
+      "status": "consumed"
+    },
+    "creature_immunities": {
+      "loaders": [
+        "Globals/ObjectMgr:948"
+      ],
+      "schema_sha256": "7cdf199becfe42cb31a4d7b8288cacdc130b5f30b2108c66763b3f1ba8879bdb",
+      "status": "consumed"
+    },
+    "creature_involvedrelation": {
+      "loaders": [
+        "quest-relation:creature_involvedrelation"
+      ],
+      "schema_sha256": "81472ea70dae20f3f0eab1b1c5fb580b227764a207e4e274416fa1691fe50647",
+      "status": "consumed"
+    },
+    "creature_linking": {
+      "loaders": [
+        "Entities/CreatureLinkingMgr:120"
+      ],
+      "schema_sha256": "d9e788d88ad9268ed80c7676b75ee1f2e25a3af3b15724ff423133c20c871e48",
+      "status": "consumed"
+    },
+    "creature_linking_template": {
+      "loaders": [
+        "Entities/CreatureLinkingMgr:75"
+      ],
+      "schema_sha256": "c79041fa820c472ce549103b21299847525cdcd6a422994a3f2df74ae38c298b",
+      "status": "consumed"
+    },
+    "creature_loot_template": {
+      "loaders": [
+        "loot:creature"
+      ],
+      "schema_sha256": "f1414454e59b31a82a6caa6b2bd89e1adf2cdab2ec3ced457c8f8b458e2d32e9",
+      "status": "consumed"
+    },
+    "creature_model_info": {
+      "loaders": [
+        "SQLStorage:sCreatureModelStorage"
+      ],
+      "schema_sha256": "af881d4aaf6d0ae2eee7fe29d191e2bc33e40fb2c81bab37d197abdc75ddbc3f",
+      "status": "consumed"
+    },
+    "creature_model_race": {
+      "loaders": [],
+      "schema_sha256": "a12e8cc7b5dcf7127c1b983acec1672ffe84d54e1936d6184a6a8a6ec000e68a",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bcreature_model_race\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "creature_movement": {
+      "loaders": [
+        "MotionGenerators/WaypointManager:173",
+        "MotionGenerators/WaypointManager:198"
+      ],
+      "schema_sha256": "aec42f49c74d42968799a168484f7dd6662f19e78ccdf07eaff9003ebb475a32",
+      "status": "consumed"
+    },
+    "creature_movement_template": {
+      "loaders": [
+        "MotionGenerators/WaypointManager:302",
+        "MotionGenerators/WaypointManager:329"
+      ],
+      "schema_sha256": "d15e33a6fdb8460e650a3fc7024a53a3f1a30743a05b2b00c1f48d92d7e267d2",
+      "status": "consumed"
+    },
+    "creature_onkill_reputation": {
+      "loaders": [
+        "Globals/ObjectMgr:7485"
+      ],
+      "schema_sha256": "0e2dcc8e21bc1bd71d946b2db1926b81cb37b6b02ef16efb4ea1ba1188d94583",
+      "status": "consumed"
+    },
+    "creature_questrelation": {
+      "loaders": [
+        "quest-relation:creature_questrelation"
+      ],
+      "schema_sha256": "81472ea70dae20f3f0eab1b1c5fb580b227764a207e4e274416fa1691fe50647",
+      "status": "consumed"
+    },
+    "creature_spawn_data": {
+      "loaders": [
+        "Globals/ObjectMgr:1877"
+      ],
+      "schema_sha256": "0779e6b4cc51804b32bc0ac31b337dcc7aac3f450d56131c71def014800fc697",
+      "status": "consumed"
+    },
+    "creature_spawn_data_template": {
+      "loaders": [
+        "Globals/ObjectMgr:1762"
+      ],
+      "schema_sha256": "0f415245a0f8e6430f13bab8f58260734434ace17839c5d62f453c5f44bf0513",
+      "status": "consumed"
+    },
+    "creature_spawn_entry": {
+      "loaders": [
+        "Globals/ObjectMgr:1830"
+      ],
+      "schema_sha256": "b40edcf33de548ff79180b6ca9d39740698470cb290543978d0c5aa95704717e",
+      "status": "consumed"
+    },
+    "creature_spell_list": {
+      "loaders": [
+        "Globals/ObjectMgr:1032"
+      ],
+      "schema_sha256": "392defe71ab863d74b22c2481b6e38356c91d72c56bb315aa2786a19698dffe2",
+      "status": "consumed"
+    },
+    "creature_spell_list_entry": {
+      "loaders": [
+        "Globals/ObjectMgr:1010"
+      ],
+      "schema_sha256": "d6d71edf233160deb6dcaa8d23a13b64b17b165241a859d7c3a8c9ebc78e674e",
+      "status": "consumed"
+    },
+    "creature_spell_targeting": {
+      "loaders": [
+        "Globals/ObjectMgr:984"
+      ],
+      "schema_sha256": "9e6616dd0a7eff72974e50b27fc0e8de55c307a36372993740725bd2169eb3a4",
+      "status": "consumed"
+    },
+    "creature_template": {
+      "loaders": [
+        "SQLStorage:sCreatureStorage",
+        "AI/ScriptDevAI/ScriptDevAIMgr:480"
+      ],
+      "schema_sha256": "274397e488d8a77f4ac7c5cf7a350eff3524c9b9dddef13d83c47175c3684f0c",
+      "status": "consumed"
+    },
+    "creature_template_addon": {
+      "loaders": [
+        "SQLStorage:sCreatureInfoAddonStorage"
+      ],
+      "schema_sha256": "6a88eb080e88927ec7add10865bd758935271dd13cb5a48bbf9ccf79bcf52d2e",
+      "status": "consumed"
+    },
+    "creature_template_armor": {
+      "loaders": [],
+      "schema_sha256": "0b8009a99a579eca763bb8305f7364eb0b17c24bfb76c496440827faa0018bef",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bcreature_template_armor\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "creature_template_classlevelstats": {
+      "loaders": [
+        "ObjectMgr:classlevelstats"
+      ],
+      "schema_sha256": "5b8298ee7d106ba90d41665e5fe68ff97172053f279780962f6b62f00d8e28c5",
+      "status": "consumed"
+    },
+    "creature_template_spells": {
+      "loaders": [
+        "Globals/ObjectMgr:9757"
+      ],
+      "schema_sha256": "348b7ec175afdc79b42dda10ada588ff1b5f6fc24baf7d435cff36278cc5a2cf",
+      "status": "consumed"
+    },
+    "creature_zone": {
+      "loaders": [],
+      "schema_sha256": "5b90891a1e9fb690612efc6ed38e32e1f5681f6aa18b82a17d59fccb65e4b0a4",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bcreature_zone\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "Write-only world diagnostic output, ObjectMgr::GenerateZoneAndAreaIds, src/game/Globals/ObjectMgr.cpp:6067-6072; no SELECT consumer."
+      }
+    },
+    "custom_texts": {
+      "loaders": [
+        "strings:custom_texts"
+      ],
+      "schema_sha256": "b739ae0addabfbcd77a7171bc7aee5521921bc68704ea0771614180bba1d0177",
+      "status": "consumed"
+    },
+    "db_version": {
+      "loaders": [
+        "World/World:2379"
+      ],
+      "schema_sha256": "a1a4285b9e47e0cbf072bd0f87819ad00a9dea45f4aa8e5eda9664d7c50a2eb9",
+      "status": "consumed"
+    },
+    "dbscript_random_templates": {
+      "loaders": [
+        "DBScripts/ScriptMgr:1230"
+      ],
+      "schema_sha256": "1fee3881194d1082fa175253dc2206ed8409e1d2e88750025d05e923d03bdfbd",
+      "status": "consumed"
+    },
+    "dbscript_string": {
+      "loaders": [],
+      "schema_sha256": "9e0b759a5845895004280c0aa7c2422ca37b54ea68deb45dfe374828cec1ea31",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bdbscript_string\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "dbscripts_on_creature_death": {
+      "loaders": [
+        "dbscript:dbscripts_on_creature_death"
+      ],
+      "schema_sha256": "39d5aa7c3e3eba30f2e8774036ebf1008df4dfcdff664467167699d2245bc0e5",
+      "status": "consumed"
+    },
+    "dbscripts_on_creature_movement": {
+      "loaders": [
+        "dbscript:dbscripts_on_creature_movement"
+      ],
+      "schema_sha256": "8da5a2bfe908345a1a256ecf519780ca1497ea9bdf742115ddb209ad7a1072c2",
+      "status": "consumed"
+    },
+    "dbscripts_on_event": {
+      "loaders": [
+        "dbscript:dbscripts_on_event"
+      ],
+      "schema_sha256": "8da5a2bfe908345a1a256ecf519780ca1497ea9bdf742115ddb209ad7a1072c2",
+      "status": "consumed"
+    },
+    "dbscripts_on_go_template_use": {
+      "loaders": [
+        "dbscript:dbscripts_on_go_template_use"
+      ],
+      "schema_sha256": "39d5aa7c3e3eba30f2e8774036ebf1008df4dfcdff664467167699d2245bc0e5",
+      "status": "consumed"
+    },
+    "dbscripts_on_go_use": {
+      "loaders": [
+        "dbscript:dbscripts_on_go_use"
+      ],
+      "schema_sha256": "8da5a2bfe908345a1a256ecf519780ca1497ea9bdf742115ddb209ad7a1072c2",
+      "status": "consumed"
+    },
+    "dbscripts_on_gossip": {
+      "loaders": [
+        "dbscript:dbscripts_on_gossip"
+      ],
+      "schema_sha256": "8da5a2bfe908345a1a256ecf519780ca1497ea9bdf742115ddb209ad7a1072c2",
+      "status": "consumed"
+    },
+    "dbscripts_on_quest_end": {
+      "loaders": [
+        "dbscript:dbscripts_on_quest_end"
+      ],
+      "schema_sha256": "8da5a2bfe908345a1a256ecf519780ca1497ea9bdf742115ddb209ad7a1072c2",
+      "status": "consumed"
+    },
+    "dbscripts_on_quest_start": {
+      "loaders": [
+        "dbscript:dbscripts_on_quest_start"
+      ],
+      "schema_sha256": "8da5a2bfe908345a1a256ecf519780ca1497ea9bdf742115ddb209ad7a1072c2",
+      "status": "consumed"
+    },
+    "dbscripts_on_relay": {
+      "loaders": [
+        "dbscript:dbscripts_on_relay"
+      ],
+      "schema_sha256": "c79fcbce01e0dddd9e399c0c3cab114f6d4b5d147ffe6bc94b06b00d9bd1ff10",
+      "status": "consumed"
+    },
+    "dbscripts_on_spell": {
+      "loaders": [
+        "dbscript:dbscripts_on_spell"
+      ],
+      "schema_sha256": "c79fcbce01e0dddd9e399c0c3cab114f6d4b5d147ffe6bc94b06b00d9bd1ff10",
+      "status": "consumed"
+    },
+    "disenchant_loot_template": {
+      "loaders": [
+        "loot:disenchant"
+      ],
+      "schema_sha256": "f1414454e59b31a82a6caa6b2bd89e1adf2cdab2ec3ced457c8f8b458e2d32e9",
+      "status": "consumed"
+    },
+    "exploration_basexp": {
+      "loaders": [
+        "Globals/ObjectMgr:7200"
+      ],
+      "schema_sha256": "0006891297d2a1bf8ba7d3266d66ba7cce8b5429e7994f2f598ff1407b5b4028",
+      "status": "consumed"
+    },
+    "fishing_loot_template": {
+      "loaders": [
+        "loot:fishing"
+      ],
+      "schema_sha256": "f1414454e59b31a82a6caa6b2bd89e1adf2cdab2ec3ced457c8f8b458e2d32e9",
+      "status": "consumed"
+    },
+    "game_event": {
+      "loaders": [
+        "GameEvents/GameEventMgr:92",
+        "GameEvents/GameEventMgr:107"
+      ],
+      "schema_sha256": "c23fd9cbf7cbe19e079b9b3597b8389e589904e0769f4a767046d31acd4d5d9b",
+      "status": "consumed"
+    },
+    "game_event_creature": {
+      "loaders": [
+        "Globals/ObjectMgr:1877",
+        "GameEvents/GameEventMgr:237"
+      ],
+      "schema_sha256": "3a02443e1415d409929cab84149c7c17410807e3608b28f73065c78794664f14",
+      "status": "consumed"
+    },
+    "game_event_creature_data": {
+      "loaders": [
+        "GameEvents/GameEventMgr:410"
+      ],
+      "schema_sha256": "14411a4d41cba90e2675fca11f86c41875cfa5668e70d756466cae4d605f3edb",
+      "status": "consumed"
+    },
+    "game_event_gameobject": {
+      "loaders": [
+        "Globals/ObjectMgr:2086",
+        "GameEvents/GameEventMgr:319"
+      ],
+      "schema_sha256": "3a02443e1415d409929cab84149c7c17410807e3608b28f73065c78794664f14",
+      "status": "consumed"
+    },
+    "game_event_mail": {
+      "loaders": [
+        "GameEvents/GameEventMgr:557"
+      ],
+      "schema_sha256": "9b59570fc200b09f2dafb68d31cf9527911a7996266b6dc2cf21bded385c1426",
+      "status": "consumed"
+    },
+    "game_event_quest": {
+      "loaders": [
+        "GameEvents/GameEventMgr:499"
+      ],
+      "schema_sha256": "644bcfad6a045b8d300202b87a769c4f2ed7adb4f5e3647bdcca6c62d95d8951",
+      "status": "consumed"
+    },
+    "game_event_time": {
+      "loaders": [
+        "GameEvents/GameEventMgr:196"
+      ],
+      "schema_sha256": "bba4c2a7328c7382202b085c55d2fe8f0e4057025a8c9e2eb7e575bb3f763294",
+      "status": "consumed"
+    },
+    "game_graveyard_zone": {
+      "loaders": [
+        "World/World:2654"
+      ],
+      "schema_sha256": "d0dea4cb838aa9dfe9c4424d96933e3c71f720af797ff20d2c66e7559fd15b1b",
+      "status": "consumed"
+    },
+    "game_tele": {
+      "loaders": [
+        "Globals/ObjectMgr:8681"
+      ],
+      "schema_sha256": "9a74ee0746fb12bd3b8840eb630435c7e980430e54808e16163ea311d5765656",
+      "status": "consumed"
+    },
+    "game_weather": {
+      "loaders": [
+        "Weather/Weather:436"
+      ],
+      "schema_sha256": "7bd8f2dab61385c7ddf91aac24dd980735e058233a90a1b3cb3801ac0937bd92",
+      "status": "consumed"
+    },
+    "gameobject": {
+      "loaders": [
+        "Globals/ObjectMgr:2086",
+        "Globals/ObjectMgr:6808",
+        "Pools/PoolManager:853",
+        "GameEvents/GameEventMgr:319",
+        "Entities/Transports:99",
+        "BattleGround/BattleGroundMgr:740"
+      ],
+      "schema_sha256": "67d45118ab7c1c251fd8e4a12357f47854bb19fb78da7634ebd40cc832d9b672",
+      "status": "consumed"
+    },
+    "gameobject_addon": {
+      "loaders": [
+        "Globals/ObjectMgr:2252"
+      ],
+      "schema_sha256": "a14a29938f8ec91fc10b1883481ef9f66a48ffce5349f888bcf3203bd6d3b04b",
+      "status": "consumed"
+    },
+    "gameobject_battleground": {
+      "loaders": [
+        "BattleGround/BattleGroundMgr:740"
+      ],
+      "schema_sha256": "80c1b5b6f8c2af8c7bac6b448924adf4ac70ae92d06e849f67c2b01f3b06690c",
+      "status": "consumed"
+    },
+    "gameobject_involvedrelation": {
+      "loaders": [
+        "quest-relation:gameobject_involvedrelation"
+      ],
+      "schema_sha256": "feb2272d9509e1368d75f15f031b35db112431b8503331c8f747a159cb2f3cd5",
+      "status": "consumed"
+    },
+    "gameobject_loot_template": {
+      "loaders": [
+        "loot:gameobject"
+      ],
+      "schema_sha256": "f1414454e59b31a82a6caa6b2bd89e1adf2cdab2ec3ced457c8f8b458e2d32e9",
+      "status": "consumed"
+    },
+    "gameobject_questrelation": {
+      "loaders": [
+        "quest-relation:gameobject_questrelation"
+      ],
+      "schema_sha256": "feb2272d9509e1368d75f15f031b35db112431b8503331c8f747a159cb2f3cd5",
+      "status": "consumed"
+    },
+    "gameobject_spawn_entry": {
+      "loaders": [
+        "Globals/ObjectMgr:2289"
+      ],
+      "schema_sha256": "50087f54c95cf1af8bc375b409db6f4a1c93f6376c30f0fda01f2eefc93cea9b",
+      "status": "consumed"
+    },
+    "gameobject_template": {
+      "loaders": [
+        "SQLStorage:sGOStorage",
+        "AI/ScriptDevAI/ScriptDevAIMgr:480"
+      ],
+      "schema_sha256": "f628667dd8a086afeada74d860a44ecf37292f6298680fa5a39305dbf84730cd",
+      "status": "consumed"
+    },
+    "gameobject_template_addon": {
+      "loaders": [],
+      "schema_sha256": "ee3d52c242e76fff91fefcb4f7b8edbf162fc3fe3976f7e81c51c07f91f8dcb5",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bgameobject_template_addon\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "gameobject_zone": {
+      "loaders": [],
+      "schema_sha256": "5b90891a1e9fb690612efc6ed38e32e1f5681f6aa18b82a17d59fccb65e4b0a4",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bgameobject_zone\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "Write-only world diagnostic output, ObjectMgr::GenerateZoneAndAreaIds, src/game/Globals/ObjectMgr.cpp:6067-6070,6103; no SELECT consumer."
+      }
+    },
+    "gossip_menu": {
+      "loaders": [
+        "Globals/ObjectMgr:9214"
+      ],
+      "schema_sha256": "54765ce035f444347863ada3e7d6a204574a9abb43b6b28996bd6aceb086b937",
+      "status": "consumed"
+    },
+    "gossip_menu_option": {
+      "loaders": [
+        "Globals/ObjectMgr:9305"
+      ],
+      "schema_sha256": "f354c75792078114dc0dc408b1843adc1f3d776a697cdba81c1dee03e5e17b28",
+      "status": "consumed"
+    },
+    "gossip_texts": {
+      "loaders": [
+        "strings:gossip_texts"
+      ],
+      "schema_sha256": "03bb2f1799508a09d7e1a99a6af9bac592e32f55bcdad13d7426280c648b63a6",
+      "status": "consumed"
+    },
+    "instance_dungeon_encounters": {
+      "loaders": [
+        "SQLStorage:sDungeonEncounterStore"
+      ],
+      "schema_sha256": "eddd311b3a3bde4757a5c99cf1567f7e747cbd0d9469dab4c7bb0b5bd6407352",
+      "status": "consumed"
+    },
+    "instance_encounters": {
+      "loaders": [
+        "Globals/ObjectMgr:5290"
+      ],
+      "schema_sha256": "f27b58ef232bf7885405b94c4bb9db9ffa2483d8eaec6a93d352cd40534edef2",
+      "status": "consumed"
+    },
+    "instance_template": {
+      "loaders": [
+        "SQLStorage:sInstanceTemplate",
+        "AI/ScriptDevAI/ScriptDevAIMgr:480"
+      ],
+      "schema_sha256": "9d01c76ec416d744b253407191a2546ec13728fc4574b2246d738ba88bbc636d",
+      "status": "consumed"
+    },
+    "item_convert": {
+      "loaders": [],
+      "schema_sha256": "bb3817953cd65dbde17ae32e9d176822898fd3d073419f1b594344cc5c9ac0d9",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bitem_convert\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "item_enchantment_template": {
+      "loaders": [
+        "enchantments"
+      ],
+      "schema_sha256": "dbec1e45dae806a7a9407fafbc01743f9558679fdce50b7e56341fa5b2179ebf",
+      "status": "consumed"
+    },
+    "item_expire_convert": {
+      "loaders": [],
+      "schema_sha256": "bb3817953cd65dbde17ae32e9d176822898fd3d073419f1b594344cc5c9ac0d9",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bitem_expire_convert\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "item_loot_template": {
+      "loaders": [
+        "loot:item"
+      ],
+      "schema_sha256": "f1414454e59b31a82a6caa6b2bd89e1adf2cdab2ec3ced457c8f8b458e2d32e9",
+      "status": "consumed"
+    },
+    "item_required_target": {
+      "loaders": [
+        "Globals/ObjectMgr:2866"
+      ],
+      "schema_sha256": "61bbff3a917f7f76397016a1e7db60f69adac496de4bef61b4256364c7159dff",
+      "status": "consumed"
+    },
+    "item_template": {
+      "loaders": [
+        "SQLStorage:sItemStorage",
+        "AI/ScriptDevAI/ScriptDevAIMgr:480"
+      ],
+      "schema_sha256": "9edbe66a0beae40c6f67b2b1ea8086230e01f576032a283582b6dd3068d3b23c",
+      "status": "consumed"
+    },
+    "locales_areatrigger_teleport": {
+      "loaders": [
+        "Globals/ObjectMgr:6021"
+      ],
+      "schema_sha256": "c57a1f782a622ede042862c9a375fbb03ca2cfb01c2a4139331ec0d267cf85c8",
+      "status": "consumed"
+    },
+    "locales_creature": {
+      "loaders": [
+        "Globals/ObjectMgr:191"
+      ],
+      "schema_sha256": "4e9a8ec4adb33eca626037fb84bb08054e27f53c2a352a473128cacc01273bd1",
+      "status": "consumed"
+    },
+    "locales_gameobject": {
+      "loaders": [
+        "Globals/ObjectMgr:6876"
+      ],
+      "schema_sha256": "4923461a92f9618c03b11c04065994f1f4984de51f0428ad7a4c1bf673fbc4d0",
+      "status": "consumed"
+    },
+    "locales_gossip_menu_option": {
+      "loaders": [
+        "Globals/ObjectMgr:256"
+      ],
+      "schema_sha256": "7e72ca6269c34663df3c46bc0563f082fa35767f7b63f06c9ca0fd5024c323e5",
+      "status": "consumed"
+    },
+    "locales_item": {
+      "loaders": [
+        "Globals/ObjectMgr:2486"
+      ],
+      "schema_sha256": "272930ca3970ce499695fcd2abfab17a0ebd63c7026fb0d4dfd28a2a8a58e679",
+      "status": "consumed"
+    },
+    "locales_npc_text": {
+      "loaders": [
+        "Globals/ObjectMgr:5695"
+      ],
+      "schema_sha256": "dd02f92f7c641d54b0a5cf6f391dc2c66c5956a452cce947675d4ebbef90b051",
+      "status": "consumed"
+    },
+    "locales_page_text": {
+      "loaders": [
+        "Globals/ObjectMgr:5237"
+      ],
+      "schema_sha256": "d515362dcd87c54769fc5736a2157712a3c0a4fb735df69272c52591b6d9761c",
+      "status": "consumed"
+    },
+    "locales_points_of_interest": {
+      "loaders": [
+        "Globals/ObjectMgr:342"
+      ],
+      "schema_sha256": "f04f358ea64dd73726c1404842db0d00245c2ccf00291c49786f028c6518d945",
+      "status": "consumed"
+    },
+    "locales_quest": {
+      "loaders": [
+        "Globals/ObjectMgr:4886"
+      ],
+      "schema_sha256": "7ed84343b1f485e63626f0ebdf13acd97b0c937286bc09eea58c180a15093c6b",
+      "status": "consumed"
+    },
+    "locales_questgiver_greeting": {
+      "loaders": [
+        "Globals/ObjectMgr:5848"
+      ],
+      "schema_sha256": "d87ec0c2f4fbcc4126db29f811670c1f8765160266733d5f932c7e9dfe8a42fa",
+      "status": "consumed"
+    },
+    "locales_trainer_greeting": {
+      "loaders": [
+        "Globals/ObjectMgr:5967"
+      ],
+      "schema_sha256": "c57a1f782a622ede042862c9a375fbb03ca2cfb01c2a4139331ec0d267cf85c8",
+      "status": "consumed"
+    },
+    "mail_level_reward": {
+      "loaders": [],
+      "schema_sha256": "9297d0c18977f20ac3e9f204bde4fa14ebf18b8a2f1f3c106982750b11086d44",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bmail_level_reward\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "mail_loot_template": {
+      "loaders": [
+        "loot:mail"
+      ],
+      "schema_sha256": "f1414454e59b31a82a6caa6b2bd89e1adf2cdab2ec3ced457c8f8b458e2d32e9",
+      "status": "consumed"
+    },
+    "mangos_string": {
+      "loaders": [
+        "strings:mangos_string"
+      ],
+      "schema_sha256": "98e6458a438f119f9002979c4686329645a3bc79163f4f9e74e11733ac66e9a3",
+      "status": "consumed"
+    },
+    "npc_gossip": {
+      "loaders": [
+        "Globals/ObjectMgr:9168"
+      ],
+      "schema_sha256": "033fa01cdaafb6efb812ee09e248217d72a47404da412b1cc4eb903d0443fdfb",
+      "status": "consumed"
+    },
+    "npc_spellclick_spells": {
+      "loaders": [],
+      "schema_sha256": "72655e28dcf2a664ce2075eb65ac0ba260356fb58496d266cc10686c0ce99628",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bnpc_spellclick_spells\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "Only a comment in src/game/Globals/Conditions.cpp:44, explicitly unused for Classic. No SQL consumer."
+      }
+    },
+    "npc_text": {
+      "loaders": [
+        "Globals/ObjectMgr:5571"
+      ],
+      "schema_sha256": "2d38623c7132dbd3281bb16d03f2589ba8920b25e7630ea32b2a1c8fb9a866f7",
+      "status": "consumed"
+    },
+    "npc_text_broadcast_text": {
+      "loaders": [
+        "Globals/ObjectMgr:5624"
+      ],
+      "schema_sha256": "564f144af22b8edc1936ae68119f3f2df1c1cfd5b499d8e21a638043d9338b6a",
+      "status": "consumed"
+    },
+    "npc_trainer": {
+      "loaders": [
+        "service:npc_trainer"
+      ],
+      "schema_sha256": "eac06d4638faf4467cc49338afdc81e3e89cdafb502b436279e7005f2a9901db",
+      "status": "consumed"
+    },
+    "npc_trainer_template": {
+      "loaders": [
+        "service:npc_trainer_template"
+      ],
+      "schema_sha256": "eac06d4638faf4467cc49338afdc81e3e89cdafb502b436279e7005f2a9901db",
+      "status": "consumed"
+    },
+    "npc_vendor": {
+      "loaders": [
+        "service:npc_vendor"
+      ],
+      "schema_sha256": "e7cd0cb5b90c81bd681f52dc0ed24ab53cfd1d10c8c9bf8c5a3f86c2f9b50333",
+      "status": "consumed"
+    },
+    "npc_vendor_template": {
+      "loaders": [
+        "service:npc_vendor_template"
+      ],
+      "schema_sha256": "e7cd0cb5b90c81bd681f52dc0ed24ab53cfd1d10c8c9bf8c5a3f86c2f9b50333",
+      "status": "consumed"
+    },
+    "page_text": {
+      "loaders": [
+        "SQLStorage:sPageTextStore"
+      ],
+      "schema_sha256": "4177d41b8a2548a52f89a2e86c7b63df41ca521ed9b55703188f3f4d7cadbdc4",
+      "status": "consumed"
+    },
+    "pet_autocast_spell_list": {
+      "loaders": [
+        "Globals/ObjectMgr:7298"
+      ],
+      "schema_sha256": "0ceacc18e9fc9b999d1abfa9cab4ecaf39574d8989567cc0e3fe99b3e9e1430e",
+      "status": "consumed"
+    },
+    "pet_familystats": {
+      "loaders": [],
+      "schema_sha256": "04a796c9dcbac0eae2f544e7fb3f1b13c533fb7d90d4232d69ec6cfbb3d77c1c",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bpet_familystats\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "pet_levelstats": {
+      "loaders": [
+        "Globals/ObjectMgr:2964"
+      ],
+      "schema_sha256": "5abc918230f08959127c25eaef0dcf254147f680aeae25f4bb0e5760fa190832",
+      "status": "consumed"
+    },
+    "pet_levelstats_copy": {
+      "loaders": [],
+      "schema_sha256": "5b5c572aee52318014c270514c631329e1a061b71d7bc8ca5a770ff5e5294af5",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bpet_levelstats_copy\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "pet_name_generation": {
+      "loaders": [
+        "Globals/ObjectMgr:7245"
+      ],
+      "schema_sha256": "742be3ce4e5d947e69f7cbd4c4e3cc837ab4d5219441231647e03d5b92208aec",
+      "status": "consumed"
+    },
+    "petcreateinfo_spell": {
+      "loaders": [
+        "Globals/ObjectMgr:5022"
+      ],
+      "schema_sha256": "44f75feecdf20f3a78829a84da1242318fe95b4300906c30096eeb086cea1c64",
+      "status": "consumed"
+    },
+    "pickpocketing_loot_template": {
+      "loaders": [
+        "loot:pickpocketing"
+      ],
+      "schema_sha256": "f1414454e59b31a82a6caa6b2bd89e1adf2cdab2ec3ced457c8f8b458e2d32e9",
+      "status": "consumed"
+    },
+    "player_classlevelstats": {
+      "loaders": [
+        "Globals/ObjectMgr:3456"
+      ],
+      "schema_sha256": "eb8c60f9f07dfe10872ab02d3da2a0c43ddbf57d518edcdaf4af7af3c6e9670e",
+      "status": "consumed"
+    },
+    "player_levelstats": {
+      "loaders": [
+        "Globals/ObjectMgr:3552"
+      ],
+      "schema_sha256": "5acbcadac6344ceccc02e584e9ee4a711340cdd36a45aecd0ff76d17c50099db",
+      "status": "consumed"
+    },
+    "player_xp_for_level": {
+      "loaders": [
+        "Globals/ObjectMgr:3668"
+      ],
+      "schema_sha256": "891e62458d462bddeac6eaa3cbba072af4df7ba2dde0dbe640d6e2a24a8991b0",
+      "status": "consumed"
+    },
+    "playercreateinfo": {
+      "loaders": [
+        "Globals/ObjectMgr:3076"
+      ],
+      "schema_sha256": "1f09af5d3ca5bb192723cd3ab0080d8f193b45dff50cfb8dd11090447595681a",
+      "status": "consumed"
+    },
+    "playercreateinfo_action": {
+      "loaders": [
+        "Globals/ObjectMgr:3396"
+      ],
+      "schema_sha256": "641017024ad642f0df282f5ea9b8da78c0dbda2ad2ff5e104e4472fd91b42435",
+      "status": "consumed"
+    },
+    "playercreateinfo_item": {
+      "loaders": [
+        "Globals/ObjectMgr:3157"
+      ],
+      "schema_sha256": "ca30cb957e5ea9c043c9508724f28d97fd74413177e30a934ffe6aaba59d09ff",
+      "status": "consumed"
+    },
+    "playercreateinfo_skills": {
+      "loaders": [
+        "Globals/ObjectMgr:3228"
+      ],
+      "schema_sha256": "94a6a0042557a3bbf1723005c8b4f83df22276edb66a645cb03611da9179f541",
+      "status": "consumed"
+    },
+    "playercreateinfo_spell": {
+      "loaders": [
+        "Globals/ObjectMgr:3336"
+      ],
+      "schema_sha256": "0009c2fea1883b297aee6033a0281ef6f1b7f07866948b294b93c4ce63d7270a",
+      "status": "consumed"
+    },
+    "points_of_interest": {
+      "loaders": [
+        "Globals/ObjectMgr:7677"
+      ],
+      "schema_sha256": "71e4f33f421d6138a6e8bb06af5297ac7137a24147dde42f00cbb48a3ce0ee97",
+      "status": "consumed"
+    },
+    "pool_creature": {
+      "loaders": [
+        "Globals/ObjectMgr:1877",
+        "Pools/PoolManager:656"
+      ],
+      "schema_sha256": "65ac2e74bebe20ce9a8c3ec3594befe38db1858122e500c54bb72a77ac8f6c9e",
+      "status": "consumed"
+    },
+    "pool_creature_template": {
+      "loaders": [
+        "Globals/ObjectMgr:1877",
+        "Pools/PoolManager:716"
+      ],
+      "schema_sha256": "05100f67d2230eb7229e62e4e63c50582fdf3b89e00e08b7c67fe543a1022e92",
+      "status": "consumed"
+    },
+    "pool_gameobject": {
+      "loaders": [
+        "Globals/ObjectMgr:2086",
+        "Pools/PoolManager:792"
+      ],
+      "schema_sha256": "65ac2e74bebe20ce9a8c3ec3594befe38db1858122e500c54bb72a77ac8f6c9e",
+      "status": "consumed"
+    },
+    "pool_gameobject_template": {
+      "loaders": [
+        "Globals/ObjectMgr:2086",
+        "Pools/PoolManager:853"
+      ],
+      "schema_sha256": "05100f67d2230eb7229e62e4e63c50582fdf3b89e00e08b7c67fe543a1022e92",
+      "status": "consumed"
+    },
+    "pool_pool": {
+      "loaders": [
+        "Pools/PoolManager:927"
+      ],
+      "schema_sha256": "62f3e44e64503b7059b2d811b4d41e51751e5bec24a71168687ada5ff437cd91",
+      "status": "consumed"
+    },
+    "pool_template": {
+      "loaders": [
+        "Pools/PoolManager:606",
+        "Pools/PoolManager:618"
+      ],
+      "schema_sha256": "15059dbb217cbd9cbe4199458d1faa11a8d495c9890d4284176c95f02fef1347",
+      "status": "consumed"
+    },
+    "quest_poi": {
+      "loaders": [],
+      "schema_sha256": "7bdae0a257a820fe856ba2817c49adcece9c6933f3025697cc5881c4b1655e6b",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bquest_poi\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "quest_poi_points": {
+      "loaders": [],
+      "schema_sha256": "38c98767aae57db6e5e3534953469ba80c5f0fbfbda6c67fb00bebbb440f3efc",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bquest_poi_points\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "quest_template": {
+      "loaders": [
+        "Globals/ObjectMgr:4239"
+      ],
+      "schema_sha256": "e9c12c2691c17b35d08dd0fa70f4db7e5f6570efc2f30ca6dc27f2df65a5e9c2",
+      "status": "consumed"
+    },
+    "questgiver_greeting": {
+      "loaders": [
+        "Globals/ObjectMgr:5780"
+      ],
+      "schema_sha256": "7ce04d64e44ac1a0ef792099ce3043a4a697d71be1ca86dc0182c9687d9a6d4b",
+      "status": "consumed"
+    },
+    "reference_loot_template": {
+      "loaders": [
+        "loot:reference"
+      ],
+      "schema_sha256": "f1414454e59b31a82a6caa6b2bd89e1adf2cdab2ec3ced457c8f8b458e2d32e9",
+      "status": "consumed"
+    },
+    "reference_loot_template_names": {
+      "loaders": [
+        "Loot/LootMgr:239"
+      ],
+      "schema_sha256": "b0f38f09dc0abf7ebfa72534d4ecf8fe3f9874c95c98b8880ae1d88b069646b7",
+      "status": "consumed"
+    },
+    "reputation_reward_rate": {
+      "loaders": [
+        "Globals/ObjectMgr:7418"
+      ],
+      "schema_sha256": "41e4f9fb01fa2db6751d30c287cf52cb2cab6b9eb231b7083b206b1b7127f750",
+      "status": "consumed"
+    },
+    "reputation_spillover_template": {
+      "loaders": [
+        "Globals/ObjectMgr:7560"
+      ],
+      "schema_sha256": "efa03ed71ea677f97b77ef93669eaf0631d676ecbe6d061a8508b4c014daba22",
+      "status": "consumed"
+    },
+    "reserved_name": {
+      "loaders": [
+        "Globals/ObjectMgr:8041"
+      ],
+      "schema_sha256": "c37bb33774f29608221cd9edf7042f3daee2aace2371360f3fcc9950bece6620",
+      "status": "consumed"
+    },
+    "script_texts": {
+      "loaders": [
+        "strings:script_texts"
+      ],
+      "schema_sha256": "b739ae0addabfbcd77a7171bc7aee5521921bc68704ea0771614180bba1d0177",
+      "status": "consumed"
+    },
+    "script_waypoint": {
+      "loaders": [
+        "AI/ScriptDevAI/system/system:68",
+        "AI/ScriptDevAI/system/system:75"
+      ],
+      "schema_sha256": "d15e33a6fdb8460e650a3fc7024a53a3f1a30743a05b2b00c1f48d92d7e267d2",
+      "status": "consumed"
+    },
+    "scripted_areatrigger": {
+      "loaders": [
+        "AI/ScriptDevAI/ScriptDevAIMgr:480",
+        "AI/ScriptDevAI/ScriptDevAIMgr:550"
+      ],
+      "schema_sha256": "e8a9b28a7226b4b044aae15e41963c76fc4aacd2d40e41d7b4c3aa6babe7c643",
+      "status": "consumed"
+    },
+    "scripted_event_id": {
+      "loaders": [
+        "AI/ScriptDevAI/ScriptDevAIMgr:480",
+        "AI/ScriptDevAI/ScriptDevAIMgr:593"
+      ],
+      "schema_sha256": "3fdb2a46c00e9c2e0d5ee2e159de818bc309268246fbfd1d7371fe3b0aa933ef",
+      "status": "consumed"
+    },
+    "skill_discovery_template": {
+      "loaders": [],
+      "schema_sha256": "88dedfc12e0fb01d7109951ebd9b0c4da6691069cf7f54a680a65b3e1b87d6d9",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bskill_discovery_template\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "skill_extra_item_template": {
+      "loaders": [],
+      "schema_sha256": "e68a4712bb09391c32fa3352f5db8736cebb8384f8211163f2e2c3a1571388d3",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bskill_extra_item_template\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "skill_fishing_base_level": {
+      "loaders": [
+        "Globals/ObjectMgr:8580"
+      ],
+      "schema_sha256": "91a6fb513e4b96c240e3e19e61837cad5cec3030cc20ac8901158e84b22a639f",
+      "status": "consumed"
+    },
+    "skinning_loot_template": {
+      "loaders": [
+        "loot:skinning"
+      ],
+      "schema_sha256": "f1414454e59b31a82a6caa6b2bd89e1adf2cdab2ec3ced457c8f8b458e2d32e9",
+      "status": "consumed"
+    },
+    "spam_records": {
+      "loaders": [
+        "World/World:2309"
+      ],
+      "schema_sha256": "e3aaf80a0a1f705393a0e8e2f24da23651fba2fec5ba734ade0d2da730745ffc",
+      "status": "consumed"
+    },
+    "spawn_group": {
+      "loaders": [
+        "Globals/ObjectMgr:1125"
+      ],
+      "schema_sha256": "a8a8c2ad9f09ad7ebf3b5cc6115c44c5f8a50a8436b8293dd04cad490974a903",
+      "status": "consumed"
+    },
+    "spawn_group_entry": {
+      "loaders": [
+        "Globals/ObjectMgr:1355"
+      ],
+      "schema_sha256": "09d4bb3b1cf2da2cc4f34f59fca5e45d317d111025ce8dbbd65ce838c20bf90f",
+      "status": "consumed"
+    },
+    "spawn_group_formation": {
+      "loaders": [
+        "Globals/ObjectMgr:1192"
+      ],
+      "schema_sha256": "9c153e5ea2d89fbe3e18cc2e61487e9fd8a32127fdb895860e04c121f87f323b",
+      "status": "consumed"
+    },
+    "spawn_group_linked_group": {
+      "loaders": [
+        "Globals/ObjectMgr:1398"
+      ],
+      "schema_sha256": "6f3dae3c6de77fade24fcd30a4329206fe05a1ba032759ac51a4dabbf9b71ab1",
+      "status": "consumed"
+    },
+    "spawn_group_spawn": {
+      "loaders": [
+        "Globals/ObjectMgr:1250"
+      ],
+      "schema_sha256": "ca2b614b12b2f24e5ec340f9348d2e08e0efbd8e0c35c91a63e596ff2c9b8cf2",
+      "status": "consumed"
+    },
+    "spawn_group_squad": {
+      "loaders": [
+        "Globals/ObjectMgr:1426"
+      ],
+      "schema_sha256": "c2074d80e0ccfe987a71ba8e7f47cf7f88281fd28c24cb10e45502a3969459d1",
+      "status": "consumed"
+    },
+    "spell_affect": {
+      "loaders": [
+        "Spells/SpellMgr:2886"
+      ],
+      "schema_sha256": "24631eba95b25a01eb5187fcad8b8c6cfa601e3d3ee6f481127ced66a24629e3",
+      "status": "consumed"
+    },
+    "spell_area": {
+      "loaders": [
+        "Spells/SpellMgr:2086"
+      ],
+      "schema_sha256": "6e29a09eff0582ee007ce6087d6a290952ddd5ada0a6e916409feb41c78b5c17",
+      "status": "consumed"
+    },
+    "spell_chain": {
+      "loaders": [
+        "Spells/SpellMgr:1400"
+      ],
+      "schema_sha256": "19ffbb1bfde35ea73c33b27daae0a849e22b0d86b2b1ca9b8afb135c82411078",
+      "status": "consumed"
+    },
+    "spell_cone": {
+      "loaders": [
+        "SQLStorage:sSpellCones"
+      ],
+      "schema_sha256": "176e43180853e99c64c09e734f8003ebee315561b63618fa59068d0a6d864569",
+      "status": "consumed"
+    },
+    "spell_elixir": {
+      "loaders": [
+        "Spells/SpellMgr:943"
+      ],
+      "schema_sha256": "4b445b915b71335ec972c07bd3dfa373a1fe20579cc1f6ae09f20c6cf7b8a842",
+      "status": "consumed"
+    },
+    "spell_facing": {
+      "loaders": [
+        "Spells/SpellMgr:2999"
+      ],
+      "schema_sha256": "c70ccfa2031394f1defdf29c4cd9e2e030a67cee063df371ff7a1071caa5e365",
+      "status": "consumed"
+    },
+    "spell_group": {
+      "loaders": [
+        "Spells/SpellStacking:39"
+      ],
+      "schema_sha256": "6522cdb02f4e8772d5175eddc2b2553d228ea7c1d559cda6ea5ec94c8ddfaad1",
+      "status": "consumed"
+    },
+    "spell_group_spell": {
+      "loaders": [
+        "Spells/SpellStacking:72"
+      ],
+      "schema_sha256": "9a17e76a3841d07bbc8e6fd36743214d7e4297b1bb04591aa5e087c483e3b27f",
+      "status": "consumed"
+    },
+    "spell_learn_spell": {
+      "loaders": [
+        "Spells/SpellMgr:1668"
+      ],
+      "schema_sha256": "57845671fcc4ecbc76ba7a63541ffb04475deb442eea7daa156da2da4921c3e0",
+      "status": "consumed"
+    },
+    "spell_loot_template": {
+      "loaders": [],
+      "schema_sha256": "ed422fab20fa20eba9e6d091488782155773e5e4b5b0ef4efa99104e13740c36",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bspell_loot_template\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "spell_pet_auras": {
+      "loaders": [
+        "Spells/SpellMgr:1936"
+      ],
+      "schema_sha256": "c1b81d30b06725330e046dab9f2eec56a01a9a0002d6f6bc1deb9fc6b332bbfe",
+      "status": "consumed"
+    },
+    "spell_proc_event": {
+      "loaders": [
+        "Spells/SpellMgr:695"
+      ],
+      "schema_sha256": "366bbe9a938a1758d63c11663577ebd9e4ff8df6f7f6404e0faf6ae4ecc1f9c5",
+      "status": "consumed"
+    },
+    "spell_proc_item_enchant": {
+      "loaders": [
+        "Spells/SpellMgr:756"
+      ],
+      "schema_sha256": "891819affc5f0f39dbbe088b4692049a843c92464e4f857c8f1230341dbfafb9",
+      "status": "consumed"
+    },
+    "spell_script_target": {
+      "loaders": [
+        "SQLStorage:sSpellScriptTargetStorage"
+      ],
+      "schema_sha256": "dc2f87ab33241c8d1d2f0a642da07c8c54df302bde046574bc9c6456a75064d3",
+      "status": "consumed"
+    },
+    "spell_scripts": {
+      "loaders": [
+        "spell-scripts"
+      ],
+      "schema_sha256": "652a168ddcf8053ad578db073777ffb2f25baf145841a7f4939b558e2921d438",
+      "status": "consumed"
+    },
+    "spell_target_position": {
+      "loaders": [
+        "Spells/SpellMgr:441"
+      ],
+      "schema_sha256": "5d001cb3d6033bd4d6c8db4179740e9ff462dc16023cb9360b939f1980819348",
+      "status": "consumed"
+    },
+    "spell_template": {
+      "loaders": [
+        "SQLStorage:sSpellTemplate"
+      ],
+      "schema_sha256": "903aeedb80f37f790c309a302b945d5b66a92c9104f72b2d69f7b1573fb79981",
+      "status": "consumed"
+    },
+    "spell_threat": {
+      "loaders": [
+        "Spells/SpellMgr:1054"
+      ],
+      "schema_sha256": "dff55b28f2ce2702605f6ec7019f770592dce9f0ea3c7855cf6aec5a29f19a46",
+      "status": "consumed"
+    },
+    "string_id": {
+      "loaders": [
+        "DBScripts/ScriptMgr:1164"
+      ],
+      "schema_sha256": "b376f7d889024fe29dc728995916b321aa87a86340f9d539ba68b272cfc4aaf0",
+      "status": "consumed"
+    },
+    "taxi_shortcuts": {
+      "loaders": [
+        "Globals/ObjectMgr:6380"
+      ],
+      "schema_sha256": "651ba1c83cf5e8cc445e4585d637396815c9fde26736d5ca06efb0790db5416d",
+      "status": "consumed"
+    },
+    "trainer_greeting": {
+      "loaders": [
+        "Globals/ObjectMgr:5927"
+      ],
+      "schema_sha256": "d8a4d7fe71d57a5771389c136d8ae82fc73b469db74067b40adc155702423075",
+      "status": "consumed"
+    },
+    "transports": {
+      "loaders": [
+        "Entities/Transports:39"
+      ],
+      "schema_sha256": "380e78337bba24c1362a6a91cd18c08f366efa2da230d87b5d08c5e6493a4ce6",
+      "status": "consumed"
+    },
+    "unit_condition": {
+      "loaders": [
+        "Globals/UnitCondition:33"
+      ],
+      "schema_sha256": "d83aff2852ed784152fc418d1992482c16b65384556a5ee358cc501aa55a417b",
+      "status": "consumed"
+    },
+    "vehicle_accessory": {
+      "loaders": [],
+      "schema_sha256": "32f860541cdbc9f72149f435e0ef5b99440cac3ec537bc3e0b43d490460e83a8",
+      "status": "archive-only",
+      "evidence": {
+        "search": "grep case-insensitive Rust regex \\bvehicle_accessory\\b over /home/robbie/Work/refs/mangos-classic/src, gitignore=false",
+        "result": "No matches in the complete pinned src tree. No compiled consumer references this table."
+      }
+    },
+    "warden_scans": {
+      "loaders": [
+        "Anticheat/module/Warden/wardenscanmgr:66"
+      ],
+      "schema_sha256": "fbe901ecd542333e8008564c8ae364a237e93d0598f68970c4ce7a3c6fe1cd29",
+      "status": "consumed"
+    },
+    "waypoint_path": {
+      "loaders": [
+        "MotionGenerators/WaypointManager:400",
+        "MotionGenerators/WaypointManager:441"
+      ],
+      "schema_sha256": "af00af6e37264c4cdfb5c96807957fcea5a19edd3ffe9d540bd0f22ef477d5db",
+      "status": "consumed"
+    },
+    "waypoint_path_name": {
+      "loaders": [
+        "MotionGenerators/WaypointManager:427"
+      ],
+      "schema_sha256": "0783f6c299fe210c41d1908010686dae08ab3ac8e319fe986e83f3064cc835e7",
+      "status": "consumed"
+    },
+    "world_safe_locs": {
+      "loaders": [
+        "SQLStorage:sWorldSafeLocsStore"
+      ],
+      "schema_sha256": "427511eb78ce60c0191cd917916b68998742f49fece99cd3ebc2c46cb541f53d",
+      "status": "consumed"
+    },
+    "world_template": {
+      "loaders": [
+        "SQLStorage:sWorldTemplate",
+        "AI/ScriptDevAI/ScriptDevAIMgr:480"
+      ],
+      "schema_sha256": "ba6d99ecc90f95c609bf02e5b8f995597af41282b6969c94a62e5e6ca0b6e831",
+      "status": "consumed"
+    },
+    "worldstate_expression": {
+      "loaders": [
+        "World/WorldStateExpression:389"
+      ],
+      "schema_sha256": "ffc41f4a09c2758725e1772db38189b87de6eda2a6fab0302e81cff99b47a6d3",
+      "status": "consumed"
+    },
+    "worldstate_name": {
+      "loaders": [
+        "Globals/ObjectMgr:5490"
+      ],
+      "schema_sha256": "a41f78e2ba9882faabbd3a3cf6ff8ea1e8877d5974a76e66aa107c413d34e5cd",
+      "status": "consumed"
+    }
+  }
+}

@@ -35,7 +35,10 @@ const JOURNAL_HEADER: &str = "t,x,y,z,mean_ms,p95_ms,streamed,entities,cpu_ms,ma
                               gpu_other\n";
 
 /// The `fpsJournal` change callback: a flag, int-parsed and `!= 0`.
-pub(crate) fn on_cvar(ev: On<crate::cvars::CvarChanged>, mut journal: ResMut<FpsJournalSetting>) {
+pub(crate) fn on_cvar(
+    ev: &crate::cvars::CvarChanged,
+    mut journal: bevy::prelude::Mut<'_, FpsJournalSetting>,
+) {
     if ev.is("fpsJournal") {
         journal.0 = ev.flag();
     }
@@ -47,7 +50,6 @@ impl Plugin for FpsJournalPlugin {
         // zones, registered in every build.
         app.add_plugins(RenderDiagnosticsPlugin)
             .init_resource::<FpsJournalSetting>()
-            .add_observer(on_cvar)
             .insert_resource(FpsJournal {
                 env_path: std::env::var("WOW_FPS_JOURNAL")
                     .ok()
@@ -237,7 +239,9 @@ fn preamble(adapter: Option<&RenderAdapterInfo>, device: Option<&RenderDevice>) 
             "no"
         }
     });
-    format!("# benilla fps journal | gpu {gpu} | backend {backend} | driver {driver} | gpu_spans {spans}\n")
+    format!(
+        "# benilla fps journal | gpu {gpu} | backend {backend} | driver {driver} | gpu_spans {spans}\n"
+    )
 }
 
 /// The journal's residency columns, grouped for Bevy's system-param arity limit. The

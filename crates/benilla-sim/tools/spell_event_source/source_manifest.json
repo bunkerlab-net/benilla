@@ -1,0 +1,56 @@
+{
+  "project": "CMaNGOS Classic",
+  "revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "source_license": "GPL-2.0-or-later",
+  "files": {
+    "SpellEvent.methods.inc": {
+      "source_path": "src/game/Spells/Spell.cpp",
+      "source_file_sha256": "ebcabd3073f188541e6a1abcc82a8d0ee6d48d360dc5ab16d9e63b3e87d75201",
+      "license_header_lines": 17,
+      "start_line": 7127,
+      "end_line": 7245,
+      "body_sha256": "c182e48bf109a79408d40ca7cb3bc00922e47fe6bee72a273fa36744f1b25f78",
+      "file_sha256": "7dbfd21a07db84c79fe2bc0c8453375c776c150039c6dad9b970e897a07eec0e"
+    },
+    "SpellEvent.declaration.inc": {
+      "source_path": "src/game/Spells/Spell.h",
+      "source_file_sha256": "62ee5ad8a5d5c3dab9a75923daadcf01b59c86ae8bce82752db3b9d3db694dee",
+      "license_header_lines": 17,
+      "start_line": 279,
+      "end_line": 294,
+      "body_sha256": "e63733722a923d96dac0b96846819118279198b2dd616df09454166343ebc7ce",
+      "file_sha256": "dc34ff844966be6e00f0bcc27fbbf724241632c4f6dd0da807a8fd4ea95e2b1d"
+    },
+    "SpellState.inc": {
+      "source_path": "src/game/Spells/Spell.h",
+      "source_file_sha256": "62ee5ad8a5d5c3dab9a75923daadcf01b59c86ae8bce82752db3b9d3db694dee",
+      "license_header_lines": 17,
+      "start_line": 206,
+      "end_line": 216,
+      "body_sha256": "40661a1d750d430000d1591a29e1fb06d5a2b22e6eddd4881ca0f533e2d51d62",
+      "file_sha256": "5f03c2dafc782a396e0ecc7fc46f3365e45d812c3afb0a71d2e986308d5aa0a2"
+    },
+    "SpellDeletable.inc": {
+      "source_path": "src/game/Spells/Spell.h",
+      "source_file_sha256": "62ee5ad8a5d5c3dab9a75923daadcf01b59c86ae8bce82752db3b9d3db694dee",
+      "license_header_lines": 17,
+      "start_line": 593,
+      "end_line": 593,
+      "body_sha256": "655e1d85b522035d6dccfa5a6b691d7815b17fab0ce3006f6bd858f2a9dc6d2b",
+      "file_sha256": "4c0f4149e3aa98db6164272f1d2c2600d50dddd8aa96497545ec0dde184b170d"
+    },
+    "UniqueTrackablePtr.h": {
+      "source_path": "src/shared/Util/UniqueTrackablePtr.h",
+      "source_file_sha256": "5bcd103f7f4a78b87c29857679232da933b464819fef57d4e29d8a49706af612",
+      "file_sha256": "5bcd103f7f4a78b87c29857679232da933b464819fef57d4e29d8a49706af612"
+    }
+  },
+  "reviewed_sources": {
+    "src/game/Spells/Spell.cpp": "ebcabd3073f188541e6a1abcc82a8d0ee6d48d360dc5ab16d9e63b3e87d75201",
+    "src/game/Spells/Spell.h": "62ee5ad8a5d5c3dab9a75923daadcf01b59c86ae8bce82752db3b9d3db694dee",
+    "src/game/Entities/Unit.cpp": "03b67a4b6226f1f463e71be3694d3c950fc9b915a6e921407a98e4ff82fc21d0",
+    "src/game/Entities/Unit.h": "2d9db8de53e4881a6684eeb2e31bc904019ee5e620aa067ecd68bd5d07c5d8a1",
+    "src/framework/Utilities/EventProcessor.cpp": "164cda6f21f72d60e6c426ad04d39036565eda6e60e5e10fce390c43eb396e2f",
+    "src/framework/Utilities/EventProcessor.h": "8e85449a46540a7f999f1ac3a3132c2d2b3256b9c29b41a7e2c29ae78cf812c9"
+  }
+}

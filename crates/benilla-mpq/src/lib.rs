@@ -27,12 +27,15 @@ const SIGNATURE: u32 = 0x1A51_504D;
 /// `MPQ\x1B`: a user-data header, which points past itself to the real one.
 const USERDATA_SIGNATURE: u32 = 0x1B51_504D;
 
-const FLAG_IMPLODE: u32 = 0x0000_0100;
+/// The block flags' sector-codec byte (`0x651993`): any bit in it makes the file sectored, and
+/// a shrunken sector reads only when the byte is exactly [`FLAG_COMPRESS`].
+const FLAG_CODEC_MASK: u32 = 0x0000_FF00;
 const FLAG_COMPRESS: u32 = 0x0000_0200;
 const FLAG_ENCRYPTED: u32 = 0x0001_0000;
 const FLAG_SINGLE_UNIT: u32 = 0x0100_0000;
 /// A patch archive's delete marker (size 0): the path is deleted from the composite chain.
 const FLAG_DELETE_MARKER: u32 = 0x0200_0000;
+const FLAG_SECTOR_CRC: u32 = 0x0400_0000;
 const FLAG_EXISTS: u32 = 0x8000_0000;
 
 /// Hash-table sentinels.
@@ -58,18 +61,74 @@ struct BlockEntry {
 /// An archive's index, parsed once and immutable, shared behind an `Arc`.
 struct Index {
     path: PathBuf,
+    /// Length observed on the same file handle used to decode the index.
+    file_len: u64,
     /// Byte offset of the MPQ header in the file: 0 in 1.12 data, but found, not assumed.
     archive_offset: u64,
+    /// Exact bytes used to decode this index; inspection must not reread a different header.
+    header: [u8; 32],
+    /// Raw-version-one extension from the same bounded index decode handle, if present.
+    header_extension: Option<[u8; 12]>,
     /// The uncompressed sector size, `512 << block_size`.
     sector_size: usize,
     hash_table: Vec<HashEntry>,
     block_table: Vec<BlockEntry>,
+    index_bytes: usize,
+    encoded_identity: Option<[u8; 32]>,
+    limits: Option<ReadLimits>,
+}
+
+/// Explicit allocation/read budgets for opt-in untrusted offline inputs.
+/// Existing `open` callers retain their current format behavior.
+#[derive(Clone, Copy, Debug)]
+pub struct ReadLimits {
+    /// Combined encoded hash/block table bytes, checked before either allocation.
+    pub index_bytes: usize,
+    /// Encoded and decoded bytes allowed for one compressed sector.
+    pub sector_bytes: usize,
+    pub member_bytes: usize,
+    pub header_scan_bytes: u64,
 }
 
 /// An open MPQ archive, a cheap `Clone + Send + Sync` handle.
 #[derive(Clone)]
 pub struct Archive {
     index: Arc<Index>,
+}
+
+/// Pinned Classic libmpq's first matching hash entry, before any member read.
+/// This is only lookup metadata, never proof of a readable or valid payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClassicMemberProbe {
+    Absent,
+    Dummy(u32),
+    Present(u32),
+}
+
+/// Immutable filename arithmetic only, never an archive index or lookup result.
+/// Each probe applies the current archive's table mask and validates its entries.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PreparedClassicMemberName {
+    name: String,
+    table_offset: u32,
+    name_a: u32,
+    name_b: u32,
+}
+
+impl PreparedClassicMemberName {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            table_offset: hash_string(name, hash_type::TABLE_OFFSET),
+            name_a: hash_string(name, hash_type::NAME_A),
+            name_b: hash_string(name, hash_type::NAME_B),
+        }
+    }
+
+    /// The exact supplied spelling, without normalization.
+    pub fn as_str(&self) -> &str {
+        &self.name
+    }
 }
 
 /// A read error; anything outside the 1.12.1 envelope surfaces here.
@@ -121,22 +180,86 @@ fn avail_from(file_len: u64, pos: u64) -> usize {
     usize::try_from(file_len.saturating_sub(pos)).unwrap_or(usize::MAX)
 }
 
+fn open_archive_file(path: &Path, bounded: bool) -> Result<File> {
+    if !bounded {
+        return Ok(File::open(path)?);
+    }
+    if !std::fs::symlink_metadata(path)?.file_type().is_file() {
+        return Err(Error::Corrupt(
+            "bounded regular archive file required".into(),
+        ));
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // A path swapped to a FIFO/symlink between metadata and open cannot block
+        // or redirect this opt-in offline reader. Legacy archive opens are unchanged.
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(Error::Corrupt(
+            "bounded regular archive file required".into(),
+        ));
+    }
+    Ok(file)
+}
+
 impl Archive {
     /// Open an archive: find the header, then read and decrypt the hash and block tables.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref().to_path_buf();
-        let mut file = File::open(&path)?;
+        Self::open_inner(path.as_ref(), None, false)
+    }
+
+    /// Open with persistent budgets that also constrain cloned handles and all
+    /// subsequent member/sector reads. Bounded sectors must decode exactly.
+    pub fn open_bounded(path: impl AsRef<Path>, limits: ReadLimits) -> Result<Self> {
+        Self::open_inner(path.as_ref(), Some(limits), false)
+    }
+
+    /// Bounded index decode with pinned Classic libmpq's first 512-aligned MPQ
+    /// signature selection. User-data pointers are not followed. The caller must
+    /// still validate the retained header/profile and every consumed member.
+    pub fn open_classic_bounded(path: impl AsRef<Path>, limits: ReadLimits) -> Result<Self> {
+        Self::open_inner(path.as_ref(), Some(limits), true)
+    }
+
+    fn open_inner(path: &Path, limits: Option<ReadLimits>, classic: bool) -> Result<Self> {
+        let path = path.to_path_buf();
+        let mut file = open_archive_file(&path, limits.is_some())?;
         let file_len = file.metadata()?.len();
 
-        let archive_offset = find_header(&mut file, file_len)?;
+        let scan = limits.map_or(file_len, |l| file_len.min(l.header_scan_bytes));
+        let archive_offset = if classic {
+            find_classic_header(&mut file, scan)?
+        } else {
+            find_header(&mut file, scan)?
+        };
+        if limits.is_some_and(|l| archive_offset.saturating_add(32) > l.header_scan_bytes) {
+            return Err(Error::Corrupt("bounded header scan limit".into()));
+        }
 
-        // The 32-byte V1 header: later versions only extend it, and every 1.12 table offset fits
-        // a `u32`, so the V2 hi-block table is never needed.
+        // Keep the base header and bounded raw-version-one extension on this index handle.
+        // Stricter callers validate extension fields; ordinary opens retain their behavior.
         file.seek(SeekFrom::Start(archive_offset))?;
         let mut hdr = [0u8; 32];
         file.read_exact(&mut hdr)?;
         let signature = hdr.u32_at(0).ok_or(Error::NotMpq)?;
-        debug_assert_eq!(signature, SIGNATURE);
+        if signature != SIGNATURE {
+            return Err(Error::NotMpq);
+        }
+        let header_extension = if limits.is_some() && hdr.u16_at(12) == Some(1) {
+            if limits.is_some_and(|l| archive_offset.saturating_add(44) > l.header_scan_bytes) {
+                return Err(Error::Corrupt("bounded header scan limit".into()));
+            }
+            let mut extension = [0u8; 12];
+            file.read_exact(&mut extension)?;
+            Some(extension)
+        } else {
+            None
+        };
         let block_size_shift = hdr.u16_at(14).ok_or(Error::NotMpq)?;
         // A raw header `u16`, capped before `512 << shift` can overflow; 1.12 data uses 3 (4 KiB
         // sectors), and 23 is already 4 GiB.
@@ -150,29 +273,143 @@ impl Archive {
         let block_table_pos = hdr.u32_at(20).ok_or(Error::NotMpq)? as u64;
         let hash_table_size = hdr.u32_at(24).ok_or(Error::NotMpq)? as usize;
         let block_table_size = hdr.u32_at(28).ok_or(Error::NotMpq)? as usize;
+        let index_bytes = hash_table_size
+            .checked_add(block_table_size)
+            .and_then(|count| count.checked_mul(16))
+            .ok_or_else(|| Error::Corrupt("index byte count overflow".into()))?;
+        if limits.is_some_and(|l| index_bytes > l.index_bytes) {
+            return Err(Error::Corrupt("bounded index byte limit".into()));
+        }
 
+        let mut identity = limits.map(|_| {
+            let mut hash = blake3::Hasher::new();
+            hash.update(&file_len.to_le_bytes());
+            hash.update(&archive_offset.to_le_bytes());
+            hash.update(&hdr);
+            if let Some(extension) = header_extension {
+                hash.update(&extension);
+            }
+            hash
+        });
         let hash_table = read_hash_table(
             &mut file,
             archive_offset + hash_table_pos,
             hash_table_size,
             file_len,
+            identity.as_mut(),
         )?;
         let block_table = read_block_table(
             &mut file,
             archive_offset + block_table_pos,
             block_table_size,
             file_len,
+            identity.as_mut(),
         )?;
 
         Ok(Archive {
             index: Arc::new(Index {
                 path,
+                file_len,
                 archive_offset,
+                header: hdr,
+                header_extension,
                 sector_size,
                 hash_table,
                 block_table,
+                index_bytes,
+                encoded_identity: identity.map(|hash| hash.finalize().into()),
+                limits,
             }),
         })
+    }
+
+    /// Selected header offset and the exact first 32 bytes used to decode this index.
+    /// Read-only provenance for callers checking a stricter archive profile.
+    pub fn header_snapshot(&self) -> (u64, [u8; 32]) {
+        (self.index.archive_offset, self.index.header)
+    }
+
+    /// Identity of the exact bounded header and encoded tables on the decode handle.
+    /// Not a live filesystem lease or a digest of unread archive payloads.
+    pub fn bounded_index_identity(&self) -> Option<[u8; 32]> {
+        self.index.encoded_identity
+    }
+
+    /// Exact raw-version-one extension read with the base header before decoding the index.
+    /// Only bounded opens retain this provenance; ordinary opens do not inspect extensions.
+    pub fn header_extension_snapshot(&self) -> Option<[u8; 12]> {
+        self.index.header_extension
+    }
+
+    /// File length from the same handle as the retained header and index.
+    pub fn file_len_snapshot(&self) -> u64 {
+        self.index.file_len
+    }
+
+    /// First-hash lookup used by pinned libmpq, with its unsafe matching-index
+    /// and non-existing-block cases rejected. VMap's MPQFile treats a size <=1
+    /// as a dummy before attempting a read, including flagged delete markers.
+    /// Positive results require a separate strict member check and bounded read.
+    pub fn probe_classic_member(&self, name: &str) -> Result<ClassicMemberProbe> {
+        self.probe_classic_hashes(|| {
+            (
+                hash_string(name, hash_type::TABLE_OFFSET),
+                hash_string(name, hash_type::NAME_A),
+                hash_string(name, hash_type::NAME_B),
+            )
+        })
+    }
+
+    /// Probe a freshly selected index using immutable filename arithmetic.
+    /// This grants no readability, freshness, or payload-validation authority.
+    pub fn probe_prepared_classic_member(
+        &self,
+        name: &PreparedClassicMemberName,
+    ) -> Result<ClassicMemberProbe> {
+        self.probe_classic_hashes(|| (name.table_offset, name.name_a, name.name_b))
+    }
+
+    fn probe_classic_hashes(
+        &self,
+        hashes: impl FnOnce() -> (u32, u32, u32),
+    ) -> Result<ClassicMemberProbe> {
+        let idx = &self.index;
+        if idx.limits.is_none() || !idx.hash_table.len().is_power_of_two() {
+            return Err(Error::Corrupt(
+                "classic probe requires bounded valid index".into(),
+            ));
+        }
+        let mask = idx.hash_table.len() - 1;
+        let (table_offset, want_a, want_b) = hashes();
+        let start = table_offset as usize & mask;
+        for offset in 0..idx.hash_table.len() {
+            let entry = idx.hash_table[(start + offset) & mask];
+            if entry.block_index == HASH_EMPTY {
+                break;
+            }
+            if entry.name_a == want_a && entry.name_b == want_b {
+                let block = idx
+                    .block_table
+                    .get(entry.block_index as usize)
+                    .ok_or_else(|| {
+                        Error::Corrupt("classic probe matching invalid hash index".into())
+                    })?;
+                if block.flags & FLAG_EXISTS == 0 {
+                    return Err(Error::Corrupt("classic probe non-existing block".into()));
+                }
+                return Ok(if block.file_size <= 1 {
+                    ClassicMemberProbe::Dummy(block.file_size)
+                } else {
+                    ClassicMemberProbe::Present(block.file_size)
+                });
+            }
+        }
+        Ok(ClassicMemberProbe::Absent)
+    }
+
+    /// Encoded hash/block table footprint, for cumulative chain budgeting.
+    pub fn index_bytes(&self) -> usize {
+        self.index.index_bytes
     }
 
     /// Whether the archive holds `name`, case-insensitive with `/` and `\` alike. No I/O.
@@ -202,6 +439,99 @@ impl Archive {
         self.open_file(name)?.read_all()
     }
 
+    /// Opt-in member-shape check for the pinned Classic `ad` extractor's libmpq
+    /// resolution. Ordinary rendering/lookup/read behavior is unchanged.
+    /// The caller separately checks the archive header and mount-order profile,
+    /// and must still successfully read the member through the bounded reader.
+    /// `NotFound` means true absence only; malformed matching entries, tombstones,
+    /// dummy files, unsupported flags, and implicitly encrypted tables are errors.
+    pub fn verify_classic_ad_member(&self, name: &str) -> Result<()> {
+        let mut open = self.classic_ad_file(name)?;
+        if open.offsets.is_some() {
+            for index in 0..open.size.div_ceil(open.sector_size) {
+                open.decode_sector_with_policy(index, true)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate Classic member flags and table shape without inflating payloads.
+    pub fn verify_classic_ad_member_shape(&self, name: &str) -> Result<()> {
+        self.classic_ad_file(name).map(|_| ())
+    }
+
+    /// Strictly decode once and hash the encoded bytes on that same member handle.
+    pub fn read_classic_ad_member(&self, name: &str) -> Result<(Vec<u8>, [u8; 32])> {
+        self.classic_ad_file(name)?.read_classic_identity(true)
+    }
+
+    /// Reread the encoded table/sectors without inflation. Only comparing this
+    /// digest with a prior strict read establishes unchanged consumed bytes.
+    pub fn classic_ad_member_identity(&self, name: &str) -> Result<[u8; 32]> {
+        self.classic_ad_file(name)?
+            .read_classic_identity(false)
+            .map(|(_, digest)| digest)
+    }
+
+    fn classic_ad_file(&self, name: &str) -> Result<ArchiveFile> {
+        let idx = &self.index;
+        if idx.limits.is_none() {
+            return Err(Error::Corrupt("classic ad requires bounded archive".into()));
+        }
+        let count = idx.hash_table.len();
+        if !count.is_power_of_two() {
+            return Err(Error::Corrupt("classic ad hash-table shape".into()));
+        }
+        let mask = count - 1;
+        let start = hash_string(name, hash_type::TABLE_OFFSET) as usize & mask;
+        let want_a = hash_string(name, hash_type::NAME_A);
+        let want_b = hash_string(name, hash_type::NAME_B);
+        let mut selected = None;
+        // libmpq__file_number matches the first hash pair without skipping a
+        // deleted index. Reject its unsafe match rather than fall through it.
+        for offset in 0..count {
+            let entry = idx.hash_table[(start + offset) & mask];
+            if entry.block_index == HASH_EMPTY {
+                break;
+            }
+            if entry.name_a == want_a && entry.name_b == want_b {
+                selected = Some(*idx.block_table.get(entry.block_index as usize).ok_or_else(
+                    || Error::Corrupt("classic ad matching invalid hash index".into()),
+                )?);
+                break;
+            }
+        }
+        let block = selected.ok_or_else(|| Error::NotFound(name.into()))?;
+        if block.flags & FLAG_EXISTS == 0
+            || block.flags & !(FLAG_EXISTS | FLAG_COMPRESS | FLAG_SECTOR_CRC) != 0
+            || (block.flags & FLAG_SECTOR_CRC != 0 && block.flags & FLAG_COMPRESS == 0)
+        {
+            return Err(Error::Corrupt("classic ad unsupported member flags".into()));
+        }
+        if block.file_size <= 1 {
+            return Err(Error::Corrupt("classic ad dummy member".into()));
+        }
+        let open = self.open_file(name)?;
+        if let Some(offsets) = &open.offsets {
+            let extra = usize::from(block.flags & FLAG_SECTOR_CRC != 0);
+            let table_bytes = offsets
+                .len()
+                .checked_add(extra)
+                .and_then(|words| words.checked_mul(4))
+                .ok_or_else(|| Error::Corrupt("classic ad offset-table size".into()))?;
+            // libmpq__file_open treats a different first offset as implicit
+            // encryption, even when the member's encryption flag is clear.
+            if offsets.first().copied().map(u64::from) != Some(table_bytes as u64)
+                || table_bytes > open.avail
+            {
+                return Err(Error::Corrupt(
+                    "classic ad noncanonical sector table".into(),
+                ));
+            }
+        }
+        Ok(open)
+    }
+
     /// Open a file for reading in place: its own OS handle, its sectors decompressed one at a
     /// time as they are read, so a long sound streams without the whole file read first, as the
     /// reference's FMOD streams read the archive through the file callbacks it registers
@@ -225,11 +555,15 @@ impl Archive {
             return Err(Error::Unsupported(format!("single-unit file {name}")));
         }
 
-        let file = File::open(&idx.path)?;
+        let file = open_archive_file(&idx.path, idx.limits.is_some())?;
         let file_pos = idx.archive_offset + block.file_pos as u64;
         let file_size = block.file_size as usize;
-        let compressed = block.flags & (FLAG_COMPRESS | FLAG_IMPLODE) != 0;
-        let implode_only = block.flags & FLAG_IMPLODE != 0 && block.flags & FLAG_COMPRESS == 0;
+        if idx.limits.is_some_and(|l| file_size > l.member_bytes) {
+            return Err(Error::Corrupt("bounded member byte limit".into()));
+        }
+        // `0x651450` reads the sector table when any of `0xff00` is set (`0x651549`).
+        let codec_flags = block.flags & FLAG_CODEC_MASK;
+        let compressed = codec_flags != 0;
 
         let file_len = file.metadata()?.len();
         let avail = avail_from(file_len, file_pos);
@@ -241,10 +575,11 @@ impl Archive {
             size: file_size,
             sector_size: idx.sector_size,
             offsets: None,
-            implode_only,
+            codec_flags,
             avail,
             pos: 0,
             sector: None,
+            limits: idx.limits,
         };
         if !compressed {
             // Stored: exactly `file_size` raw bytes, refused up front if the file cannot hold them.
@@ -297,16 +632,61 @@ pub struct ArchiveFile {
     sector_size: usize,
     /// The sector offset table, relative to `base`; `None` for a stored file.
     offsets: Option<Vec<u32>>,
-    implode_only: bool,
+    /// The block flags' `0xff00` byte: only [`FLAG_COMPRESS`] runs a codec on a shrunken sector.
+    codec_flags: u32,
     /// Bytes from `base` to the archive's end: the cap on every length read from a header.
     avail: usize,
     /// The read position in the uncompressed file.
     pos: u64,
     /// The decompressed sector under `pos`, by index.
     sector: Option<(usize, Vec<u8>)>,
+    limits: Option<ReadLimits>,
 }
 
 impl ArchiveFile {
+    fn read_classic_identity(mut self, decode: bool) -> Result<(Vec<u8>, [u8; 32])> {
+        let mut hash = blake3::Hasher::new();
+        let mut output = if decode {
+            Vec::with_capacity(self.size)
+        } else {
+            Vec::new()
+        };
+        if let Some(offsets) = &self.offsets {
+            for offset in offsets {
+                hash.update(&offset.to_le_bytes());
+            }
+            if offsets.first().copied() == Some((offsets.len() as u32 + 1) * 4) {
+                self.file
+                    .seek(SeekFrom::Start(self.base + offsets.len() as u64 * 4))?;
+                let mut crc_offset = [0; 4];
+                self.file.read_exact(&mut crc_offset)?;
+                hash.update(&crc_offset);
+            }
+            for index in 0..self.size.div_ceil(self.sector_size) {
+                let raw = self.encoded_sector(index)?;
+                hash.update(&raw);
+                if decode {
+                    let bytes = self.inflate_sector(index, raw, true)?;
+                    output.extend_from_slice(&bytes);
+                }
+            }
+        } else {
+            self.file.seek(SeekFrom::Start(self.base))?;
+            let mut chunk = [0; 16 * 1024];
+            let mut remaining = self.size;
+            while remaining != 0 {
+                let count = remaining.min(chunk.len());
+                self.file.read_exact(&mut chunk[..count])?;
+                hash.update(&chunk[..count]);
+                if decode {
+                    output.extend_from_slice(&chunk[..count]);
+                }
+                remaining -= count;
+            }
+        }
+        Ok((output, hash.finalize().into()))
+    }
+
     /// The uncompressed size.
     pub fn size(&self) -> u64 {
         self.size as u64
@@ -332,6 +712,15 @@ impl ArchiveFile {
     /// the sector size, or the remainder for the last. One that inflates short is refused, since
     /// every later byte would shift into the gap.
     fn decode_sector(&mut self, i: usize) -> Result<Vec<u8>> {
+        self.decode_sector_with_policy(i, false)
+    }
+
+    fn decode_sector_with_policy(&mut self, i: usize, complete_zlib: bool) -> Result<Vec<u8>> {
+        let raw = self.encoded_sector(i)?;
+        self.inflate_sector(i, raw, complete_zlib)
+    }
+
+    fn encoded_sector(&mut self, i: usize) -> Result<Vec<u8>> {
         let want = (self.size - i * self.sector_size).min(self.sector_size);
         let name = &self.name;
         let offsets = self.offsets.as_deref().unwrap_or_default();
@@ -344,6 +733,17 @@ impl ArchiveFile {
             .checked_sub(u64::from(start))
             .ok_or_else(|| Error::Decompress(format!("{name}: sector {i} offsets reversed")))?
             as usize;
+        if self
+            .limits
+            .is_some_and(|l| comp_len > l.sector_bytes || want > l.sector_bytes)
+        {
+            return Err(Error::Corrupt("bounded sector byte limit".into()));
+        }
+        if self.limits.is_some() && comp_len > want {
+            return Err(Error::Corrupt(
+                "bounded stored sector exceeds declared output".into(),
+            ));
+        }
         let comp_cap = capped(comp_len, 1, self.avail);
         if comp_cap < comp_len {
             return Err(Error::Corrupt(format!(
@@ -358,18 +758,38 @@ impl ArchiveFile {
             .seek(SeekFrom::Start(self.base + u64::from(start)))?;
         let mut raw = vec![0u8; comp_len]; // proven <= avail above
         self.file.read_exact(&mut raw)?;
+        Ok(raw)
+    }
+
+    fn inflate_sector(&self, i: usize, mut raw: Vec<u8>, complete_zlib: bool) -> Result<Vec<u8>> {
+        let want = (self.size - i * self.sector_size).min(self.sector_size);
+        let name = &self.name;
+        let comp_len = raw.len();
 
         let out = if comp_len >= want {
             // A sector that would not shrink is stored verbatim.
             raw.truncate(want);
             raw
-        } else if self.implode_only {
-            // IMPLODE sectors carry no method byte; 1.12.1 data has none.
-            decompress(0x08, &raw, want, name)?
+        } else if self.codec_flags != FLAG_COMPRESS {
+            // `0x651993`-`0x65199f`: `and ecx,0xff00; cmp ecx,0x200; jne 0x651a76`, which fails the
+            // read. The image has no explode path, so `0x100` and `0x300` fail like any other.
+            return Err(Error::Unsupported(format!(
+                "{name}: sector {i} is packed under block flags 0x{:X}, which 1.12.1 cannot read",
+                self.codec_flags
+            )));
         } else {
             // COMPRESS: the leading byte is the codec mask, the rest the payload.
             let method = raw[0]; // non-empty: refused above
-            decompress(method, &raw[1..], want, name)?
+            if complete_zlib {
+                decompress_classic_ad(method, &raw[1..], want, name)?
+            } else {
+                decompress(
+                    method,
+                    &raw[1..],
+                    want + usize::from(self.limits.is_some()),
+                    name,
+                )?
+            }
         };
         // `decompress` stops at `want`, so only a short sector is left to refuse.
         if out.len() != want {
@@ -500,11 +920,27 @@ fn find_header(file: &mut File, file_len: u64) -> Result<u64> {
     Err(Error::NotMpq)
 }
 
+// libmpq archive_open(-1), mpq.c:82-146 at CMaNGOS 8ec338a: no user-data jump.
+fn find_classic_header(file: &mut File, file_len: u64) -> Result<u64> {
+    let mut offset = 0u64;
+    while offset + 32 <= file_len {
+        file.seek(SeekFrom::Start(offset))?;
+        let mut header = [0u8; 32];
+        file.read_exact(&mut header)?;
+        if header[..4] == *b"MPQ\x1a" {
+            return Ok(offset);
+        }
+        offset += 512;
+    }
+    Err(Error::NotMpq)
+}
+
 fn read_hash_table(
     file: &mut File,
     pos: u64,
     count: usize,
     file_len: u64,
+    identity: Option<&mut blake3::Hasher>,
 ) -> Result<Vec<HashEntry>> {
     // A `count` the file cannot hold is refused before the loop indexes past a short `words`.
     let avail = avail_from(file_len, pos);
@@ -517,6 +953,9 @@ fn read_hash_table(
     let mut bytes = vec![0u8; cap * 16]; // == count * 16, proven <= avail above
     file.seek(SeekFrom::Start(pos))?;
     file.read_exact(&mut bytes)?;
+    if let Some(hash) = identity {
+        hash.update(&bytes);
+    }
     let mut words = to_u32s(&bytes);
     decrypt_block(&mut words, hash_string("(hash table)", hash_type::FILE_KEY));
     Ok((0..count)
@@ -537,6 +976,7 @@ fn read_block_table(
     pos: u64,
     count: usize,
     file_len: u64,
+    identity: Option<&mut blake3::Hasher>,
 ) -> Result<Vec<BlockEntry>> {
     // A `count` the file cannot hold is refused, as in `read_hash_table`.
     let avail = avail_from(file_len, pos);
@@ -549,6 +989,9 @@ fn read_block_table(
     let mut bytes = vec![0u8; cap * 16]; // == count * 16, proven <= avail above
     file.seek(SeekFrom::Start(pos))?;
     file.read_exact(&mut bytes)?;
+    if let Some(hash) = identity {
+        hash.update(&bytes);
+    }
     let mut words = to_u32s(&bytes);
     decrypt_block(
         &mut words,
@@ -586,10 +1029,38 @@ fn decompress(method: u8, data: &[u8], expected: usize, name: &str) -> Result<Ve
     }
 }
 
+/// The pinned libmpq requires inflate(Z_FINISH) to reach Z_STREAM_END. The
+/// ordinary streaming decoder can return full output from a truncated stream.
+fn decompress_classic_ad(method: u8, data: &[u8], expected: usize, name: &str) -> Result<Vec<u8>> {
+    #[cfg(test)]
+    tests::CLASSIC_INFLATES.with(|count| count.set(count.get() + 1));
+    if method != 0x02 {
+        return Err(Error::Unsupported(format!(
+            "{name}: classic ad sector codec"
+        )));
+    }
+    let mut output = vec![0; expected + 1];
+    let mut decoder = flate2::Decompress::new(true);
+    let status = decoder
+        .decompress(data, &mut output, flate2::FlushDecompress::Finish)
+        .map_err(|error| Error::Decompress(format!("{name}: classic ad zlib: {error}")))?;
+    if status != flate2::Status::StreamEnd || decoder.total_out() != expected as u64 {
+        return Err(Error::Decompress(format!(
+            "{name}: classic ad incomplete zlib sector"
+        )));
+    }
+    output.truncate(expected);
+    Ok(output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    thread_local! {
+        pub(super) static CLASSIC_INFLATES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
 
     /// A unique temp path (pid and a counter), so parallel tests never collide.
     fn temp_path(tag: &str) -> PathBuf {
@@ -680,9 +1151,23 @@ mod tests {
 
     /// [`archive_with_one_entry`] with `file_size` set apart from the data: a lying block table.
     fn archive_with_one_block(name: &str, flags: u32, data: &[u8], file_size: u32) -> Vec<u8> {
+        archive_with_one_block_version(name, flags, data, file_size, 0)
+    }
+
+    fn archive_with_one_block_version(
+        name: &str,
+        flags: u32,
+        data: &[u8],
+        file_size: u32,
+        version: u16,
+    ) -> Vec<u8> {
         use crypto::{encrypt_block, hash_type};
         const HASH_SLOTS: u32 = 4; // a power of two: the reader masks with len - 1
-        let hash_pos = 32u32;
+        let hash_pos = match version {
+            0 => 32u32,
+            1 => 44,
+            _ => panic!("fixture version"),
+        };
         let block_pos = hash_pos + HASH_SLOTS * 16;
         let data_pos = block_pos + 16; // one 16-byte block entry
 
@@ -703,6 +1188,10 @@ mod tests {
         );
 
         let mut bytes = header(0, hash_pos, block_pos, HASH_SLOTS, 1).to_vec();
+        bytes[4..8].copy_from_slice(&hash_pos.to_le_bytes());
+        bytes[8..12].copy_from_slice(&(data_pos + data.len() as u32).to_le_bytes());
+        bytes[12..14].copy_from_slice(&version.to_le_bytes());
+        bytes.resize(hash_pos as usize, 0);
         for w in hash.into_iter().chain(block) {
             bytes.extend_from_slice(&w.to_le_bytes());
         }
@@ -984,7 +1473,762 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// `0x651993`-`0x65199f`: a shrunken sector reads only under `0xff00` exactly `0x200`; the
+    /// implode flag, alone or with `0x200`, or any other codec bit fails the read (`0x651a76`).
+    #[test]
+    fn a_shrunken_sector_reads_only_under_exactly_the_compress_flag() {
+        let plain = three_sector_plain();
+        let stored = sectored(&plain);
+        for (tag, flags) in [
+            ("flags_100", 0x100u32),
+            ("flags_300", 0x300),
+            ("flags_400", 0x400),
+            ("flags_600", 0x600),
+        ] {
+            let (arc, path) = open_temp_kept(
+                tag,
+                &archive_with_one_block("a.bin", FLAG_EXISTS | flags, &stored, plain.len() as u32),
+            );
+            match arc.read_file("a.bin") {
+                Err(Error::Unsupported(e)) => {
+                    assert!(e.contains(&format!("block flags 0x{flags:X}")), "{e}")
+                }
+                other => panic!("flags 0x{flags:X}: expected a failed read, got {other:?}"),
+            }
+            let mut f = arc.open_file("a.bin").unwrap();
+            assert!(f.read(&mut [0u8; 16]).is_err(), "flags 0x{flags:X}: stream");
+            let _ = std::fs::remove_file(&path);
+        }
+        let (arc, path) = open_temp_kept(
+            "flags_200",
+            &archive_with_one_block(
+                "a.bin",
+                FLAG_EXISTS | FLAG_COMPRESS,
+                &stored,
+                plain.len() as u32,
+            ),
+        );
+        assert_eq!(arc.read_file("a.bin").unwrap(), plain);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A sector that did not shrink is copied as it is (`0x651982`), whatever the codec byte.
+    #[test]
+    fn a_stored_sector_reads_under_any_codec_flags() {
+        let plain: Vec<u8> = (0..512u32).map(|i| (i * 7 % 251) as u8).collect();
+        let mut stored = Vec::new();
+        stored.extend_from_slice(&8u32.to_le_bytes());
+        stored.extend_from_slice(&520u32.to_le_bytes());
+        stored.extend_from_slice(&plain);
+        let (arc, path) = open_temp_kept(
+            "stored_sector_100",
+            &archive_with_one_block("a.bin", FLAG_EXISTS | 0x100, &stored, 512),
+        );
+        assert_eq!(arc.read_file("a.bin").unwrap(), plain);
+        let _ = std::fs::remove_file(&path);
+    }
+
     fn u32_at(b: &[u8], at: usize) -> u32 {
         u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]])
+    }
+    fn offline_limits() -> ReadLimits {
+        ReadLimits {
+            index_bytes: 1024,
+            sector_bytes: 512,
+            member_bytes: 1024,
+            header_scan_bytes: 1024,
+        }
+    }
+
+    #[test]
+    fn header_snapshot_retains_the_exact_selected_offset_and_raw_bytes() {
+        let path = temp_path("header_snapshot");
+        let mut payload = archive_with_one_entry("a.bin", FLAG_EXISTS, b"safe");
+        payload[4..8].copy_from_slice(&u32::MAX.to_le_bytes());
+        let mut bytes = vec![0; 512];
+        bytes.extend(&payload);
+        std::fs::write(&path, &bytes).unwrap();
+        let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+        let expected = (512, payload[..32].try_into().unwrap());
+        assert_eq!(archive.header_snapshot(), expected);
+        assert_eq!(archive.read_file("a.bin").unwrap(), b"safe");
+        bytes[516..520].copy_from_slice(&32u32.to_le_bytes());
+        std::fs::write(&path, bytes).unwrap();
+        // Snapshot metadata belongs to the decoded index, not a later path read.
+        assert_eq!(archive.clone().header_snapshot(), expected);
+        assert_ne!(
+            Archive::open_bounded(&path, offline_limits())
+                .unwrap()
+                .header_snapshot(),
+            expected
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn bounded_version_one_snapshot_retains_extension_from_index_decode_handle() {
+        let path = temp_path("extension_snapshot");
+        let payload = archive_with_one_block_version("a.bin", FLAG_EXISTS, b"safe", 4, 1);
+        let mut bytes = vec![0; 512];
+        bytes.extend(&payload);
+        std::fs::write(&path, &bytes).unwrap();
+        let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+        let expected = (512, payload[..32].try_into().unwrap());
+        assert_eq!(archive.header_snapshot(), expected);
+        assert_eq!(archive.header_extension_snapshot(), Some([0; 12]));
+        assert_eq!(archive.read_file("a.bin").unwrap(), b"safe");
+        let extension = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        bytes[544..556].copy_from_slice(&extension);
+        std::fs::write(&path, bytes).unwrap();
+        assert_eq!(archive.clone().header_snapshot(), expected);
+        assert_eq!(archive.clone().header_extension_snapshot(), Some([0; 12]));
+        let fresh = Archive::open_bounded(&path, offline_limits()).unwrap();
+        assert_eq!(fresh.header_snapshot(), expected);
+        assert_eq!(fresh.header_extension_snapshot(), Some(extension));
+        // Retaining provenance does not make the ordinary reader validate extended offsets.
+        assert_eq!(
+            Archive::open(&path).unwrap().header_extension_snapshot(),
+            None
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn bounded_version_one_requires_complete_extension_within_scan_budget() {
+        let path = temp_path("extension_bounds");
+        let payload = archive_with_one_block_version("a.bin", FLAG_EXISTS, b"safe", 4, 1);
+        for present in 0..12 {
+            std::fs::write(&path, &payload[..32 + present]).unwrap();
+            assert!(matches!(
+                Archive::open_bounded(&path, offline_limits()),
+                Err(Error::Io(_))
+            ));
+        }
+        std::fs::write(&path, &payload).unwrap();
+        for header_scan_bytes in 32..44 {
+            let limits = ReadLimits {
+                header_scan_bytes,
+                ..offline_limits()
+            };
+            assert!(matches!(Archive::open_bounded(&path, limits),
+                Err(Error::Corrupt(reason)) if reason == "bounded header scan limit"));
+        }
+        let limits = ReadLimits {
+            header_scan_bytes: 44,
+            ..offline_limits()
+        };
+        assert_eq!(
+            Archive::open_bounded(&path, limits)
+                .unwrap()
+                .read_file("a.bin")
+                .unwrap(),
+            b"safe"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn user_data_pointer_to_non_header_returns_an_error_without_panicking() {
+        let path = temp_path("invalid_user_data_pointer");
+        let mut bytes = vec![0; 512];
+        bytes[..4].copy_from_slice(&USERDATA_SIGNATURE.to_le_bytes());
+        bytes[8..12].copy_from_slice(&16u32.to_le_bytes());
+        bytes.extend(archive_with_one_entry("a.bin", FLAG_EXISTS, b"safe"));
+        std::fs::write(&path, bytes).unwrap();
+        assert!(matches!(Archive::open(&path), Err(Error::NotMpq)));
+        assert!(matches!(
+            Archive::open_bounded(&path, offline_limits()),
+            Err(Error::NotMpq)
+        ));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn bounded_index_claim_rejects_before_any_table_read() {
+        let path = temp_path("bounded_index");
+        std::fs::write(&path, header(0, 32, 32, 1000, 0)).unwrap();
+        match Archive::open_bounded(&path, offline_limits()) {
+            Err(Error::Corrupt(reason)) => assert!(reason.contains("bounded index byte limit")),
+            _ => panic!("expected index budget rejection before table allocation/read"),
+        }
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn bounded_sector_claim_rejects_before_sector_read_or_allocation() {
+        let mut data = Vec::new();
+        data.extend(8u32.to_le_bytes());
+        data.extend(100_008u32.to_le_bytes());
+        let (_, path) = open_temp_kept(
+            "bounded_sector",
+            &archive_with_one_block("a.bin", FLAG_EXISTS | FLAG_COMPRESS, &data, 16),
+        );
+        let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+        assert!(
+            matches!(archive.clone().read_file("a.bin"), Err(Error::Corrupt(s)) if s.contains("bounded sector byte limit"))
+        );
+        let mut file = archive.open_file("a.bin").unwrap();
+        let mut out = Vec::new();
+        assert!(file
+            .read_to_end(&mut out)
+            .unwrap_err()
+            .to_string()
+            .contains("bounded sector byte limit"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn bounded_mode_rejects_overinflate_without_changing_legacy_mode() {
+        use flate2::{write::ZlibEncoder, Compression};
+        use std::io::Write;
+        let mut encoder = ZlibEncoder::new(vec![2], Compression::default());
+        encoder.write_all(&[0; 1000]).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let mut data = 8u32.to_le_bytes().to_vec();
+        data.extend((8 + compressed.len() as u32).to_le_bytes());
+        data.extend(compressed);
+        let (legacy, path) = open_temp_kept(
+            "bounded_inflate",
+            &archive_with_one_block("a.bin", FLAG_EXISTS | FLAG_COMPRESS, &data, 100),
+        );
+        assert_eq!(legacy.read_file("a.bin").unwrap().len(), 100);
+        let bounded = Archive::open_bounded(&path, offline_limits()).unwrap();
+        assert!(
+            matches!(bounded.read_file("a.bin"), Err(Error::Decompress(s)) if s.contains("101 bytes, not 100"))
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn bounded_member_size_and_header_scan_are_independent_budgets() {
+        let (_, path) = open_temp_kept(
+            "bounded_member",
+            &archive_with_one_block("a.bin", FLAG_EXISTS, b"x", 1025),
+        );
+        let bounded = Archive::open_bounded(&path, offline_limits()).unwrap();
+        assert!(
+            matches!(bounded.read_file("a.bin"), Err(Error::Corrupt(s)) if s.contains("bounded member byte limit"))
+        );
+        let limits = ReadLimits {
+            header_scan_bytes: 31,
+            ..offline_limits()
+        };
+        assert!(Archive::open_bounded(&path, limits).is_err());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_reopen_rejects_replacement_symlink() {
+        let (_, path) = open_temp_kept(
+            "bounded_swap",
+            &archive_with_one_entry("a.bin", FLAG_EXISTS, b"safe"),
+        );
+        let bounded = Archive::open_bounded(&path, offline_limits()).unwrap();
+        let other = temp_path("bounded_other");
+        std::fs::rename(&path, &other).unwrap();
+        std::os::unix::fs::symlink(&other, &path).unwrap();
+        assert!(
+            matches!(bounded.read_file("a.bin"), Err(Error::Corrupt(s)) if s.contains("regular archive"))
+        );
+        assert_eq!(
+            Archive::open(&path).unwrap().read_file("a.bin").unwrap(),
+            b"safe"
+        );
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(other);
+    }
+
+    #[test]
+    fn encoded_identity_covers_stored_and_compressed_bytes_without_inflation() {
+        let plain = vec![7; 600];
+        for (flags, data) in [
+            (FLAG_EXISTS, plain.clone()),
+            (FLAG_EXISTS | FLAG_COMPRESS, sectored(&plain)),
+        ] {
+            let path = temp_path("encoded_identity");
+            let mut bytes = archive_with_one_block("a.bin", flags, &data, 600);
+            std::fs::write(&path, &bytes).unwrap();
+            let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+            CLASSIC_INFLATES.with(|count| count.set(0));
+            let (payload, digest) = archive.read_classic_ad_member("a.bin").unwrap();
+            assert_eq!(payload, plain);
+            assert_eq!(archive.classic_ad_member_identity("a.bin").unwrap(), digest);
+            assert_eq!(
+                CLASSIC_INFLATES.with(|count| count.get()),
+                if flags & FLAG_COMPRESS != 0 { 2 } else { 0 }
+            );
+            let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+            *bytes.last_mut().unwrap() ^= 1;
+            std::fs::write(&path, &bytes).unwrap();
+            File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_times(std::fs::FileTimes::new().set_modified(modified))
+                .unwrap();
+            assert_ne!(archive.classic_ad_member_identity("a.bin").unwrap(), digest);
+            assert_eq!(
+                CLASSIC_INFLATES.with(|count| count.get()),
+                if flags & FLAG_COMPRESS != 0 { 2 } else { 0 }
+            );
+            if flags & FLAG_COMPRESS != 0 {
+                assert!(matches!(
+                    archive.read_classic_ad_member("a.bin"),
+                    Err(Error::Decompress(_))
+                ));
+            }
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn encoded_identity_refuses_truncation_and_changed_sector_table() {
+        let plain = vec![7; 600];
+        let original =
+            archive_with_one_block("a.bin", FLAG_EXISTS | FLAG_COMPRESS, &sectored(&plain), 600);
+        let path = temp_path("encoded_bounds");
+        for truncate in [false, true] {
+            std::fs::write(&path, &original).unwrap();
+            let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+            let mut changed = original.clone();
+            if truncate {
+                changed.pop();
+            } else {
+                // Header + four hash slots + one block; reverse the first sector.
+                changed[116..120].copy_from_slice(&0u32.to_le_bytes());
+            }
+            std::fs::write(&path, changed).unwrap();
+            assert!(archive.classic_ad_member_identity("a.bin").is_err());
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn classic_ad_profile_accepts_stored_and_canonical_zlib_or_stored_sectors() {
+        let plain = vec![7; 600];
+        for (flags, data) in [
+            (FLAG_EXISTS, plain.clone()),
+            (FLAG_EXISTS | FLAG_COMPRESS, sectored(&plain)),
+        ] {
+            let (_, path) = open_temp_kept(
+                "ad_valid",
+                &archive_with_one_block("a.bin", flags, &data, plain.len() as u32),
+            );
+            let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+            archive.verify_classic_ad_member("a.bin").unwrap();
+            assert_eq!(archive.read_file("a.bin").unwrap(), plain);
+            assert!(matches!(
+                archive.verify_classic_ad_member("missing.bin"),
+                Err(Error::NotFound(_))
+            ));
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn classic_ad_profile_rejects_unsupported_flags_and_dummy_entries() {
+        for (flags, data) in [
+            (FLAG_EXISTS | FLAG_COMPRESS | 0x100, b"valid".as_slice()),
+            (FLAG_EXISTS | 0x100, b"valid"),
+            (FLAG_EXISTS | FLAG_SECTOR_CRC, b"valid"),
+            (FLAG_EXISTS | FLAG_DELETE_MARKER, b"valid"),
+            (FLAG_EXISTS | 0x10, b"valid"),
+            (0, b"valid"),
+            (FLAG_EXISTS, b"x"),
+        ] {
+            let (_, path) =
+                open_temp_kept("ad_flags", &archive_with_one_entry("a.bin", flags, data));
+            let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+            assert!(matches!(
+                archive.verify_classic_ad_member("a.bin"),
+                Err(Error::Corrupt(_))
+            ));
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn classic_ad_profile_requires_canonical_first_sector_offset_including_crc() {
+        let plain = vec![7; 600];
+        let original = sectored(&plain);
+        let words = plain.len().div_ceil(512) + 1;
+        let mut padded = original.clone();
+        for index in 0..words {
+            let value = u32_at(&padded, index * 4) + 4;
+            padded[index * 4..index * 4 + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        padded.splice(words * 4..words * 4, [0; 4]);
+        for (flags, allowed) in [
+            (FLAG_EXISTS | FLAG_COMPRESS, false),
+            (FLAG_EXISTS | FLAG_COMPRESS | FLAG_SECTOR_CRC, true),
+        ] {
+            let (_, path) = open_temp_kept(
+                "ad_offsets",
+                &archive_with_one_block("a.bin", flags, &padded, plain.len() as u32),
+            );
+            let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+            assert_eq!(
+                archive.read_file("a.bin").unwrap(),
+                plain,
+                "ordinary reader stays unchanged"
+            );
+            assert_eq!(archive.verify_classic_ad_member("a.bin").is_ok(), allowed);
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn classic_ad_profile_rejects_first_matching_deleted_or_invalid_hash() {
+        for (invalid, later_valid) in [(HASH_DELETED, false), (HASH_DELETED, true), (9, false)] {
+            let mut bytes = archive_with_one_entry("a.bin", FLAG_EXISTS, b"valid");
+            let mut words = to_u32s(&bytes[32..96]);
+            let key = hash_string("(hash table)", hash_type::FILE_KEY);
+            decrypt_block(&mut words, key);
+            let slot = (hash_string("a.bin", hash_type::TABLE_OFFSET) & 3) as usize;
+            let original: [u32; 4] = words[slot * 4..slot * 4 + 4].try_into().unwrap();
+            words[slot * 4 + 3] = invalid;
+            if later_valid {
+                let later = (slot + 1) & 3;
+                words[later * 4..later * 4 + 4].copy_from_slice(&original);
+            }
+            crypto::encrypt_block(&mut words, key);
+            for (index, word) in words.into_iter().enumerate() {
+                bytes[32 + index * 4..36 + index * 4].copy_from_slice(&word.to_le_bytes());
+            }
+            let (_, path) = open_temp_kept("ad_hash", &bytes);
+            let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+            if later_valid {
+                assert_eq!(archive.read_file("a.bin").unwrap(), b"valid");
+            }
+            assert!(
+                matches!(archive.verify_classic_ad_member("a.bin"), Err(Error::Corrupt(reason)) if reason.contains("matching invalid hash index"))
+            );
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn classic_ad_profile_requires_complete_zlib_checksum() {
+        let plain = vec![7; 512];
+        let mut stored = sectored(&plain);
+        stored.truncate(stored.len() - 4);
+        let end = stored.len() as u32;
+        stored[4..8].copy_from_slice(&end.to_le_bytes());
+        let (_, path) = open_temp_kept(
+            "ad_truncated_zlib",
+            &archive_with_one_block(
+                "a.bin",
+                FLAG_EXISTS | FLAG_COMPRESS,
+                &stored,
+                plain.len() as u32,
+            ),
+        );
+        let archive = Archive::open_bounded(&path, offline_limits()).unwrap();
+        assert_eq!(
+            archive.read_file("a.bin").unwrap(),
+            plain,
+            "ordinary decoder accepts full output despite missing checksum"
+        );
+        assert!(
+            matches!(archive.verify_classic_ad_member("a.bin"), Err(Error::Decompress(reason)) if reason.contains("classic ad"))
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn classic_header_scan_is_opt_in_and_ignores_userdata_jumps() {
+        let mut bytes = vec![0u8; 512];
+        bytes[..4].copy_from_slice(&USERDATA_SIGNATURE.to_le_bytes());
+        bytes[8..12].copy_from_slice(&32u32.to_le_bytes());
+        bytes.extend(archive_with_one_entry("a.bin", FLAG_EXISTS, b"contents"));
+        let path = temp_path("classic_scan");
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(matches!(
+            Archive::open_bounded(&path, offline_limits()),
+            Err(Error::NotMpq)
+        ));
+        let archive = Archive::open_classic_bounded(&path, offline_limits()).unwrap();
+        assert_eq!(archive.header_snapshot().0, 512);
+        assert_eq!(archive.file_len_snapshot(), bytes.len() as u64);
+        assert_eq!(archive.read_file("a.bin").unwrap(), b"contents");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn classic_probe_distinguishes_absence_dummy_and_unvalidated_positive() {
+        for (size, flags, expected) in [
+            (0, FLAG_EXISTS, ClassicMemberProbe::Dummy(0)),
+            (1, FLAG_EXISTS, ClassicMemberProbe::Dummy(1)),
+            (
+                0,
+                FLAG_EXISTS | FLAG_DELETE_MARKER,
+                ClassicMemberProbe::Dummy(0),
+            ),
+            (
+                3,
+                FLAG_EXISTS | FLAG_ENCRYPTED,
+                ClassicMemberProbe::Present(3),
+            ),
+        ] {
+            let bytes = archive_with_one_block("a.bin", flags, b"abc", size);
+            let path = temp_path("classic_probe");
+            std::fs::write(&path, bytes).unwrap();
+            let archive = Archive::open_classic_bounded(&path, offline_limits()).unwrap();
+            assert_eq!(archive.probe_classic_member("a.bin").unwrap(), expected);
+            assert_eq!(
+                archive.probe_classic_member("missing").unwrap(),
+                ClassicMemberProbe::Absent
+            );
+            // Existing strict positive-member verification is never relaxed.
+            assert!(archive.verify_classic_ad_member("a.bin").is_err());
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+    fn prepared_probe_archive(names: &[(&str, u32, u32)], slots: u32) -> Vec<u8> {
+        let block_pos = 32 + slots * 16;
+        let data_pos = block_pos + names.len() as u32 * 16;
+        let mut hash = vec![u32::MAX; slots as usize * 4];
+        let mut blocks = Vec::new();
+        for (index, (name, flags, size)) in names.iter().enumerate() {
+            let mut slot =
+                hash_string(name, hash_type::TABLE_OFFSET) as usize & (slots as usize - 1);
+            while hash[slot * 4 + 3] != u32::MAX {
+                slot = (slot + 1) & (slots as usize - 1);
+            }
+            hash[slot * 4..slot * 4 + 4].copy_from_slice(&[
+                hash_string(name, hash_type::NAME_A),
+                hash_string(name, hash_type::NAME_B),
+                0,
+                index as u32,
+            ]);
+            blocks.extend([data_pos, 8, *size, *flags]);
+        }
+        crypto::encrypt_block(&mut hash, hash_string("(hash table)", hash_type::FILE_KEY));
+        crypto::encrypt_block(
+            &mut blocks,
+            hash_string("(block table)", hash_type::FILE_KEY),
+        );
+        let mut bytes = header(0, 32, block_pos, slots, names.len() as u32).to_vec();
+        bytes[8..12].copy_from_slice(&(data_pos + 8).to_le_bytes());
+        for word in hash.into_iter().chain(blocks) {
+            bytes.extend(word.to_le_bytes());
+        }
+        bytes.extend([1; 8]);
+        bytes
+    }
+
+    fn probe_result(
+        result: Result<ClassicMemberProbe>,
+    ) -> std::result::Result<ClassicMemberProbe, String> {
+        result.map_err(|error| error.to_string())
+    }
+
+    #[test]
+    fn prepared_classic_names_preserve_spelling_and_probe_semantics() {
+        let entries = [
+            ("World\\Test.ADT", FLAG_EXISTS, 8),
+            ("dummy", FLAG_EXISTS | FLAG_DELETE_MARKER, 1),
+            ("empty", FLAG_EXISTS, 0),
+            ("é\\猫.bin", FLAG_EXISTS, 8),
+            ("invalid", 0, 8),
+        ];
+        let path = temp_path("prepared_names");
+        std::fs::write(&path, prepared_probe_archive(&entries, 16)).unwrap();
+        for bounded in [false, true] {
+            let archive = if bounded {
+                Archive::open_classic_bounded(&path, offline_limits()).unwrap()
+            } else {
+                Archive::open(&path).unwrap()
+            };
+            for name in [
+                "World\\Test.ADT",
+                "world/test.adt",
+                "dummy",
+                "empty",
+                "missing",
+                "é/猫.bin",
+                "É/猫.bin",
+                "invalid",
+            ] {
+                let prepared = PreparedClassicMemberName::new(name);
+                assert_eq!(prepared.as_str(), name);
+                assert_eq!(
+                    probe_result(archive.probe_classic_member(name)),
+                    probe_result(archive.probe_prepared_classic_member(&prepared))
+                );
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prepared_classic_names_use_each_fresh_index_and_mask() {
+        let target = "World\\Maps\\Test\\Test_63_63.adt";
+        let prepared = PreparedClassicMemberName::new(target);
+        let path = temp_path("prepared_reopen");
+        for slots in [4, 8, 32, 64] {
+            let mask = slots - 1;
+            let offset = hash_string(target, hash_type::TABLE_OFFSET) & mask;
+            let collision = (0..10000)
+                .map(|n| format!("collision{n}"))
+                .find(|name| hash_string(name, hash_type::TABLE_OFFSET) & mask == offset)
+                .unwrap();
+            for entries in [
+                vec![(collision.as_str(), FLAG_EXISTS, 8)],
+                vec![
+                    (collision.as_str(), FLAG_EXISTS, 8),
+                    (target, FLAG_EXISTS, 7),
+                ],
+                vec![(target, FLAG_EXISTS, 1)],
+            ] {
+                let replacement = path.with_extension("replacement");
+                std::fs::write(&replacement, prepared_probe_archive(&entries, slots)).unwrap();
+                // Drop prior archive handles; each observation resolves the current path.
+                if path.exists() {
+                    std::fs::remove_file(&path).unwrap();
+                }
+                std::fs::rename(replacement, &path).unwrap();
+                let archive = Archive::open_classic_bounded(
+                    &path,
+                    ReadLimits {
+                        index_bytes: 4096,
+                        ..offline_limits()
+                    },
+                )
+                .unwrap();
+                assert_eq!(
+                    probe_result(archive.probe_prepared_classic_member(&prepared)),
+                    probe_result(archive.probe_classic_member(target))
+                );
+                assert_eq!(
+                    archive.probe_prepared_classic_member(&prepared).unwrap(),
+                    if entries.len() == 2 {
+                        ClassicMemberProbe::Present(7)
+                    } else if entries[0].0 == target {
+                        ClassicMemberProbe::Dummy(1)
+                    } else {
+                        ClassicMemberProbe::Absent
+                    }
+                );
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn prepared_classic_names_preserve_first_matching_invalid_entry_errors() {
+        let prepared = PreparedClassicMemberName::new("a.bin");
+        for invalid in [HASH_DELETED, 9] {
+            let mut bytes = archive_with_one_entry("a.bin", FLAG_EXISTS, b"valid");
+            let mut words = to_u32s(&bytes[32..96]);
+            let key = hash_string("(hash table)", hash_type::FILE_KEY);
+            decrypt_block(&mut words, key);
+            let slot = (hash_string("a.bin", hash_type::TABLE_OFFSET) & 3) as usize;
+            let original: [u32; 4] = words[slot * 4..slot * 4 + 4].try_into().unwrap();
+            words[slot * 4 + 3] = invalid;
+            let later = (slot + 1) & 3;
+            words[later * 4..later * 4 + 4].copy_from_slice(&original);
+            crypto::encrypt_block(&mut words, key);
+            for (index, word) in words.into_iter().enumerate() {
+                bytes[32 + index * 4..36 + index * 4].copy_from_slice(&word.to_le_bytes());
+            }
+            let path = temp_path("prepared_invalid");
+            std::fs::write(&path, bytes).unwrap();
+            let archive = Archive::open_classic_bounded(
+                &path,
+                ReadLimits {
+                    index_bytes: 4096,
+                    ..offline_limits()
+                },
+            )
+            .unwrap();
+            let expected =
+                Err("corrupt archive: classic probe matching invalid hash index".to_owned());
+            assert_eq!(
+                probe_result(archive.probe_classic_member("a.bin")),
+                expected
+            );
+            assert_eq!(
+                probe_result(archive.probe_prepared_classic_member(&prepared)),
+                expected
+            );
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    #[ignore = "bounded same-process diagnostic, no timing threshold"]
+    fn prepared_classic_name_probe_timing() {
+        use std::hint::black_box;
+        use std::time::{Duration, Instant};
+        let names: Vec<_> = (0..64)
+            .flat_map(|x| {
+                (0..64).map(move |y| format!("World\\Maps\\Azeroth\\Azeroth_{x}_{y}.adt"))
+            })
+            .collect();
+        let entries: Vec<_> = names
+            .iter()
+            .take(18)
+            .map(|name| (name.as_str(), FLAG_EXISTS, 8))
+            .collect();
+        let path = temp_path("prepared_timing");
+        std::fs::write(&path, prepared_probe_archive(&entries, 64)).unwrap();
+        let start = Instant::now();
+        let prepared: Vec<_> = names
+            .iter()
+            .map(|name| PreparedClassicMemberName::new(name))
+            .collect();
+        let preparation = start.elapsed();
+        let mut plain_times = Vec::new();
+        let mut prepared_times = Vec::new();
+        let mut open_time = Duration::ZERO;
+        for round in 0..9 {
+            let mut paired = Vec::new();
+            for use_prepared in [round % 2 == 0, round % 2 != 0] {
+                let start = Instant::now();
+                let archive = Archive::open_classic_bounded(
+                    &path,
+                    ReadLimits {
+                        index_bytes: 4096,
+                        ..offline_limits()
+                    },
+                )
+                .unwrap();
+                open_time += start.elapsed();
+                let start = Instant::now();
+                let results: Vec<_> = names
+                    .iter()
+                    .zip(&prepared)
+                    .map(|(name, prepared)| {
+                        black_box(if use_prepared {
+                            archive.probe_prepared_classic_member(black_box(prepared))
+                        } else {
+                            archive.probe_classic_member(black_box(name))
+                        })
+                        .unwrap()
+                    })
+                    .collect();
+                let elapsed = start.elapsed();
+                if use_prepared {
+                    prepared_times.push(elapsed);
+                } else {
+                    plain_times.push(elapsed);
+                }
+                paired.push(results);
+            }
+            assert_eq!(paired[0], paired[1]);
+            assert_eq!(
+                paired[0]
+                    .iter()
+                    .filter(|p| matches!(p, ClassicMemberProbe::Present(8)))
+                    .count(),
+                18
+            );
+        }
+        plain_times.sort();
+        prepared_times.sort();
+        eprintln!("prepared filename probe diagnostic: names={} preparation_us={} open_total_us={} plain_median_us={} prepared_median_us={} pairs=9 (authored 18-positive/64-slot approximation; no payload reads)", names.len(), preparation.as_micros(), open_time.as_micros(), plain_times[4].as_micros(), prepared_times[4].as_micros());
+        std::fs::remove_file(path).unwrap();
     }
 }

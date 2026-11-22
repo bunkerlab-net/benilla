@@ -1,0 +1,15 @@
+[package]
+name = "benilla-encounter"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+description = "Opt-in synthetic encounter controller for the fork chat UI"
+[dependencies]
+anyhow.workspace = true
+benilla-config = { path = "../benilla-config" }
+benilla-p2p = { path = "../benilla-p2p" }
+benilla-session = { path = "../benilla-session" }
+benilla-sim = { path = "../benilla-sim" }
+sha2 = "0.10"
+[lints]
+workspace = true

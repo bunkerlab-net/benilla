@@ -1,0 +1,39 @@
+{
+  "image": "sha256:5397aff8205e0d96686d9a74bd0c9542830d170c167c8d242a3c13e9f269e9a8",
+  "core_revision": "8ec338a1704e7dcb1c0213eb7ed58f9231ade40f",
+  "compile_command": [
+    "g++",
+    "-std=c++17",
+    "-O3",
+    "-DNDEBUG",
+    "-ffp-contract=off",
+    "-fno-fast-math",
+    "-fno-omit-frame-pointer",
+    "-g",
+    "-I/evidence",
+    "-I/source/dep/g3dlite",
+    "/evidence/oracle.cpp",
+    "-o",
+    "/evidence/oracle"
+  ],
+  "source_sha256": {
+    "src/game/Movement/spline.h": "8ad5607f2d2ec4953badd9fccd5df95e497399a225aab8d96ec433fce3191ebe",
+    "src/game/Movement/spline.impl.h": "9ce12bd8c7f34d067c5af71dd9ea581c9f7d085a0518943a9444c6dd6d2f55ef",
+    "src/game/Movement/spline.cpp": "7e8340b710694f360e4582c6c509c133b7a360edbfcb6673e76dcfad71e27c70",
+    "src/game/Maps/TransportMgr.cpp": "71aad0cbdd33bed0af30b3c9c51d30ca16517ab0c53ea7b52228d2a67c372d53",
+    "src/game/Maps/TransportMgr.h": "7425acf7b5c33ad3ada3b85ecede133dcf201a9f5046adbccd198df739e29fbf",
+    "src/game/Entities/Transports.cpp": "ea8b73ac9f74783f697718015ccf1dd1e8bcc0bba951ad6aac9a23c84b7ba9b0",
+    "src/game/Server/DBCStructure.h": "354013c7508d7891f19a1856cd7bbafda19f18388bc20671f5692efa57ebdf50",
+    "dep/g3dlite/Vector4.cpp": "f3f725b43dfaeec67c1dc225fa074eb1f44408a4de4b488b1c0b82fb34064d1f",
+    "dep/g3dlite/Matrix4.cpp": "ec71009c5258e22d5b26c65dcd79a5c719a4db3e428e6946984ef2077f7d90a6",
+    "dep/g3dlite/G3D/Vector3.h": "75b8fa263ade1337c4a06d5e6918aa0a7d28bcb107ed405487e62235838125e2",
+    "dep/g3dlite/G3D/Vector4.h": "dc17cec5d74f622fe61fd215da3e27d0664ce90666b94987f1d31da2cdfce6bb",
+    "dep/g3dlite/G3D/Matrix4.h": "9db0803131f0b01307611e9b38b5817135c7898764f3ada3491b80bf24f5fcc0",
+    "src/game/Maps/MapManager.h": "bb5ff0741f5c78a295a96d708a0875da5881547386aea63ecfda9d30f66f05ad",
+    "src/shared/Common.h": "5d07c692b1a729cf8e4045812c5633e096c8d47c81b2530c641b2ee4c0aefc32"
+  },
+  "oracle_sha256": "e834bb2f07be1276748ff92fb0c0230cb5365cf5f02169430f7a2f27fc0c097b",
+  "output_sha256": "1e40ed3d145ff0ad6b77b36268159f8ad50ed23098fa2a1dda49e7e198f60733",
+  "cases": 11,
+  "scope": "Authored source component fixtures, not sealed F1 acceptance"
+}

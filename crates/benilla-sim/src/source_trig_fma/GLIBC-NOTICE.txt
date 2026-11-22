@@ -1,0 +1,22 @@
+/* Compute sine of argument.
+   Copyright (C) 2018-2022 Free Software Foundation, Inc.
+   This file is part of the GNU C Library.
+
+   The GNU C Library is free software; you can redistribute it and/or
+   modify it under the terms of the GNU Lesser General Public
+   License as published by the Free Software Foundation; either
+   version 2.1 of the License, or (at your option) any later version.
+
+   The GNU C Library is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+   Lesser General Public License for more details.
+
+   You should have received a copy of the GNU Lesser General Public
+   License along with the GNU C Library; if not, see
+   <https://www.gnu.org/licenses/>.  */
+
+Applies to the glibc-2.36 files s_sinf.c, s_cosf.c, s_sincosf.h,
+sincosf_poly.h and s_sincosf_data.c. Complete LGPL-2.1 text is in
+../source_trig/GLIBC-LICENSE.txt. Rust translation modified in 2026 by
+Benilla fork contributors. Authored arithmetic adapters are GPL-3.0-or-later.

@@ -1,0 +1,84 @@
+{
+  "bounds_max_bits": [
+    "44855555",
+    "41c10000",
+    "44055555"
+  ],
+  "bounds_min_bits": [
+    "44055555",
+    "c1440000",
+    "00000000"
+  ],
+  "combined_triangles": 67584,
+  "combined_vertices_before_clean": 165125,
+  "config": {
+    "borderSize": 5,
+    "detailSampleDist": 4.266665458679199,
+    "detailSampleMaxError": 0.26666659116744995,
+    "liquidFlagMergeThreshold": 0.0,
+    "maxEdgeLen": 81,
+    "maxSimplificationError": 1.7999999523162842,
+    "mergeRegionArea": 50,
+    "minRegionArea": 60,
+    "walkableClimb": 4,
+    "walkableHeight": 6,
+    "walkableRadius": 2,
+    "walkableSlopeAngle": 60.0
+  },
+  "liquid_triangles": 0,
+  "liquid_vertices": 0,
+  "solid_triangles": 67584,
+  "solid_vertices": 34569,
+  "terrain_file_events": [
+    {
+      "basename": "0003130.map",
+      "mode": "rb",
+      "opened": true
+    },
+    {
+      "basename": "0003131.map",
+      "mode": "rb",
+      "opened": true
+    },
+    {
+      "basename": "0003129.map",
+      "mode": "rb",
+      "opened": true
+    },
+    {
+      "basename": "0003230.map",
+      "mode": "rb",
+      "opened": true
+    },
+    {
+      "basename": "0003030.map",
+      "mode": "rb",
+      "opened": true
+    }
+  ],
+  "terrain_triangles": 67584,
+  "terrain_vertices_before_clean": 165125,
+  "tile_union": [
+    [
+      29,
+      31
+    ],
+    [
+      30,
+      30
+    ],
+    [
+      30,
+      31
+    ],
+    [
+      30,
+      32
+    ],
+    [
+      31,
+      31
+    ]
+  ],
+  "vmap_loaded": false
+}

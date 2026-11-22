@@ -1,0 +1,40 @@
+# authored source-callback mechanism vectors; no client DBC or Human order
+# add/learn/remove endpoints are adapters; optional aura callback is authored, not recursive addSpell proof
+# case	ordered_events	final_skills(id:position:status:tag:value:bonus)	endpoint_known
+new_ordinary_retained_aura	field:0=322145;field:1=4915203;add-endpoint:70001:snapshot=322145,4915203,0,2;field:2=0;aura-temp;aura-perm;	60001:0:2:322145:4915203:327682;	70001,
+new_ordinary_callback_aura	field:0=322145;field:1=4915203;add-endpoint:70001:snapshot=322145,4915203,0,2;authored-install-perm;aura-perm;field:2=0;aura-temp;aura-perm;	60001:0:2:322145:4915203:327682;	70001,
+new_defense_retained_aura	field:0=262239;field:1=4915203;add-endpoint:70001:snapshot=262239,4915203,0,2;defense;field:2=0;aura-temp;aura-perm;	95:0:2:262239:4915203:327682;	70001,
+new_defense_callback_aura	field:0=262239;field:1=4915203;add-endpoint:70001:snapshot=262239,4915203,0,2;authored-install-perm;aura-perm;defense;field:2=0;aura-temp;aura-perm;	95:0:2:262239:4915203:327682;	70001,
+existing_ordinary_retained_aura	field:0=322145;field:1=4915203;add-endpoint:70001:snapshot=322145,4915203,196610,1;	60001:0:1:322145:4915203:196610;	70001,
+existing_ordinary_callback_aura	field:0=322145;field:1=4915203;add-endpoint:70001:snapshot=322145,4915203,196610,1;authored-install-perm;aura-perm;	60001:0:1:322145:4915203:524290;	70001,
+existing_defense_retained_aura	field:0=262239;field:1=4915203;add-endpoint:70001:snapshot=262239,4915203,196610,1;defense;	95:0:1:262239:4915203:196610;	70001,
+existing_defense_callback_aura	field:0=262239;field:1=4915203;add-endpoint:70001:snapshot=262239,4915203,196610,1;authored-install-perm;aura-perm;defense;	95:0:1:262239:4915203:524290;	70001,
+training_m0_v2_offline	add-endpoint:70001:snapshot=191073,4915202,196610,0;remove-endpoint:70004;	60001:0:0:191073:4915202:196610;	70001,
+training_m0_v2_world	learn-endpoint:70001:snapshot=191073,4915202,196610,0;remove-endpoint:70004;	60001:0:0:191073:4915202:196610;	70001,
+training_m0_v3_offline	add-endpoint:70001:snapshot=191073,4915203,196610,0;add-endpoint:70004:snapshot=191073,4915203,196610,0;	60001:0:0:191073:4915203:196610;	70001,70004,
+training_m0_v3_world	learn-endpoint:70001:snapshot=191073,4915203,196610,0;learn-endpoint:70004:snapshot=191073,4915203,196610,0;	60001:0:0:191073:4915203:196610;	70001,70004,
+training_m0_v4_offline	add-endpoint:70001:snapshot=191073,4915204,196610,0;add-endpoint:70004:snapshot=191073,4915204,196610,0;	60001:0:0:191073:4915204:196610;	70001,70004,
+training_m0_v4_world	learn-endpoint:70001:snapshot=191073,4915204,196610,0;learn-endpoint:70004:snapshot=191073,4915204,196610,0;	60001:0:0:191073:4915204:196610;	70001,70004,
+training_m1_v2_offline	remove-endpoint:70001;remove-endpoint:70004;	60001:0:0:191073:4915202:196610;	
+training_m1_v2_world	remove-endpoint:70001;remove-endpoint:70004;	60001:0:0:191073:4915202:196610;	
+training_m1_v3_offline	add-endpoint:70001:snapshot=191073,4915203,196610,0;add-endpoint:70004:snapshot=191073,4915203,196610,0;	60001:0:0:191073:4915203:196610;	70001,70004,
+training_m1_v3_world	learn-endpoint:70001:snapshot=191073,4915203,196610,0;learn-endpoint:70004:snapshot=191073,4915203,196610,0;	60001:0:0:191073:4915203:196610;	70001,70004,
+training_m1_v4_offline	add-endpoint:70001:snapshot=191073,4915204,196610,0;add-endpoint:70004:snapshot=191073,4915204,196610,0;	60001:0:0:191073:4915204:196610;	70001,70004,
+training_m1_v4_world	learn-endpoint:70001:snapshot=191073,4915204,196610,0;learn-endpoint:70004:snapshot=191073,4915204,196610,0;	60001:0:0:191073:4915204:196610;	70001,70004,
+repair_step1_missing	add-endpoint:70001:snapshot=191073,4915203,196610,0;	60001:0:0:191073:4915203:196610;	70001,
+repair_step1_known		60001:0:0:191073:4915203:196610;	70001,
+repair_step2_missing		60001:0:0:191073:4915203:196610;	
+repair_step2_known		60001:0:0:191073:4915203:196610;	70001,
+repair_step3_missing		60001:0:0:191073:4915203:196610;	
+repair_step3_known		60001:0:0:191073:4915203:196610;	70001,
+rows_forward	add-endpoint:70001:snapshot=191073,4915203,196610,0;add-endpoint:70002:snapshot=191073,4915203,196610,0;	60001:0:0:191073:4915203:196610;	70001,70002,
+rows_reverse	add-endpoint:70002:snapshot=191073,4915203,196610,0;add-endpoint:70001:snapshot=191073,4915203,196610,0;	60001:0:0:191073:4915203:196610;	70001,70002,
+remove_saved_outside_starter	field:0=0;field:1=0;field:2=0;remove-dependent-endpoint:70001;	60001:0:3:0:0:0;	
+remove_new_outside_starter	field:0=0;field:1=0;field:2=0;remove-dependent-endpoint:70001;		
+starter_threshold0_forward	field:0=60001;field:1=327681;add-endpoint:70001:snapshot=60001,327681,0,2;authored-install-temp;aura-temp;add-endpoint:70004:snapshot=60001,327681,2,2;authored-install-perm;aura-perm;field:2=0;aura-temp;aura-perm;	60001:0:2:60001:327681:327682;	70001,70004,
+starter_threshold0_reverse	field:0=60001;field:1=327681;add-endpoint:70004:snapshot=60001,327681,0,2;authored-install-perm;aura-perm;add-endpoint:70001:snapshot=60001,327681,327680,2;authored-install-temp;aura-temp;field:2=0;aura-temp;aura-perm;	60001:0:2:60001:327681:327682;	70001,70004,
+starter_threshold1_forward	field:0=60001;field:1=327681;add-endpoint:70001:snapshot=60001,327681,0,2;authored-install-temp;aura-temp;add-endpoint:70004:snapshot=60001,327681,2,2;authored-install-perm;aura-perm;field:2=0;aura-temp;aura-perm;	60001:0:2:60001:327681:327682;	70001,70004,
+starter_threshold1_reverse	field:0=60001;field:1=327681;add-endpoint:70004:snapshot=60001,327681,0,2;authored-install-perm;aura-perm;add-endpoint:70001:snapshot=60001,327681,327680,2;authored-install-temp;aura-temp;field:2=0;aura-temp;aura-perm;	60001:0:2:60001:327681:327682;	70001,70004,
+starter_threshold2_forward	field:0=60001;field:1=327681;remove-endpoint:70001;remove-endpoint:70004;field:2=0;	60001:0:2:60001:327681:0;	
+starter_threshold2_reverse	field:0=60001;field:1=327681;remove-endpoint:70004;remove-endpoint:70001;field:2=0;	60001:0:2:60001:327681:0;	
+invalid_id_and_end_noop			

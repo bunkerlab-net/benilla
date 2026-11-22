@@ -20,9 +20,24 @@ impl WdtIndex {
             .is_some_and(|t| t.has_adt)
     }
 
+    /// `MPHD` bit 0, the client's map-is-one-object flag (`[0xc9e384]`).
+    pub fn is_one_object(&self) -> bool {
+        self.0.is_one_object()
+    }
+
     /// The single global building of a map with no terrain (`MPHD` bit 0); `None` on an ADT map.
     pub fn global_wmo(&self) -> Option<&GlobalWmo> {
         self.0.global_wmo()
+    }
+
+    /// Raw terrain-only source proof, independent of filtered global-WMO rendering state.
+    pub fn native_terrain_coverage_safe(&self) -> bool {
+        self.0.native_terrain_coverage_safe()
+    }
+
+    /// Identity of the exact source WDT, for binding the current map coverage snapshot.
+    pub fn native_source_digest(&self) -> [u8; 32] {
+        self.0.native_source_digest()
     }
 }
 

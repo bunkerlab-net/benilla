@@ -402,6 +402,15 @@ fn a_hair_colour_counts_its_styles_colours() {
         .unwrap();
     assert_eq!(look(&s).hair_style, 8);
     assert_eq!(look(&s).hair_color, 9, "the ninth style's ten colours");
+    s.run("CycleCharCustomization(3, 1)").unwrap();
+    assert_eq!(look(&s).hair_style, 9);
+    assert_eq!(
+        look(&s).hair_color,
+        3,
+        "shrinking the colour domain repairs the old choice"
+    );
+    s.run("CycleCharCustomization(3, -1)").unwrap();
+    assert_eq!(look(&s).hair_color, 3, "a still-valid colour is preserved");
 }
 
 /// The grid's record is `race·2 + sex` (`0x47a3e0`): a sex of 2 draws over the next race's male
