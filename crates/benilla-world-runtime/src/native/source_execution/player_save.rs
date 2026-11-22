@@ -49,7 +49,7 @@ impl SourcePlayer {
         self.save_to_db_prefix(inputs, observe)
     }
 
-    /// Player.cpp:15602-15775. This prefix never commits a transaction.
+    /// Player.cpp:15602-15779. This prefix never commits a transaction.
     pub fn save_to_db_prefix(
         &mut self,
         inputs: &mut SourcePlayerSaveInputs<'_, impl WorldStartupWork>,
@@ -109,8 +109,9 @@ impl SourcePlayer {
         )?;
         self.save_skills(guid, &mut observe)?;
         self.save_entered_instance_timers(inputs.session, &mut observe)?;
-        Err(refuse(
-            "execution.player_save.Player_15775.reputation_owner",
-        ))
+        self.save_reputation(guid, &mut observe)?;
+        self.save_honor_cp()?;
+        inputs.session.save_tutorials_data(&mut observe)?;
+        Err(refuse("execution.player_save.Player_15779.commit_owner"))
     }
 }

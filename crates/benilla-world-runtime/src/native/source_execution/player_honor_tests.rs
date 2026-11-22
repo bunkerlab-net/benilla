@@ -45,6 +45,34 @@ fn detached() -> (SourcePlayer, SourceObjects, SourceWorld) {
 }
 
 #[test]
+fn authored_honor_save_refuses_at_new_row_and_preserves_pending_states() {
+    let (mut player, _, _) = detached();
+    // Player.cpp:16003-16020. Only NEW reaches a database write.
+    for state in [HK_OLD, HK_DELETED, 3, HK_NEW] {
+        player.honor.cp.push(HonorCp {
+            date: 4,
+            points: 19.0,
+            kind: HONORABLE,
+            state,
+            is_kill: true,
+        });
+        if state != HK_NEW {
+            player.save_honor_cp().unwrap();
+        }
+    }
+    assert_eq!(
+        player.save_honor_cp().unwrap_err().id,
+        "execution.player_save.Player_16010.honor_cp_owner"
+    );
+    assert!(player
+        .honor
+        .cp
+        .iter()
+        .map(|cp| cp.state)
+        .eq([HK_OLD, HK_DELETED, 3, HK_NEW]));
+}
+
+#[test]
 fn create_honor_reads_the_three_cached_dates_without_marking_zero_words() {
     let (mut player, objects, world) = detached();
     let mut work = Observe::default();

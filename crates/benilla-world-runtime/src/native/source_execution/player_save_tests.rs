@@ -70,10 +70,7 @@ pub(super) fn assert_recorded_create_save(
             Ok(())
         })
         .unwrap_err();
-    assert_eq!(
-        stop.id,
-        "execution.player_save.Player_15775.reputation_owner"
-    );
+    assert_eq!(stop.id, "execution.player_save.Player_15779.commit_owner");
     assert_eq!(read_wall.next(), None);
     assert_eq!(work.0, [game_seconds; 3]);
     let [SourcePlayerSaveObservation::Begin, SourcePlayerSaveObservation::Row(RowOperation::Delete(RowDelete::Character(guid))), SourcePlayerSaveObservation::Row(RowOperation::Insert(RowInsert::Character(row))), inventory @ ..] =
@@ -116,7 +113,7 @@ pub(super) fn assert_recorded_create_save(
     assert_eq!(logout[23].bytes, 1795250531u64.to_le_bytes());
     let (inventory, learning) = inventory.split_at(16); // C:p1519-1552.
     super::player_items::save_inventory::tests::assert_create_recording(c, inventory);
-    assert_eq!(learning.len(), 18); // C:p1557-1600; :15777 has not run yet.
+    assert_eq!(learning.len(), 19); // C:p1557-1605.
     assert_eq!(
         learning[0],
         SourcePlayerSaveObservation::Row(RowOperation::Delete(RowDelete::CooldownsByGuid(*guid)))
@@ -127,6 +124,13 @@ pub(super) fn assert_recorded_create_save(
             RowDelete::EnteredInstancesByAccount(row.account)
         ))
     );
+    assert_eq!(
+        learning[18],
+        SourcePlayerSaveObservation::Row(RowOperation::Insert(RowInsert::Tutorial(TutorialRow {
+            account: u64::from(row.account),
+            words: [0; 8],
+        })))
+    ); // C:p1605.
 }
 
 // Northshire-01 A trace :68134692-68134694 and :68134746-68134747.
@@ -508,7 +512,7 @@ fn save_refuses_in_source_order_without_a_commit() {
             0,
             false,
             false,
-            "Player_15775.reputation_owner",
+            "Player_15779.commit_owner",
             true,
             true,
         ),
@@ -555,7 +559,7 @@ fn save_refuses_in_source_order_without_a_commit() {
         );
         assert_eq!(
             effects.len(),
-            if reason == "Player_15775.reputation_owner" {
+            if reason == "Player_15779.commit_owner" {
                 6 // Includes the unconditional cooldown, aura and timer deletes.
             } else if has_row {
                 3

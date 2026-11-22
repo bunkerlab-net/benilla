@@ -637,6 +637,8 @@ fn private_catalog_human_mage_matches_seal16_packets() {
     let mut session = SourceWorldSession::construct(1, true);
     // Northshire-01 A client-packets.jsonl:4-7. WorldSession.cpp:479-499 runs before create.
     session.set_in_char_selection();
+    // C:p1481-1491 confirms the authored empty tutorial table used in the Create replay.
+    session.bind_tutorials(None);
     let mut objects = SourceObjects::default();
     let mut units = SourceUnits::default();
     let mut cells = SourceCells::new(MAP).unwrap();

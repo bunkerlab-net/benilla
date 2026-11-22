@@ -35,6 +35,8 @@ mod player_honor;
 #[path = "player_save.rs"]
 mod player_save;
 pub use player_save::{SourcePlayerSaveInputs, SourcePlayerSaveObservation};
+#[path = "player_reputation.rs"]
+mod player_reputation;
 #[path = "player_save_fields.rs"]
 mod player_save_fields;
 #[path = "player_save_learning.rs"]
@@ -121,6 +123,8 @@ pub struct SourcePlayer {
     pub(super) duel_opponent: Option<ObjectHandle>,
     // Player.cpp:471 and ReputationMgr.h:60,123 construct the map empty.
     pub(super) forced_reactions: BTreeMap<u32, u32>,
+    // ReputationMgr.h:49,60,122. Detached construction starts with no faction rows.
+    reputation: BTreeMap<u32, player_reputation::ReputationFactionState>,
     pub next_save_ms: u32,
     pub login_time: i64,
     pub last_tick: i64,
@@ -244,6 +248,7 @@ impl SourcePlayer {
                 group: None,
                 duel_opponent: None,
                 forced_reactions: BTreeMap::new(),
+                reputation: BTreeMap::new(),
                 next_save_ms,
                 login_time,
                 last_tick: login_time,

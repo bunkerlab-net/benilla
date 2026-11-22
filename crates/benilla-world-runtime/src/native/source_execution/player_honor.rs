@@ -20,6 +20,7 @@ const PLAYER_FIELD_BYTES2: usize = 0x4ec;
 // Player.h:326-360.
 const HONORABLE: u8 = 1;
 const DISHONORABLE: u8 = 2;
+const HK_NEW: u8 = 0;
 const HK_OLD: u8 = 1;
 const HK_DELETED: u8 = 2;
 struct HonorCp {
@@ -78,6 +79,14 @@ impl PlayerHonor {
 }
 
 impl SourcePlayer {
+    // Player.cpp:15997-16026. Only NEW contributions write rows.
+    pub(super) fn save_honor_cp(&self) -> Result<()> {
+        require(
+            !self.honor.cp.iter().any(|cp| cp.state == HK_NEW),
+            "execution.player_save.Player_16010.honor_cp_owner",
+        )
+    }
+
     // Player.cpp:6453-6573.
     pub fn update_honor(
         &mut self,
