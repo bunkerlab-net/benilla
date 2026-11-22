@@ -679,7 +679,7 @@ impl LiveFixture {
 }
 
 #[test]
-fn live_fireball_taps_and_changes_the_health_field_before_attackability() {
+fn live_fireball_taps_and_writes_health_before_inserting_threat() {
     let mut f = LiveFixture::vermin();
     let dealer = f.mage.object();
     let template = f.spells.template(133).unwrap();
@@ -693,7 +693,7 @@ fn live_fireball_taps_and_changes_the_health_field_before_attackability() {
     let hit = f.fireball();
     assert_eq!(
         f.hit(hit).unwrap_err().id,
-        "execution.relations.Relations_358.PLAYER_FLAGS_owner"
+        "execution.threat.ThreatManager_483.TriggerAggroLinkingEvent_owner"
     );
     let fields = f.victim();
     let object = f.objects.get(f.victim).unwrap();
@@ -706,7 +706,11 @@ fn live_fireball_taps_and_changes_the_health_field_before_attackability() {
     assert!(object.field_changed(UNIT_FIELD_HEALTH).unwrap());
     assert!(object.field_changed(143).unwrap());
     assert!(object.alive);
-    assert!(f.threats.manager(f.victim).unwrap().online().is_empty());
+    let online = f.threats.manager(f.victim).unwrap().online();
+    // ThreatManager.cpp:479-483 inserts and adds the threat before linking.
+    assert_eq!(online.len(), 1);
+    assert_eq!(online[0].target, Some(dealer));
+    assert_eq!(online[0].threat, ThreatValue::from_u32(22));
 }
 
 #[test]
@@ -748,7 +752,7 @@ fn live_damage_excludes_untapped_npc_and_multitap_hits() {
         assert_eq!(
             f.hit(hit).unwrap_err().id,
             if dealer_is_player {
-                "execution.relations.Relations_358.PLAYER_FLAGS_owner"
+                "execution.threat.ThreatManager_483.TriggerAggroLinkingEvent_owner"
             } else {
                 "execution.combat.Unit_1250.InterruptOrDelaySpell_owner"
             }
@@ -1323,7 +1327,7 @@ fn live_tap_requires_a_player_guid_and_resolves_group_reads_in_order() {
     f.objects.get_mut(mage).unwrap().guid = Some(SourceGuid::from_raw(1));
     assert_eq!(
         f.hit(hit).unwrap_err().id,
-        "execution.relations.Relations_358.PLAYER_FLAGS_owner"
+        "execution.threat.ThreatManager_483.TriggerAggroLinkingEvent_owner"
     );
 
     let mut npc = hit;
@@ -1402,11 +1406,12 @@ fn live_player_damage_cannot_give_a_pet_its_first_tap() {
     let mut fields = SourceUnitFields::constructed_creature();
     fields.vitals = f.victim().vitals;
     f.units.register(&f.objects, pet, fields).unwrap();
+    f.threats.register(pet).unwrap();
     let mut hit = f.fireball();
     hit.victim = pet;
     assert_eq!(
         f.hit(hit).unwrap_err().id,
-        "execution.relations.Relations_358.PLAYER_FLAGS_owner"
+        "execution.threat.ThreatManager_483.TriggerAggroLinkingEvent_owner"
     );
     let fields = f.units.get(&f.objects, pet).unwrap();
     assert_eq!(fields.loot_recipient_guid.raw(), 0);
@@ -1426,7 +1431,7 @@ fn live_damage_mods_advances_event_ai_before_the_health_write() {
     assert_eq!(f.event_ais[&f.victim].throw_step, 1);
     assert_eq!(
         f.hit(hit).unwrap_err().id,
-        "execution.relations.Relations_358.PLAYER_FLAGS_owner"
+        "execution.threat.ThreatManager_483.TriggerAggroLinkingEvent_owner"
     );
     assert_eq!(f.victim().vitals.unwrap().health, 33);
 }

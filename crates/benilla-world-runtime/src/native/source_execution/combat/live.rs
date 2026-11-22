@@ -336,6 +336,10 @@ impl SourceRelationOwner for SourceLiveDamage<'_> {
         Ok(self.objects.get(unit)?.kind)
     }
 
+    fn relation_player_flags(&self, player: ObjectHandle, read: &'static str) -> Result<u32> {
+        Ok(live_player(self.players, player, read)?.player_flags())
+    }
+
     fn relation_flags(&self, unit: ObjectHandle) -> Result<u32> {
         self.relations().relation_flags(unit)
     }

@@ -66,6 +66,11 @@ impl Default for PlayerSaveFields {
 }
 
 impl SourcePlayer {
+    // Relations.cpp:168,358 both read the live PLAYER_FLAGS word.
+    pub(in crate::native::source_execution) fn player_flags(&self) -> u32 {
+        self.save_fields.flags
+    }
+
     // Player.cpp:2932 clears transient flags during stat initialization.
     pub(super) fn clear_stat_player_flags(&mut self, objects: &SourceObjects) -> Result<()> {
         objects.update_flags(
