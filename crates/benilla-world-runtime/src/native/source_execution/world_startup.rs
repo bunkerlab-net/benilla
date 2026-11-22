@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use super::world_state::start_war_effort_event;
+use super::world_state::{respawn_emerald_dragons, start_war_effort_event};
 use super::*;
 use benilla_sim::source_calendar::{self, Tm};
 use std::fmt;
@@ -58,6 +58,12 @@ pub enum WorldStartupSql {
     SelectWorldState {
         rows: usize,
     },
+    DeleteEmeraldDragons,
+    InsertEmeraldDragons {
+        mask: u8,
+        epoch_seconds: u64,
+        positions: [u32; 4],
+    },
 }
 impl fmt::Display for WorldStartupSql {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -100,6 +106,18 @@ impl fmt::Display for WorldStartupSql {
             ),
             Self::SpamRecords(_) => out.write_str("SELECT record FROM spam_records"),
             Self::SelectWorldState { .. } => out.write_str("SELECT Id, Data FROM world_state"),
+            // WorldState.cpp:239-243; WorldState.h:83 names the row ID.
+            Self::DeleteEmeraldDragons => {
+                out.write_str("DELETE FROM world_state WHERE Id='0'")
+            }
+            Self::InsertEmeraldDragons {
+                mask,
+                epoch_seconds,
+                positions: [first, second, third, fourth],
+            } => write!(
+                out,
+                "INSERT INTO world_state(Id,Data) VALUES('0','{mask} {epoch_seconds} {first} {second} {third} {fourth}')"
+            ),
         }
     }
 }
@@ -129,6 +147,10 @@ pub trait WorldTailOwner: GameEventOwner + EventEffectOwner {
 
     fn war_effort_gameobject(&mut self, _map: MapIdentity, _db_guid: u32) -> Result<()> {
         Err(refuse(WAR_EFFORT_GAMEOBJECT_FACTORY))
+    }
+
+    fn world_dragon_urand(&mut self, _upper: u32) -> Result<u32> {
+        Err(refuse("execution.world.WorldState_598.dragon_urand_owner"))
     }
 }
 
@@ -199,9 +221,8 @@ pub fn initialize_world_tail(
         }
     }
     owner.ready_world()?.world_state.resume_scourge_invasion()?;
-    Err(refuse(
-        "execution.world.WorldState_222.emerald_dragons_owner",
-    ))
+    // WorldState.cpp:222 respawns the dragons after the invasion branch.
+    respawn_emerald_dragons(owner, clock, work)
 }
 
 #[derive(Default)]

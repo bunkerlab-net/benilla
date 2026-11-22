@@ -165,9 +165,13 @@ impl WorldStartupWork for WeeklyEvidence {
     }
 
     fn observe(&mut self, value: WorldStartupObservation) -> Result<()> {
-        if let WorldStartupObservation::Sql(sql @ WorldStartupSql::SelectWorldState { .. }) = value
+        if let WorldStartupObservation::Sql(
+            sql @ (WorldStartupSql::SelectWorldState { .. }
+            | WorldStartupSql::DeleteEmeraldDragons
+            | WorldStartupSql::InsertEmeraldDragons { .. }),
+        ) = value
         {
-            self.world_state.observe_load(sql);
+            self.world_state.observe_sql(sql);
             return Ok(());
         }
         if self.reads.is_empty() {

@@ -171,10 +171,13 @@ fn frozen_startup(later: bool) {
     let mut event_load_clocks = std::collections::VecDeque::new();
     let mut reader = BufReader::with_capacity(1 << 20, std::fs::File::open(trace).unwrap());
     let mut next_rng = None;
-    let next_rng_word;
+    let mut next_rng_word = None;
     let mut line = String::new();
     let mut trace_line = 0;
     loop {
+        if later && trace_line == seal16::WORLD_TAIL_TRACE_END {
+            break;
+        }
         line.clear();
         assert!(
             reader.read_line(&mut line).unwrap() != 0,
@@ -201,7 +204,8 @@ fn frozen_startup(later: bool) {
         if later {
             event_inputs.observe_thread(thread, trace_line, kind, &p);
         }
-        if thread != 1 {
+        // Keep the frozen prefix unchanged while projecting world tail evidence.
+        if thread != 1 || next_rng_word.is_some() {
             continue;
         }
         if later {
@@ -289,7 +293,10 @@ fn frozen_startup(later: bool) {
             }
             if next_rng.is_some() {
                 next_rng_word = Some(word);
-                break;
+                if !later {
+                    break;
+                }
+                continue;
             }
             words.push(word);
             if next_shuffle.is_some() && next_shuffle_word.is_none() {

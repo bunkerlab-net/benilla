@@ -46,6 +46,9 @@ mod world_state;
 #[path = "seal16_world_tail.rs"]
 mod world_tail;
 
+// The first display result closes the projection of the first pending draw.
+pub(super) const WORLD_TAIL_TRACE_END: u64 = 61738523;
+
 const GROUP_QUERIES: [&str; 6] = [
     "SELECT Id, Name, Type, MaxCount, WorldState, WorldStateExpression, Flags, StringId, RespawnOverrideMin, RespawnOverrideMax FROM spawn_group",
     "SELECT Id, FormationType, FormationSpread, FormationOptions, PathId, MovementType, Comment FROM spawn_group_formation",
@@ -1357,7 +1360,7 @@ impl Inputs {
         if matches!(thread, 1 | 11) && (61727921..61738404).contains(&line) {
             self.anticheat.observe(thread, line, kind, p);
         }
-        if thread == 1 && (61738404..=61738412).contains(&line) {
+        if thread == 1 && (61738404..=WORLD_TAIL_TRACE_END).contains(&line) {
             self.weekly.world_state.observe(line, kind, p);
         }
         self.event_startup.observe_subscriber(thread, line, kind, p);
@@ -2105,6 +2108,7 @@ struct Owner<'a> {
     engine: &'a mut Mt19937,
     cursor: &'a mut DrawCursor,
     raw: Vec<(u64, u64)>,
+    dragon_rolls: Vec<(u32, u32)>,
 }
 impl GameEventOwner for Owner<'_> {
     fn clock(&mut self, site: EventClockSite) -> Result<ClockSample> {
@@ -2350,6 +2354,21 @@ impl WorldTailOwner for Owner<'_> {
             .as_mut()
             .ok_or_else(|| refuse("execution.world.World_1389.continent_join_owner"))?
             .spawn_world_gameobject(map, 1, db_guid, self.spawns, None)
+    }
+
+    fn world_dragon_urand(&mut self, upper: u32) -> Result<u32> {
+        let mut sink = |event: TraceEvent| {
+            assert_eq!(event.stream, 1);
+            if let EventKind::Raw { position, word, .. } = event.kind {
+                self.raw.push((position, word));
+            }
+        };
+        let roll = SourceRandom::new(1, self.engine, self.cursor, &mut sink)
+            .unwrap()
+            .urand(0, upper)
+            .map_err(|_| refuse("execution.world.WorldState_605.dragon_urand"))?;
+        self.dragon_rolls.push((upper, roll));
+        Ok(roll)
     }
 }
 impl PersistentEffects for Owner<'_> {
@@ -2972,6 +2991,7 @@ pub(super) fn continue_startup(
         engine,
         cursor,
         raw: Vec::new(),
+        dragon_rolls: Vec::new(),
     };
     let mut events = SourceGameEventManager::default();
     let mut pools = std::mem::take(&mut owner.pools);
@@ -7359,6 +7379,11 @@ pub(super) fn continue_startup(
     assert!(owner.checks.iter().all(|&value| value == 1794314193));
     let (calendar, maintenance_weekday) = observed.weekly.maintenance_inputs();
     let state_rows = observed.weekly.world_state.bind_rows(recording);
+    assert!(owner.raw.is_empty());
+    // Trace :61738425-27 is the unchanged frozen-prefix boundary.
+    assert_eq!(owner.cursor.raw, 8712);
+    assert_eq!(next_word, (8712, 3411341330));
+    assert_eq!(u64::from(owner.engine.clone().next_u32()), next_word.1);
     let refusal = initialize_world_tail(
         &mut owner,
         WorldTailConfig {
@@ -7394,9 +7419,12 @@ pub(super) fn continue_startup(
         &owner,
         &observed.event_status_writes,
     );
-    assert!(owner.raw.is_empty());
-    assert_eq!(owner.cursor.raw, 8712);
-    assert_eq!(next_word, (8712, 3411341330));
+    observed
+        .weekly
+        .world_state
+        .assert_dragon_draws(&owner.dragon_rolls, &owner.raw);
+    let next_word = observed.weekly.world_state.next_dragon_word();
+    assert_eq!(owner.cursor.raw, next_word.0);
     assert_eq!(u64::from(owner.engine.clone().next_u32()), next_word.1);
     assert_eq!(matched_map_sql, 4);
     let results = owner

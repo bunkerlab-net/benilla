@@ -1,8 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use super::{refuse, Result, SourceWorldClock};
+use super::{
+    refuse, Result, SourceWorldClock, WorldStartupObservation, WorldStartupSql, WorldStartupWork,
+    WorldTailOwner,
+};
 use std::collections::BTreeSet;
 
 pub type WorldStateRow<'a> = (u32, Option<&'a [u8]>);
+
+// WorldState.cpp:573-578 assigns entries in mask order.
+const EMERALD_DRAGONS: [u32; 4] = [14887, 14888, 14889, 14890];
 
 #[derive(Default)]
 struct AhnQiraj {
@@ -182,6 +188,96 @@ impl SourceWorldState {
         }
         Ok(())
     }
+
+    // WorldState.cpp:595 subtracts in uint32 and shifts a 32-bit int.
+    fn is_dragon_spawned(&self, entry: u32) -> Result<bool> {
+        let bit = 1_u32
+            .checked_shl(entry.wrapping_sub(EMERALD_DRAGONS[0]))
+            .ok_or_else(|| refuse("execution.world.WorldState_595.dragon_shift_undefined"))?;
+        Ok(bit & u32::from(self.dragon_mask) == 0)
+    }
+
+    // WorldState.cpp:232-241 adds the timer to the cached clock before to_time_t.
+    fn emerald_dragons_insert(&self, clock_ms: impl FnOnce() -> i64) -> Result<WorldStartupSql> {
+        let epoch_seconds = if self.dragon_timer_ms == 0 {
+            0
+        } else {
+            let respawn_ms = clock_ms()
+                .checked_add(i64::from(self.dragon_timer_ms))
+                .ok_or_else(|| refuse("execution.world.WorldState_235.dragon_clock_overflow"))?;
+            // Common.h:58-59 and libstdc++ chrono.h convert through native nanoseconds.
+            let respawn_ns = respawn_ms
+                .checked_mul(1_000_000)
+                .ok_or_else(|| refuse("execution.world.WorldState_236.dragon_clock_overflow"))?;
+            (respawn_ns / 1_000_000_000) as u64
+        };
+        Ok(WorldStartupSql::InsertEmeraldDragons {
+            mask: self.dragon_mask,
+            epoch_seconds,
+            positions: self.dragon_positions,
+        })
+    }
+}
+
+pub(super) fn respawn_emerald_dragons(
+    owner: &mut impl WorldTailOwner,
+    clock: &SourceWorldClock,
+    work: &mut impl WorldStartupWork,
+) -> Result<()> {
+    // WorldState.cpp:600-611 writes each choice before removing it from the remaining IDs.
+    if owner.ready_world()?.world_state.dragon_mask == 0xF {
+        let mut ids = EMERALD_DRAGONS;
+        for (slot, upper) in (1..ids.len()).rev().enumerate() {
+            let pick = owner.world_dragon_urand(upper as u32)? as usize;
+            let remaining = &mut ids[..=upper];
+            let entry = remaining
+                .get(pick)
+                .copied()
+                .ok_or_else(|| refuse("execution.world.WorldState_606.dragon_roll_out_of_range"))?;
+            owner.ready_world()?.world_state.dragon_positions[slot] = entry;
+            remaining.copy_within(pick + 1.., pick);
+        }
+        let state = &mut owner.ready_world()?.world_state;
+        state.dragon_positions[3] = ids[0];
+        state.dragon_mask = 0;
+        let insert = state.emerald_dragons_insert(|| clock.current_ms())?;
+        // WorldState.cpp:242-243 sends the delete before the insert.
+        work.observe(WorldStartupObservation::Sql(
+            WorldStartupSql::DeleteEmeraldDragons,
+        ))?;
+        work.observe(WorldStartupObservation::Sql(insert))?;
+    }
+
+    // WorldState.cpp:613-629 visits map 0 then 1 and checks each live mask bit before summoning.
+    let summons = [
+        (
+            0,
+            [
+                (0, "execution.world.WorldState_617.dragon_summon_owner"),
+                (1, "execution.world.WorldState_621.dragon_summon_owner"),
+            ],
+        ),
+        (
+            1,
+            [
+                (2, "execution.world.WorldState_626.dragon_summon_owner"),
+                (3, "execution.world.WorldState_628.dragon_summon_owner"),
+            ],
+        ),
+    ];
+    for (map_id, summons) in summons {
+        let mut after = None;
+        while let Some(map) = owner.event_next_map(Some(map_id), after)? {
+            for (slot, site) in summons {
+                let state = &owner.ready_world()?.world_state;
+                if state.is_dragon_spawned(state.dragon_positions[slot])? {
+                    return Err(refuse(site));
+                }
+            }
+            after = Some(map);
+        }
+    }
+    Ok(())
 }
 
 // WorldState.h:139-184 and WorldState.cpp:939-975 map resource ordinals to (map, group).
@@ -393,6 +489,67 @@ impl SaveStream<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn emerald_dragons_mask_accepts_the_largest_defined_shift() {
+        let world = SourceWorldState::default();
+        // WorldState.cpp:595 checks the low four bits and permits a shift of 31.
+        assert!(!world.is_dragon_spawned(14887).unwrap());
+        assert!(world.is_dragon_spawned(14918).unwrap());
+    }
+
+    #[test]
+    fn emerald_dragons_mask_refuses_undefined_shifts() {
+        let world = SourceWorldState::default();
+        // WorldState.cpp:595 subtracts in uint32 before shifting a 32-bit int.
+        for entry in [14919, 14886] {
+            assert_eq!(
+                world.is_dragon_spawned(entry).unwrap_err().id,
+                "execution.world.WorldState_595.dragon_shift_undefined"
+            );
+        }
+    }
+
+    #[test]
+    fn emerald_dragons_save_uses_loaded_timer_and_positions() {
+        let mut world = SourceWorldState::default();
+        let clock = SourceWorldClock::default();
+        // WorldState.cpp:232-241 uses the cached clock and the stored timer.
+        world
+            .load_rows(&[(0, Some(b"2 17 14887 14888 14889 14890"))], &clock)
+            .unwrap();
+        assert_eq!(
+            world.emerald_dragons_insert(|| clock.current_ms()).unwrap(),
+            WorldStartupSql::InsertEmeraldDragons {
+                mask: 2,
+                epoch_seconds: 17,
+                positions: [14887, 14888, 14889, 14890],
+            }
+        );
+    }
+
+    #[test]
+    fn emerald_dragons_save_refuses_overflow_before_writing() {
+        let mut world = SourceWorldState::default();
+        let clock = SourceWorldClock::default();
+        world
+            .load_rows(&[(0, Some(b"15 1 0 0 0 0"))], &clock)
+            .unwrap();
+        // WorldState.cpp:235-236 adds 1000 ms then casts through native nanoseconds.
+        let last_ms = i64::MAX / 1_000_000;
+        assert!(world.emerald_dragons_insert(|| last_ms - 1000).is_ok());
+        assert_eq!(
+            world
+                .emerald_dragons_insert(|| last_ms - 999)
+                .unwrap_err()
+                .id,
+            "execution.world.WorldState_236.dragon_clock_overflow"
+        );
+        assert_eq!(
+            world.emerald_dragons_insert(|| i64::MAX).unwrap_err().id,
+            "execution.world.WorldState_235.dragon_clock_overflow"
+        );
+    }
 
     #[test]
     fn world_state_load_restores_all_four_saved_row_types() {
