@@ -1907,8 +1907,7 @@ pub(crate) fn with_hosted_vm<R>(
 /// from, kept in the world between calls. Building one matches each of its queries against every
 /// archetype the world holds, and the host's queries are many; a kept state matches only the
 /// archetypes made since its last use. Its `Local`s live on between calls, as a system's do.
-/// The state is boxed so each call moves only a pointer.
-struct CachedState<P: SystemParam + 'static>(Option<Box<bevy::ecs::system::SystemState<P>>>);
+struct CachedState<P: SystemParam + 'static>(Option<bevy::ecs::system::SystemState<P>>);
 
 /// Run `f` on the kept [`CachedState`] of `P`, built on the first call. The state is out of the
 /// world while `f` runs, so an entry nested in it (a command in its apply that reaches the VM
@@ -1920,9 +1919,8 @@ fn with_cached_state<P: SystemParam + 'static, R>(
     let kept = world
         .get_non_send_resource_mut::<CachedState<P>>()
         .and_then(|mut cached| cached.0.take());
-    let mut state =
-        kept.unwrap_or_else(|| Box::new(bevy::ecs::system::SystemState::<P>::new(world)));
-    let r = f(&mut *state, world);
+    let mut state = kept.unwrap_or_else(|| bevy::ecs::system::SystemState::<P>::new(world));
+    let r = f(&mut state, world);
     match world.get_non_send_resource_mut::<CachedState<P>>() {
         Some(mut cached) => cached.0 = Some(state),
         None => world.insert_non_send_resource(CachedState(Some(state))),
