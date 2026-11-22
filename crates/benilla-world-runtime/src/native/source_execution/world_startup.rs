@@ -372,13 +372,13 @@ impl SourceHonor {
 }
 
 // World.h:457-459 converts the existing game time to a packed local date.
-fn date_today(seconds: i64, work: &mut impl WorldStartupWork) -> Result<u32> {
+pub(in super::super) fn date_today(seconds: i64, work: &mut impl WorldStartupWork) -> Result<u32> {
     let civil = maintenance_local(seconds, work)?;
     Ok(((civil.year as u32) << 16) | civil.yday as u32)
 }
 
 // World.h:461-468 reads and rounds the same game time to the configured weekday.
-fn last_maintenance_day(
+pub(in super::super) fn last_maintenance_day(
     seconds: i64,
     weekday: i32,
     work: &mut impl WorldStartupWork,

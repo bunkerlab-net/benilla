@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 #[path = "world_startup.rs"]
 mod startup;
+pub(super) use startup::{date_today, last_maintenance_day};
 pub use startup::{
     initialize_world_tail, SourceHonorStanding, WeeklyQuestResetConfig, WorldStartupClockSite,
     WorldStartupObservation, WorldStartupSql, WorldStartupWork, WorldTailConfig, WorldTailOwner,

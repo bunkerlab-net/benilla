@@ -28,6 +28,9 @@ mod player_defense;
 mod player_items;
 pub use player_items::{ItemLifetimeObservation, SourceItem, SourceItems, SourcePlayerItemInputs};
 
+#[path = "player_honor.rs"]
+mod player_honor;
+
 // UpdateFields.h:27,77-88,114-120,133,140-151,180-186,215,218,228,243,263.
 const OBJECT_FIELD_TYPE: usize = 0x02;
 const UNIT_FIELD_POWER1: usize = 0x17;
@@ -119,6 +122,8 @@ pub struct SourcePlayer {
     pub bytes: [u8; 4],
     pub bytes_2: [u8; 4],
     pub bytes_3: u32,
+    // Object.cpp:105-108 clears PLAYER_FIELD_BYTES.
+    field_bytes: [u8; 4],
     pub guild_id: u32,
     pub guild_rank: u32,
     pub guild_timestamp: u32,
@@ -150,6 +155,7 @@ pub struct SourcePlayer {
     spell_mods: BTreeMap<u32, Vec<player_cast::PlayerSpellModifier>>,
     // Player.h:2556-2557; Player.cpp:640-641. One identity names the in-flight Spell and its charges.
     active_mod_spell: Option<u64>,
+    honor: player_honor::PlayerHonor,
 }
 
 impl SourcePlayer {
@@ -215,6 +221,7 @@ impl SourcePlayer {
                 bytes: [0; 4],
                 bytes_2: [0; 4],
                 bytes_3: 0,
+                field_bytes: [0; 4],
                 guild_id: 0,
                 guild_rank: 0,
                 guild_timestamp: 0,
@@ -239,6 +246,7 @@ impl SourcePlayer {
                 action_buttons: BTreeMap::new(),
                 spell_mods: BTreeMap::new(),
                 active_mod_spell: None,
+                honor: player_honor::PlayerHonor::default(),
             })
         })();
         if result.is_err() {
