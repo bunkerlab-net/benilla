@@ -270,6 +270,18 @@ impl SourceCells {
         y: u16,
         owner: &mut impl GridLoadOwner,
     ) -> Result<GridIdentity> {
+        self.ensure_created_with_products(x, y, |map, coordinates| {
+            owner.load_products(map, coordinates)
+        })
+    }
+
+    // Map.cpp:336-354 only needs the geometry products for an inactive add.
+    pub(super) fn ensure_created_with_products(
+        &mut self,
+        x: u16,
+        y: u16,
+        load_products: impl FnOnce(MapIdentity, ProductCoordinates) -> Result<bool>,
+    ) -> Result<GridIdentity> {
         require(
             self.grids.configuration.is_some(),
             "execution.pending_grid_configuration",
@@ -280,7 +292,7 @@ impl SourceCells {
             return Err(error.clone());
         }
         if !existed {
-            match owner.load_products(grid.map, grid.product_coordinates()) {
+            match load_products(grid.map, grid.product_coordinates()) {
                 Ok(present) => self.grids.node_mut(grid)?.products = Some(present),
                 Err(error) => {
                     self.grids.node_mut(grid)?.blocked = Some(error.clone());

@@ -66,6 +66,7 @@ pub struct SourceUnitVisibility {
 /// TemporarySpawn.cpp:23-26 initializes the temporary subtype before Creature::Create.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceTempSpawnType {
+    DeadDespawn,
     TimedOutOfCombatOrCorpse,
 }
 

@@ -169,6 +169,8 @@ pub struct SourceContinent {
     pub objects: SourceObjects,
     pub gameobjects: SourceGameObjects,
     pub units: SourceUnits,
+    // Map.h:344-345,498. This live per-entry registry is not saved.
+    pub(super) temporary_creatures: BTreeMap<u32, u32>,
     pub motions: BTreeMap<ObjectHandle, SourceMotionMaster>,
     pub ais: SourceCreatureAis,
     pub event_ais: BTreeMap<ObjectHandle, SourceEventAi>,
@@ -618,6 +620,7 @@ impl SourceContinents {
                 objects: SourceObjects::default(),
                 gameobjects: SourceGameObjects::default(),
                 units: SourceUnits::default(),
+                temporary_creatures: BTreeMap::new(),
                 motions: BTreeMap::new(),
                 ais: SourceCreatureAis::default(),
                 event_ais: BTreeMap::new(),

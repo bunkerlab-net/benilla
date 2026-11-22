@@ -1684,6 +1684,40 @@ pub struct TemporaryCreatureDefinitions<'a> {
     pub immunities: &'a LoadedCreatureImmunities,
 }
 
+impl SourceUnitFields {
+    /// TemporarySpawn.cpp:217-225 writes the live subtype and creature fields.
+    pub(super) fn set_summon_properties(
+        &mut self,
+        spawn_type: SourceTempSpawnType,
+        lifetime_ms: u32,
+        clock: &SourceWorldClock,
+    ) -> Result<()> {
+        let temporary = self
+            .temporary_spawn
+            .as_mut()
+            .ok_or_else(|| refuse("execution.creature.TemporarySpawn_219.subtype_owner"))?;
+        temporary.spawn_type = spawn_type;
+        // Map.cpp:83-85 reads the existing World TimePoint.
+        temporary.expiration_ms = clock
+            .current_ms()
+            .checked_add(i64::from(lifetime_ms))
+            .ok_or_else(|| refuse("execution.creature.TemporarySpawn_220.timestamp_overflow"))?;
+        temporary.lifetime_ms = lifetime_ms;
+        self.respawn_delay = 30 * 24 * 60 * 60; // Common.h:117.
+        Ok(())
+    }
+}
+
+pub struct TemporaryCreatureMapAdd<'a> {
+    pub outdoor: &'a mut SourceOutdoorPvp,
+    pub links: &'a SourceCreatureLinking,
+    pub addons: &'a LoadedCreatureAddons,
+    pub clock: &'a SourceWorldClock,
+    pub scripts: &'a SourceScriptRegistry,
+    pub force_load: bool,
+    pub respawn_aggro: i32,
+}
+
 struct TemporaryCreatureProtoWork<'a, 'data, C, O> {
     map: &'a mut SourceContinent,
     definitions: &'a TemporaryCreatureDefinitions<'data>,
@@ -1845,11 +1879,20 @@ pub fn summon_source_emerald_dragon(
     definitions: &TemporaryCreatureDefinitions<'_>,
     terrain: &mut SourceTerrainManager,
     dynamic_models: &SourceDynamicModels,
+    map_add: TemporaryCreatureMapAdd<'_>,
     thread: u64,
     random: &mut dyn CreatureRandom,
     config: impl FnMut(CreatureEntryConfig) -> Result<u32>,
-    observe: impl FnMut(CreatureFactoryObservation),
+    mut observe: impl FnMut(CreatureFactoryObservation),
     swimming: &mut SourceCreatureSwimmingCensus,
+    observe_create: impl FnMut(CreatureCreateObservation),
+    apply_addon: impl FnOnce(
+        Option<&LoadedCreatureAddon>,
+        &mut SourceContinent,
+        ObjectHandle,
+        &mut SourceTerrainManager,
+        &mut dyn CreatureRandom,
+    ) -> Result<()>,
 ) -> Result<Option<ObjectHandle>> {
     let Some(original) = definitions.templates.get(settings.entry) else {
         // Object.cpp:2028-2032 returns null before a construction or GUID allocation.
@@ -1891,7 +1934,7 @@ pub fn summon_source_emerald_dragon(
             thread,
             random,
             config,
-            observe,
+            observe: &mut observe,
             swimming,
         },
         object,
@@ -1903,7 +1946,7 @@ pub fn summon_source_emerald_dragon(
         None,
         None,
     )?;
-    if let Some(state) = state {
+    if let Some(mut state) = state {
         // Creature.cpp:105-120,906. The fixed summon has neither a close object nor a DB row.
         let [x, y, z, orientation] = state.position;
         let z = map
@@ -1917,9 +1960,95 @@ pub fn summon_source_emerald_dragon(
                 definitions.collision_models,
             )?;
         if relocate_source_creature_for_create(&mut map.objects, object, [x, y, z, orientation])? {
-            return Err(refuse(
-                "execution.creature.Creature_912.create_notifications_owner",
-            ));
+            notify_loaded_creature_create(
+                &map.objects,
+                &map.units,
+                object,
+                map.entry,
+                map_add.outdoor,
+                map.instance_data.as_mut(),
+                |pose| terrain.zone_and_area(map.identity.map, pose),
+                observe_create,
+            )?;
+            register_loaded_creature_linking(
+                &mut state,
+                map_add.links,
+                &mut map.linking,
+                &map.objects,
+                &mut map.units,
+                |_| {},
+            )?;
+            // Creature.cpp:932,2296-2308 still tries the live DB GUID first.
+            let database = map.objects.get(object)?.database_guid;
+            let addon = get_creature_addon(
+                Some(map_add.addons),
+                HighGuid::Creature,
+                database,
+                state.template.entry,
+            )?;
+            apply_addon(addon, map, object, terrain, random)?;
+            // Object.cpp:2062,2072-2088. WorldState.cpp:617 supplies the fixed flags.
+            map.objects
+                .set_respawn_definition(object, map.objects.pose(object)?, false)?;
+            let raw_guid = map
+                .objects
+                .get(object)?
+                .guid
+                .ok_or_else(|| refuse("execution.object_guid_absent"))?
+                .raw();
+            let fields = map.units.get_mut(&map.objects, object)?;
+            let movement = fields.movement.as_mut().ok_or_else(|| {
+                refuse("execution.creature.Object_2072.temporary_walk_movement_owner")
+            })?;
+            movement.set_walk(&mut fields.state, raw_guid, true, true)?;
+            // Object.cpp:1919 suppresses the walk packet before AddToWorld.
+            map.objects.get_mut(object)?.active = false; // Object.cpp:2075,2566-2580.
+            let motion = map
+                .motions
+                .get_mut(&object)
+                .ok_or_else(|| refuse("execution.creature.Object_2086.temporary_motion_owner"))?;
+            motion.default.default_path = settings.path_id;
+            // TemporarySpawn.cpp:227-233 sets the properties before Map::Add.
+            fields.set_summon_properties(SourceTempSpawnType::DeadDespawn, 0, map_add.clock)?;
+            add_temporary_source_creature(
+                map,
+                &state,
+                terrain,
+                map_add.force_load,
+                map_add.respawn_aggro,
+                observe,
+            )?;
+            // Creature.cpp:880-883 initializes movement before selecting an AI.
+            let motion = map
+                .motions
+                .get_mut(&object)
+                .ok_or_else(|| refuse("execution.creature.Creature_882.temporary_motion_owner"))?;
+            motion.default.movement_type = map
+                .units
+                .get(&map.objects, object)?
+                .loaded_creature
+                .default_movement;
+            motion.initialize(
+                &mut MotionContext {
+                    objects: &map.objects,
+                    units: &mut map.units,
+                },
+                terrain,
+            )?;
+            return match probe_loaded_creature_ai_script(
+                &map.objects,
+                object,
+                map_add.scripts,
+                original.words[96],
+                |_| {},
+            )? {
+                LoadedCreatureAiScriptFactory::Ported(_) => Err(refuse(
+                    "execution.ai.ScriptDevAIMgr_370.temporary_constructor_owner",
+                )),
+                LoadedCreatureAiScriptFactory::Null => Err(refuse(
+                    "execution.ai.CreatureAISelector_45.temporary_registry_owner",
+                )),
+            };
         }
     }
     // Object.cpp:2056-2059 deletes the candidate when Create returns false.
@@ -1931,6 +2060,69 @@ pub fn summon_source_emerald_dragon(
     )?;
     map.objects.destroy(object, &mut map.cells)?;
     Ok(None)
+}
+
+// Map.cpp:471-504 adds the temporary creature before AIM_Initialize.
+fn add_temporary_source_creature(
+    map: &mut SourceContinent,
+    state: &CreatureConstruction,
+    terrain: &mut SourceTerrainManager,
+    force_load: bool,
+    respawn_aggro: i32,
+    observe: impl FnMut(CreatureFactoryObservation),
+) -> Result<()> {
+    let object = state.object;
+    let cell = map.objects.pose(object)?.cell()?;
+    map.objects.bind_map(object, map.identity, &map.cells)?; // Map.cpp:482.
+    require(
+        !map.objects.get(object)?.active,
+        "execution.creature.Map_486.temporary_active_grid_owner",
+    )?;
+    map.cells
+        .ensure_created_with_products(cell.grid_x(), cell.grid_y(), |map, coordinates| {
+            terrain.load(map, coordinates)
+        })?;
+    register_source_creature_at_cell(&mut map.objects, &mut map.cells, object, cell, observe)?;
+    // Creature.cpp:184-200 counts the temporary subtype before Unit::AddToWorld.
+    let kind = map.objects.get(object)?.kind;
+    require(
+        kind != SourceObjectKind::Pet,
+        "execution.creature.Creature_190.temp_pet_count_owner",
+    )?;
+    let fields = map.units.get_mut(&map.objects, object)?;
+    let count = map.temporary_creatures.entry(fields.entry).or_default();
+    *count = count.wrapping_add(1);
+    map.objects.mark_in_world(object)?;
+    let delay = source_add_to_world_notify_delay(kind, fields, || Ok(respawn_aggro))?;
+    fields.unit_events.schedule_ai_notify(delay, false)?;
+    require(
+        !force_load && !state.template.active,
+        "execution.creature.Creature_206.temporary_set_active_owner",
+    )?;
+    require(
+        !fields.loaded_creature.count_spawns,
+        "execution.creature.Creature_209.temporary_spawn_count_owner",
+    )?;
+    let cell = map.cells.cell(cell)?;
+    map.objects
+        .viewpoint_added_to_world(object, cell, &mut map.cells, |_, _, _| {
+            Err(refuse(
+                "execution.visibility.Camera_99.temporary_added_to_world_owner",
+            ))
+        })?;
+    map.objects.map_add_visibility(
+        SourceVisibilityUpdate {
+            object,
+            map_distance_bits: map.visibility.to_bits(),
+            bounding_radius_bits: fields
+                .bounding_radius
+                .ok_or_else(|| refuse("execution.visibility.Map_503.temporary_radius_owner"))?,
+        },
+        &mut map.cells,
+        &mut SourceVisibilityCensus::default(),
+        visibility::unbound_visibility_camera_update,
+        visibility::unbound_visibility_player_update,
+    )
 }
 
 /// Selected construction only. EventAI keeps its existing definition/build/base owner path.
@@ -2026,11 +2218,13 @@ where
     } else {
         context.load_grid(cell, GridLoadTrigger::TerrainOnly, factory)?;
     }
-    let cell = context.cells.cell(cell)?;
-    context.objects.link_cell(object, cell, context.cells)?;
-    factory.observe_creature_factory(CreatureFactoryObservation::MapGridLinked);
-    context.objects.register_world_lookup(object)?;
-    factory.observe_creature_factory(CreatureFactoryObservation::WorldLookupRegistered);
+    register_source_creature_at_cell(
+        context.objects,
+        context.cells,
+        object,
+        cell,
+        |observation| factory.observe_creature_factory(observation),
+    )?;
     context.objects.mark_in_world(object)?;
     factory.observe_creature_factory(CreatureFactoryObservation::BaseAddedToWorld);
     let delay = source_add_to_world_notify_delay(
@@ -2064,6 +2258,21 @@ where
     factory.observe_creature_factory(CreatureFactoryObservation::MapActiveChecked);
     factory.creature_phase(CreaturePhase::MapAddViewpoint, state, context)?;
     factory.creature_phase(CreaturePhase::MapAddVisibility, state, context)
+}
+
+// Map.cpp:493 and Creature.cpp:175-182 register the cell and both live lookups.
+fn register_source_creature_at_cell(
+    objects: &mut SourceObjects,
+    cells: &mut SourceCells,
+    object: ObjectHandle,
+    position: benilla_sim::resident_map::CellPair,
+    mut observe: impl FnMut(CreatureFactoryObservation),
+) -> Result<()> {
+    objects.link_cell(object, cells.cell(position)?, cells)?;
+    observe(CreatureFactoryObservation::MapGridLinked);
+    objects.register_world_lookup(object)?;
+    observe(CreatureFactoryObservation::WorldLookupRegistered);
+    Ok(())
 }
 fn valid_position(position: [f32; 4]) -> bool {
     // Position validity has a half-yard margin, unlike cell conversion; GridDefines.h:177-194.

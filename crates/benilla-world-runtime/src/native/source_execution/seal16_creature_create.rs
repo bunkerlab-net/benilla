@@ -49,8 +49,6 @@ fn apply_addon<D: GridDefinitions<Row = SpawnKey>>(
     }
     let fields = prefix.creature_entry.as_mut().unwrap();
     let live = prefix.units.get_mut(context.objects, object)?;
-    let flags = live.flags;
-    let movement = live.movement.as_ref().unwrap().flags.unwrap();
     let level = live.power_fields.as_ref().unwrap().level;
     if prefix.map_entry.id == 0 && data.row.guid == 40520 {
         assert!(!live.auras.has_aura_holders());
@@ -61,30 +59,7 @@ fn apply_addon<D: GridDefinitions<Row = SpawnKey>>(
             "creature_template_addon_lookup",
         ]));
     }
-    // Unit.cpp:330-366; Unit.h:2487,2507 construct the aura lists empty.
-    // UpdateEntry has applied its immunity set, but has not cast a spell.
-    let unit = SpellUnitState {
-        player: false,
-        gameobject: false,
-        alive: true,
-        standing: live.stand_state == 0,
-        player_controlled: flags & 8 != 0,
-        combat: flags & UNIT_FLAG_COMBAT != 0,
-        battleground_wait_leave: false,
-        gm: false,
-        moving: movement & 0x0400_60cf != 0,
-        falling_far: movement & 0x4000 != 0,
-        stealth: live.auras.has_aura_type(16),
-        form: live.shapeshift_form,
-        class: live.unit_class.unwrap(),
-        combo_target: None,
-        mounted: live.is_mounted(),
-        taxi: flags & 0x0010_0000 != 0,
-        totem: false, // Generic Creature subtype, Creature.h:595,622.
-        untargetable: flags & 0x0001_0000 != 0,
-        has_ai: false,
-        position: context.objects.get(object)?.pose.unwrap().0,
-    };
+    let unit = addon_unit_state(live, context.objects.pose(object)?.0)?;
     if context.objects.get(object)?.database_guid == 40520 {
         assert_eq!(live.cast_speed, fields.cast_speed);
         assert_eq!(live.power_type, Some(fields.power));
@@ -118,6 +93,80 @@ fn apply_addon<D: GridDefinitions<Row = SpawnKey>>(
     result?;
     prefix.lookups.push("creature_addon_applied");
     prefix.lookups.push("creature_create_return");
+    Ok(())
+}
+
+// Creature.cpp:932 constructs the self-cast inputs before AI and AddToWorld.
+fn addon_unit_state(live: &SourceUnitFields, position: [u32; 4]) -> Result<SpellUnitState> {
+    let flags = live.flags;
+    let movement = live
+        .movement
+        .as_ref()
+        .and_then(|movement| movement.flags)
+        .ok_or_else(|| refuse("execution.creature_addon.movement_flags_owner"))?;
+    Ok(SpellUnitState {
+        player: false,
+        gameobject: false,
+        alive: true,
+        standing: live.stand_state == 0,
+        player_controlled: flags & 8 != 0,
+        combat: flags & UNIT_FLAG_COMBAT != 0,
+        battleground_wait_leave: false,
+        gm: false,
+        moving: movement & 0x0400_60cf != 0,
+        falling_far: movement & 0x4000 != 0,
+        stealth: live.auras.has_aura_type(16),
+        form: live.shapeshift_form,
+        class: live
+            .unit_class
+            .ok_or_else(|| refuse("execution.creature_addon.unit_class_owner"))?,
+        combo_target: None,
+        mounted: live.is_mounted(),
+        taxi: flags & 0x0010_0000 != 0,
+        totem: false, // Generic Creature subtype, Creature.h:595,622.
+        untargetable: flags & 0x0001_0000 != 0,
+        has_ai: false,
+        position,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(in crate::native::source_execution) fn load_temporary_addon(
+    addon: Option<&LoadedCreatureAddon>,
+    map: &mut SourceContinent,
+    object: ObjectHandle,
+    terrain: &mut SourceTerrainManager,
+    random: &mut dyn CreatureRandom,
+    stores: &SourceSpellStores,
+    targets: &SourceSpellTargetMgr,
+    clocks: &mut ActiveClocks,
+    world_clock: &SourceWorldClock,
+    config: &[u8],
+) -> Result<()> {
+    let live = map.units.get(&map.objects, object)?;
+    let unit = addon_unit_state(live, map.objects.pose(object)?.0)?;
+    let level = live.power_fields.as_ref().unwrap().level;
+    let raw = random.creature_raw_position()?;
+    CreatureAddonState::default().load(
+        addon,
+        false,
+        &map.objects,
+        object,
+        &mut map.units,
+        &mut addon_cast::Execution {
+            terrain,
+            stores,
+            targets,
+            unit,
+            level,
+            clocks,
+            world_clock,
+            random,
+            creature_spells: map.creature_spells.as_ref(),
+            raw,
+            max_casts: addon_cast::max_casts(config)?,
+        },
+    )?;
     Ok(())
 }
 

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use super::active_init::{ActiveClock, ActiveClocks};
 use super::{
     unhex, ObjectHandle, SourceContinent, SourceCreatureSwimmingCensus, SourcePose,
     WorldStartupSql, WorldStateRow,
 };
+use super::{LiveLookupKind, SourceTempSpawnType, SourceUnitEvent};
 use benilla_sim::source_rng::{EventKind, Operation, TraceEvent, Value};
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
@@ -28,6 +30,8 @@ pub(super) struct WorldStateEvidence {
     first_display_result: Option<i64>,
     init_entry_height: bool,
     next_ai_word: Option<(u64, u64)>,
+    addon_clock_site: Option<(u64, [u64; 3], bool)>,
+    addon_clocks: Option<ActiveClocks>,
     save: VecDeque<Vec<u8>>,
     affected: Vec<u64>,
 }
@@ -156,6 +160,30 @@ impl WorldStateEvidence {
                 );
                 self.init_entry_height = true;
             }
+            61740996 | 61740998 | 61741079 | 61741081 => {
+                assert_eq!(kind, "clock_callsite");
+                let site = [p[0], p[1], p[2]].map(|value| value.parse().unwrap());
+                assert!(self
+                    .addon_clock_site
+                    .replace((line, site, p[3].ends_with("/bin/mangosd")))
+                    .is_none());
+            }
+            61740997 | 61740999 | 61741080 | 61741082 => {
+                assert_eq!(kind, "clock_time");
+                let (site_line, site, module) = self.addon_clock_site.take().unwrap();
+                self.addon_clocks
+                    .get_or_insert_with(ActiveClocks::default)
+                    .0
+                    .push_back(ActiveClock {
+                        site_line,
+                        time_line: line,
+                        thread: 1,
+                        site,
+                        module,
+                        seconds: p[0].parse().unwrap(),
+                        raw: self.next_word.unwrap().0 + 1,
+                    });
+            }
             61741101 => {
                 assert_eq!(kind, "rng_call");
                 assert_eq!(
@@ -206,6 +234,13 @@ impl WorldStateEvidence {
         next
     }
 
+    pub(super) fn bind_addon_clocks(&mut self) -> ActiveClocks {
+        let clocks = self.addon_clocks.take().unwrap();
+        assert_eq!(clocks.0.len(), 4); // Trace :61740996-99, :61741079-82.
+        assert!(self.addon_clock_site.is_none());
+        clocks
+    }
+
     pub(super) fn assert_first_summon(
         &self,
         map: &SourceContinent,
@@ -222,18 +257,43 @@ impl WorldStateEvidence {
         assert_eq!(object.map, Some(map.identity));
         assert_eq!(live.entry, guid.entry());
         assert_eq!(live.loaded_creature.native_display, 15363); // initial-classicmangos.sql:430292.
-        assert!(live.temporary_spawn.is_some() && live.spawner.is_none());
-        assert!(!object.in_world && !object.database_spawn_data);
-        // Trace :61740831-41 queries the relocated point. Object.cpp:2062 has not run.
+        let temporary = live.temporary_spawn.as_ref().unwrap();
+        assert!(live.spawner.is_none());
+        // TemporarySpawn.cpp:217-225, WorldState.cpp:617 and cached World.cpp:108.
+        assert_eq!(temporary.spawn_type, SourceTempSpawnType::DeadDespawn);
+        assert_eq!((temporary.lifetime_ms, temporary.expiration_ms), (0, 0));
+        assert_eq!(live.respawn_delay, 2592000); // Common.h:113-117.
+        assert!(object.in_world && !object.database_spawn_data && !object.active);
+        let cell = map.cells.registered_cell(handle).unwrap();
+        assert_eq!((cell.grid.x, cell.grid.y), (12, 31)); // Trace :61741083-84.
+        assert!(!map.cells.object_data_loaded(cell.grid.x, cell.grid.y));
         assert_eq!(
-            object.pose,
-            Some(SourcePose([0xc622f333, 0xc3c41687, 0x42300be4, 0x3f6eb021]))
-        );
-        let pose = object.respawn_pose.unwrap();
+            map.objects
+                .lookup(map.identity, LiveLookupKind::Creature, guid),
+            Some(handle)
+        ); // Trace :61741085.
+        assert_eq!(map.temporary_creatures.get(&14890), Some(&1));
+        assert_eq!(map.motions[&handle].path_id().unwrap(), 1); // WorldState.cpp:588-590.
+        assert!(!live.has_ai); // Trace :61741089-95, factory construction is pending.
+        let pose = object.pose.unwrap();
+        // Trace :61740831-41 and Object.cpp:2062.
+        assert_eq!(object.respawn_pose, Some(pose));
         assert_eq!(
             pose,
-            SourcePose([0xc622f333, 0xc3c41687, 0x422ef6e3, 0x3f6eb021])
+            SourcePose([0xc622f333, 0xc3c41687, 0x42300be4, 0x3f6eb021])
         );
+        for spell in [19818, 25041] {
+            let aura = live.auras.first_aura_holder(spell).unwrap();
+            assert!(aura.ready);
+            assert_eq!(aura.apply_time, 1794314193); // Trace :61740997, :61741080.
+            let effect = aura.effects[0].as_ref().unwrap();
+            assert!(effect.applied);
+            assert_eq!(effect.apply_time, 1794314193); // Trace :61740999, :61741082.
+        }
+        let events = live.unit_events.inventory();
+        assert_eq!(events.queued.len(), 3); // Trace :61740919, :61741002, :61741088.
+        assert!(matches!(events.queued[2].kind, SourceUnitEvent::AiNotify));
+        assert_eq!(events.queued[2].exec_time_ms, 5000); // Trace :61741088.
         assert!(self.init_entry_height); // Trace :61738535 queries this pre-placement pose.
         assert_eq!(swimming.reached_441, 1);
         assert_eq!(swimming.swimming_set + swimming.swimming_not_set, 1);

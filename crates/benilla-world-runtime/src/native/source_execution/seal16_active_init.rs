@@ -5,13 +5,14 @@ use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
 pub(super) const STARTUP_NEXT_OWNER: &str =
-    "execution.creature.Creature_912.create_notifications_owner";
-pub(super) const STARTUP_NEXT_SOURCE: &str = "Creature.cpp:912";
+    "execution.ai.ScriptDevAIMgr_370.GetAI_owner.boss_taerar";
+pub(super) const STARTUP_NEXT_SOURCE: &str = "ScriptDevAIMgr.cpp:370";
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
 pub(super) use clocks::{ActiveClock, ActiveClocks};
 #[path = "seal16_creature_create.rs"]
 mod creature_create;
+pub(super) use creature_create::load_temporary_addon;
 #[path = "seal16_creature_entry.rs"]
 mod creature_entry;
 pub(super) use creature_entry::uint_config as creature_uint_config;

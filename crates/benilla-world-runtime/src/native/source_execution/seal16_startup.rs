@@ -2090,6 +2090,15 @@ struct DragonBindings<'a> {
     terrain: &'a mut SourceTerrainManager,
     dynamic_models: &'a SourceDynamicModels,
     config: &'a [u8],
+    outdoor: &'a mut SourceOutdoorPvp,
+    links: &'a SourceCreatureLinking,
+    addons: &'a LoadedCreatureAddons,
+    world_clock: &'a SourceWorldClock,
+    scripts: &'a SourceScriptRegistry,
+    stores: &'a SourceSpellStores,
+    targets: SourceSpellTargetMgr,
+    addon_clocks: active_init::ActiveClocks,
+    respawn_aggro: i32,
 }
 
 struct Owner<'a> {
@@ -2120,6 +2129,7 @@ struct Owner<'a> {
     dragon_summon_trace: Vec<TraceEvent>,
     dragon_summon_phases: Vec<CreatureFactoryObservation>,
     dragon_swimming: SourceCreatureSwimmingCensus,
+    dragon_create: Vec<CreatureCreateObservation>,
 }
 impl GameEventOwner for Owner<'_> {
     fn clock(&mut self, site: EventClockSite) -> Result<ClockSample> {
@@ -2397,11 +2407,35 @@ impl WorldTailOwner for Owner<'_> {
             &bindings.definitions,
             bindings.terrain,
             bindings.dynamic_models,
+            TemporaryCreatureMapAdd {
+                outdoor: bindings.outdoor,
+                links: bindings.links,
+                addons: bindings.addons,
+                clock: bindings.world_clock,
+                scripts: bindings.scripts,
+                force_load: false, // World.cpp:485-493, frozen empty LoadAllGridsOnMaps.
+                respawn_aggro: bindings.respawn_aggro,
+            },
             1,
             &mut random,
             |key| active_init::creature_uint_config(bindings.config, key),
             |obs| self.dragon_summon_phases.push(obs),
             &mut self.dragon_swimming,
+            |obs| self.dragon_create.push(obs),
+            |addon, map, object, terrain, random| {
+                active_init::load_temporary_addon(
+                    addon,
+                    map,
+                    object,
+                    terrain,
+                    random,
+                    bindings.stores,
+                    &bindings.targets,
+                    &mut bindings.addon_clocks,
+                    bindings.world_clock,
+                    bindings.config,
+                )
+            },
         )
     }
 }
@@ -3030,6 +3064,7 @@ pub(super) fn continue_startup(
         dragon_summon_trace: Vec::new(),
         dragon_summon_phases: Vec::new(),
         dragon_swimming: SourceCreatureSwimmingCensus::default(),
+        dragon_create: Vec::new(),
     };
     let mut events = SourceGameEventManager::default();
     let mut pools = std::mem::take(&mut owner.pools);
@@ -7430,6 +7465,13 @@ pub(super) fn continue_startup(
         .unwrap()
         .objects
         .construction_count(1);
+    // World.cpp:485-493; mangosd.conf:257 supplies the empty forced-map set.
+    assert_eq!(
+        spawn_loader_config::assignment(&config, "LoadAllGridsOnMaps")
+            .unwrap()
+            .1,
+        ""
+    );
     owner.dragon_bindings = Some(DragonBindings {
         definitions: TemporaryCreatureDefinitions {
             templates: &creature_templates,
@@ -7445,6 +7487,19 @@ pub(super) fn continue_startup(
         terrain: geometry,
         dynamic_models: &dynamic_models,
         config: &config,
+        outdoor: &mut outdoor_pvp,
+        links: &links,
+        addons: &creature_addons,
+        world_clock: &world_clock,
+        scripts: &scripts,
+        stores: &addon_spells,
+        targets: SourceSpellTargetMgr::initialize(&addon_spells),
+        addon_clocks: observed.weekly.world_state.bind_addon_clocks(),
+        respawn_aggro: spawn_loader_config::assignment(&config, "CreatureRespawnAggroDelay")
+            .unwrap()
+            .1
+            .parse()
+            .unwrap(),
     });
     let refusal = initialize_world_tail(
         &mut owner,
@@ -7496,6 +7551,24 @@ pub(super) fn continue_startup(
         &owner.dragon_summon_trace,
         &owner.dragon_swimming,
     );
+    assert!(owner
+        .dragon_bindings
+        .as_ref()
+        .unwrap()
+        .addon_clocks
+        .0
+        .is_empty());
+    use CreatureCreateObservation::*;
+    assert!(matches!(
+        owner.dragon_create.as_slice(),
+        [
+            Battleground(false),
+            Zone(_),
+            OutdoorScriptLookup,
+            InstanceDataLookup,
+            InstanceScriptCalled
+        ]
+    )); // Trace :61740831-41, :61740907-16.
     assert_eq!(
         owner.dragon_summon_phases,
         [
@@ -7503,6 +7576,8 @@ pub(super) fn continue_startup(
             CreatureFactoryObservation::DisplayChance(100),
             CreatureFactoryObservation::DisplayDrawn,
             CreatureFactoryObservation::ModelSelected,
+            CreatureFactoryObservation::MapGridLinked,
+            CreatureFactoryObservation::WorldLookupRegistered,
         ]
     ); // Trace :61738512, :61738519-23 and initial-classicmangos.sql:430292.
     let next_word = observed.weekly.world_state.next_dragon_ai_word();

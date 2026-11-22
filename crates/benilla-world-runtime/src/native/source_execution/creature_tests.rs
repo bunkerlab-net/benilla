@@ -2207,6 +2207,22 @@ fn scripted_factory_discard_requires_and_keeps_the_exact_live_class() {
 mod creature_level_factory_tests;
 
 #[test]
+fn temporary_summon_properties_use_cached_map_clock_and_live_delay() {
+    let mut live = SourceUnitFields::constructed_creature();
+    live.temporary_spawn = Some(SourceTemporarySpawn::construct());
+    let clock = SourceWorldClock::default();
+    live.set_summon_properties(SourceTempSpawnType::DeadDespawn, 175, &clock)
+        .unwrap();
+    let temporary = live.temporary_spawn.unwrap();
+    // TemporarySpawn.cpp:217-225; World.cpp:108 initializes time at the epoch.
+    assert_eq!(temporary.spawn_type, SourceTempSpawnType::DeadDespawn);
+    assert_eq!(temporary.lifetime_ms, 175);
+    assert_eq!(temporary.expiration_ms, 175);
+    assert_eq!(temporary.linked_to_owner_aura, 0);
+    assert_eq!(live.respawn_delay, 2_592_000); // Common.h:117.
+}
+
+#[test]
 fn create_dispatch_uses_live_entry_and_preserves_pvp_callback_order() {
     let mut objects = SourceObjects::default();
     let cells = SourceCells::new(map()).unwrap();
