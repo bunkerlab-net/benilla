@@ -31,6 +31,7 @@ const MOD_DURATION: u32 = 1;
 const MOD_CHARGES: u32 = 4;
 const MOD_CASTING_TIME: u32 = 10;
 const MOD_COST: u32 = 14;
+const MOD_RANGE: u32 = 5;
 
 // PlayerDefines.h:64,66-67. The writer stops at SpellAuras.cpp:937.
 pub(super) struct PlayerSpellModifier {
@@ -296,6 +297,15 @@ impl PlayerCast<'_, '_> {
             .ok_or_else(|| refuse("execution.spells.Unit_getLevel_owner"))
     }
 
+    fn range_movement_flags(&self, object: ObjectHandle, missing: &str) -> Result<u32> {
+        self.units
+            .get(self.objects, object)?
+            .movement
+            .as_ref()
+            .and_then(|movement| movement.flags)
+            .ok_or_else(|| refuse(missing))
+    }
+
     fn aura_operands<'a>(
         objects: &'a SourceObjects,
         target: ObjectHandle,
@@ -407,6 +417,56 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
     fn positive_definition(&mut self, t: &SpellTemplate) -> Result<bool> {
         positive_unit_spell(self.stores, t, 7, None)
     }
+
+    fn range_objects(&mut self) -> Result<&SourceObjects> {
+        Ok(self.objects)
+    }
+    fn range_stores(&mut self) -> Result<&SourceSpellStores> {
+        Ok(self.stores)
+    }
+    // Spell.cpp:6173,6189; Unit.h:1095.
+    fn combat_reach(&mut self, object: ObjectHandle) -> Result<f32> {
+        self.units
+            .get(self.objects, object)?
+            .combat_reach
+            .map(f32::from_bits)
+            .ok_or_else(|| refuse("execution.spells.Unit_1095.UNIT_FIELD_COMBATREACH_owner"))
+    }
+    // Spell.cpp:6196; Unit.h:1786,1789; Object.h:712,734.
+    fn moving_forward(&mut self, object: ObjectHandle) -> Result<bool> {
+        Ok(self
+            .range_movement_flags(object, "execution.spells.Spell_6196.IsMovingForward_owner")?
+            & 0x200d
+            != 0)
+    }
+    fn walking(&mut self, object: ObjectHandle) -> Result<bool> {
+        Ok(
+            self.range_movement_flags(object, "execution.spells.Spell_6196.IsWalking_owner")?
+                & 0x100
+                != 0,
+        )
+    }
+    // Spell.cpp:6207-6208. Use the live modifier owner.
+    fn range_mod_owner(&mut self, caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        world_object_spell_mod_owner(
+            self.objects,
+            caster,
+            self.units.get(self.objects, caster)?.totem,
+        )
+    }
+    fn apply_range_mod(&mut self, player: ObjectHandle, spell: u32, maximum: f32) -> Result<f32> {
+        let t = self
+            .stores
+            .template(spell)
+            .ok_or_else(|| refuse("execution.spells.Spell_6208.ApplySpellMod_template_owner"))?;
+        spell_mod_player(
+            Some(self.player),
+            player,
+            "execution.spells.Spell_6208.ApplySpellMod_owner",
+        )?
+        .apply_spell_mod(self.stores, t, MOD_RANGE, maximum)
+    }
+
     fn terrain_geometry(&mut self) -> Result<(&SourceObjects, &mut SourceTerrainManager)> {
         Ok((self.objects, self.inputs.terrain))
     }
@@ -558,8 +618,11 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
                 self.location_context()?.check(t, spell.caster, location)
             }
             SpellCheck::Items => spell.check_items(t, true, self),
-            SpellCheck::Range(_) if self.client_map.is_some() => {
-                Err(refuse("execution.spells.Spell_5145.CheckRange_owner"))
+            SpellCheck::Range(strict) if self.client_map.is_some() => {
+                spell.check_range(t, strict, self)
+            }
+            SpellCheck::Power(_) if self.client_map.is_some() => {
+                Err(refuse("execution.spells.Spell_5153.CheckPower_owner"))
             }
             _ => Err(check.missing_owner()),
         }
@@ -1053,7 +1116,7 @@ fn apply_spell_mod_checks_the_client_gate_and_the_selected_operation() {
 }
 
 #[test]
-fn client_fireball_admission_retains_the_queued_spell_at_range() {
+fn client_fireball_admission_checks_live_range_before_power() {
     use crate::native::production_compiler::VerifiedCatalog;
     use benilla_sim::source_rng::{DrawCursor, Mt19937, SourceRandom};
     use std::path::Path;
@@ -1114,6 +1177,7 @@ fn client_fireball_admission_retains_the_queued_spell_at_range() {
             auxiliary_current: None,
             auxiliary_maximum: None,
         });
+        fields.combat_reach = Some(1.5_f32.to_bits());
         fields.faction = faction;
     }
     units.get_mut(&objects, caster).unwrap().flags |= 8;
@@ -1131,25 +1195,7 @@ fn client_fireball_admission_retains_the_queued_spell_at_range() {
             disabled: false,
         },
     );
-    let mut stores = SourceSpellStores::default();
-    // pre-start-classicmangos.sql:837896. Fields reached by the admission path.
-    stores
-        .insert_template(SpellTemplate {
-            id: 133,
-            school: 2,
-            spelllevel: 1,
-            attributes: 65536,
-            equippeditemclass: -1,
-            effect1: 2,
-            effect2: 6,
-            effectimplicittargeta1: 6,
-            effectimplicittargeta2: 6,
-            effectapplyauraname2: 3,
-            rangeindex: 35,
-            dmgclass: 1,
-            ..Default::default()
-        })
-        .unwrap();
+    let stores = SourceSpellStores::load(&mut catalog, &mut SourceSpellScriptRegistry).unwrap();
     let targets = SourceSpellTargetMgr::initialize(&stores);
     let factions = CreatureAiFactions::load_catalog(&mut catalog).unwrap();
     let mut terrain = SourceTerrainManager::default();
@@ -1212,12 +1258,17 @@ fn client_fireball_admission_retains_the_queued_spell_at_range() {
     mage.spells.get_mut(&133).unwrap().disabled = false;
     assert_eq!(
         invoke(&mut mage, &mut units, &packet).unwrap_err().id,
-        "execution.spells.Spell_5145.CheckRange_owner"
+        "execution.spells.Spell_5153.CheckPower_owner"
     );
     let live = units.get(&objects, caster).unwrap();
     let spell = &live.spell_starts.spells[&1];
     assert_eq!(spell.targets.unit, Some(victim));
     assert!(spell.client_cast);
+    let range = stores.range_entry(35).unwrap().unwrap();
+    assert_eq!(
+        f32::from_bits(spell.max_range),
+        f32::from_bits(range.maximum.0) + 3.0,
+    );
     assert_eq!(spell.state, SourceSpellState::Targeting);
     assert_eq!(live.spell_slots.current(SpellSlot::Generic), None);
     // Trace.tsv:75160591-75160593. SpellStart queues before CheckCast.
