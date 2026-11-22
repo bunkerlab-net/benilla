@@ -55,6 +55,40 @@ impl SpellStartContext<'_> {
             .dispatch(|skip| self.owner.cast_scheduled(spell, skip))
     }
 
+    // SpellHandler.cpp:389-391. The caller already checked the active spellbook.
+    pub(in crate::native::source_execution) fn start_client_spell(
+        &mut self,
+        caster: ObjectHandle,
+        template: &SpellTemplate,
+        targets: SpellTargets,
+    ) -> Result<SpellCastResult> {
+        let id = self.storage(caster)?.0.allocate()?;
+        let mut spell = SourceSpell::construct(
+            id,
+            self.stores,
+            template.id,
+            caster,
+            None,
+            SpellTriggerFlags(0),
+            self.owner,
+        )?;
+        spell.client_cast = true;
+        self.start_and_register(spell, template, targets, None)
+    }
+
+    // Spell.cpp:2997-3020. A refusal retains the partially executed Spell.
+    fn start_and_register(
+        &mut self,
+        mut spell: SourceSpell,
+        template: &SpellTemplate,
+        targets: SpellTargets,
+        aura: Option<u32>,
+    ) -> Result<SpellCastResult> {
+        let result = self.start(&mut spell, template, targets, aura);
+        self.storage(spell.caster)?.0.spells.insert(spell.id, spell);
+        result
+    }
+
     pub fn contains(&self, spell: u32) -> bool {
         self.stores.template(spell).is_some()
     }
@@ -123,10 +157,7 @@ impl SpellStartContext<'_> {
             self.storage(caster)?.0.spells.insert(id, value);
             return Ok(SpellCastResult::BadTargets);
         }
-        // Refusals retain the real event and partially executed object; never retry it.
-        let result = self.start(&mut value, t, targets, aura);
-        self.storage(caster)?.0.spells.insert(id, value);
-        result
+        self.start_and_register(value, t, targets, aura)
     }
     pub fn ai_cast(
         &mut self,

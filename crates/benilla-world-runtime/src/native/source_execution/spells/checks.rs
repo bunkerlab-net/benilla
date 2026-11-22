@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Spell.cpp:4676-6002. Requests stop at unbound Unit, aura, item and geometry owners.
+use super::super::relations::unit_can_attack_spell;
 use super::*;
 use SpellCastResult as R;
 
@@ -125,11 +126,13 @@ impl SourceSpell {
                 if !ignore && t.attributes & 0x01000000 == 0 && u.taxi && t.id != 7720 {
                     return Ok(R::BadTargets);
                 }
+                // Spell.cpp:4850-4851. A blocked sight line is a cast failure.
                 if !self.flags.old_triggered()
                     && !matches!(t.id, 8733 | 8735 | 24742)
                     && t.attributesex2 & 4 == 0
+                    && !owner.line_of_sight(self.caster, target)?
                 {
-                    owner.line_of_sight(self.caster, target)?;
+                    return Ok(R::LineOfSight);
                 }
                 if c.player {
                     if !self.flags.old_triggered() && t.attributesex2 & 8 == 0 {
@@ -270,9 +273,19 @@ impl SourceSpell {
             SourceObjectKind::Creature | SourceObjectKind::Pet | SourceObjectKind::Player
         );
         match data.filter {
-            SpellTargetFilter::Harmful if unit => {
-                Err(refuse("execution.relations.Unit_CanAttackSpell_1065_owner"))
-            }
+            SpellTargetFilter::Harmful if unit => Ok(
+                if unit_can_attack_spell(
+                    self.caster,
+                    target,
+                    t.attributesex2,
+                    t.attributesex3,
+                    relations,
+                )? {
+                    R::Ok
+                } else {
+                    R::BadTargets
+                },
+            ),
             SpellTargetFilter::Harmful => Err(refuse(
                 "execution.relations.WorldObject_CanAttackSpell_owner",
             )),

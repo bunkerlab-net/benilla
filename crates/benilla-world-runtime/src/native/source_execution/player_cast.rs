@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
+use super::super::relations::SourcePlayerRelations;
 use super::*;
+use benilla_protocol::wire::{read_packed_guid, read_u16_le, read_u32_le};
 
 /// Live external operands of the detached creation casts.
 pub struct SourcePlayerCastInputs<'a> {
@@ -80,6 +82,102 @@ impl SourcePlayer {
         Ok(base)
     }
 
+    /// SpellHandler.cpp:311-391. Dispatch the client's explicit unit cast.
+    pub fn client_unit_cast(
+        &mut self,
+        mut input: &[u8],
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        stores: &SourceSpellStores,
+        inputs: &mut SourcePlayerCastInputs<'_>,
+        map: SourceClientCastMap<'_>,
+    ) -> Result<Option<SpellCastResult>> {
+        let id = read_u32_le(&mut input)
+            .map_err(|_| refuse("execution.spells.SpellHandler_314.spell_id_packet_owner"))?;
+        let mover = objects.get(self.mover)?;
+        if self.mover != self.object && mover.kind == SourceObjectKind::Player {
+            return Ok(None);
+        }
+        let Some(template) = stores.template(id) else {
+            return Ok(None);
+        };
+        require(
+            self.mover == self.object,
+            "execution.spells.SpellHandler_351.mover_spellbook_owner",
+        )?;
+        let active = self.spellbook().get(&id).is_some_and(|row| {
+            row.state != SourcePlayerSpellState::Removed && row.active && !row.disabled
+        });
+        if !active || template.attributes & 0x40 != 0 {
+            return Ok(None);
+        }
+        let mask = read_u16_le(&mut input)
+            .map_err(|_| refuse("execution.spells.Spell_239.target_mask_packet_owner"))?;
+        require(
+            mask == 2,
+            "execution.spells.Spell_250.client_target_mask_owner",
+        )?;
+        let guid = read_packed_guid(&mut input)
+            .map_err(|_| refuse("execution.spells.Spell_251.packed_target_guid_owner"))?;
+        let identity = mover
+            .map
+            .ok_or_else(|| refuse("execution.spells.Spell_214.GetMap_owner"))?;
+        // Spell.cpp:210-215. A self GUID resolves without a map lookup.
+        let target = if mover.guid.is_some_and(|value| value.raw() == guid) {
+            Some(self.object)
+        } else {
+            objects.lookup_unit(identity, SourceGuid::from_raw(guid))
+        };
+        if let Some(target) = target {
+            require_same_aura_rank(template, PlayerCast::level(units.get(objects, target)?)?)?;
+        }
+        // SpellMgr.h:1028-1039 and SpellHandler.cpp:381-387.
+        let effects = template.effects();
+        require(
+            is_client_unit_target(effects[0].target_a)
+                || !(effects[1..]
+                    .iter()
+                    .any(|effect| is_client_unit_target(effect.target_a))
+                    || effects
+                        .iter()
+                        .any(|effect| is_client_unit_target(effect.target_b))),
+            "execution.spells.SpellHandler_382.GetTarget_owner",
+        )?;
+        if template.attributes & 2 != 0 && template.attributesex2 & 0x20 != 0 {
+            let live = units.get(objects, self.object)?;
+            if let Some(id) = live.spell_slots.current(SpellSlot::AutoRepeat) {
+                let repeated = live.spell_starts.spells.get(&id).ok_or_else(|| {
+                    refuse("execution.spells.SpellHandler_385.GetCurrentSpell_owner")
+                })?;
+                if repeated.spell == template.id {
+                    return Ok(None);
+                }
+            }
+        }
+        let targets = SpellTargets {
+            unit: target,
+            mask: u32::from(mask),
+            ..Default::default()
+        };
+        let caster = self.object;
+        let mut owner = PlayerCast {
+            player: self,
+            objects,
+            units,
+            stores,
+            skills: None,
+            inputs,
+            client_map: Some(map),
+        };
+        SpellStartContext {
+            stores,
+            storage: SpellStartStorage::Unit,
+            owner: &mut owner,
+        }
+        .start_client_spell(caster, template, targets)
+        .map(Some)
+    }
+
     // Player.cpp:3400; Unit.cpp:1469-1512. The spellbook row is already live.
     pub(super) fn cast_granted_passive(
         &mut self,
@@ -96,8 +194,9 @@ impl SourcePlayer {
             objects: live.objects,
             units: live.units,
             stores: live.spells,
-            skills: live.skills,
+            skills: Some(live.skills),
             inputs,
+            client_map: None,
         };
         SpellStartContext {
             stores: live.spells,
@@ -143,11 +242,41 @@ struct PlayerCast<'a, 'b> {
     objects: &'a SourceObjects,
     units: &'a mut SourceUnits,
     stores: &'a SourceSpellStores,
-    skills: &'a player_skills::PlayerSkillInputs,
+    skills: Option<&'a player_skills::PlayerSkillInputs>,
     inputs: &'a mut SourcePlayerCastInputs<'b>,
+    client_map: Option<SourceClientCastMap<'a>>,
+}
+
+// SpellMgr.h:1011-1025. Only these selectors read the client's explicit unit.
+fn is_client_unit_target(mode: u32) -> bool {
+    matches!(mode, 6 | 21 | 25 | 35 | 37 | 45 | 53 | 57)
+}
+
+// SpellMgr.cpp:1169-1175. Rank selection below the fast case is not bound.
+fn require_same_aura_rank(template: &SpellTemplate, level: u32) -> Result<()> {
+    require(
+        level.wrapping_add(10) >= template.spelllevel || template.attributes & 0x40 != 0,
+        "execution.spells.SpellMgr_1181.SelectAuraRankForLevel_owner",
+    )
 }
 
 impl PlayerCast<'_, '_> {
+    // Unit.cpp:11932,11951-11957 reads the live scale and native display.
+    fn collision_height(&self, unit: ObjectHandle, models: &SourceCollisionModels) -> Result<f32> {
+        let object = self.objects.get(unit)?;
+        if object.kind == SourceObjectKind::Player {
+            require(
+                unit == self.player.object,
+                "execution.spells.Unit_11951.player_GetNativeDisplayId_owner",
+            )?;
+            return models.collision_height(self.player.native_display, self.player.scale);
+        }
+        let fields = &self.units.get(self.objects, unit)?.loaded_creature;
+        let scale = fields
+            .scale
+            .ok_or_else(|| refuse("execution.spells.Unit_11932.GetObjectScale_owner"))?;
+        models.collision_height(fields.native_display, f32::from_bits(scale))
+    }
     fn live(&self) -> Result<&SourceUnitFields> {
         self.units.get(self.objects, self.player.object)
     }
@@ -206,23 +335,48 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
     }
     fn unit(&mut self, caster: ObjectHandle) -> Result<SpellUnitState> {
         let object = self.objects.get(caster)?;
+        let client = self.client_map.is_some();
         require(
-            caster == self.player.object && !object.in_world,
-            "execution.player.Player_3400.detached_spell_caster_owner",
+            if client {
+                object.in_world && object.map == Some(self.map()?)
+            } else {
+                caster == self.player.object && !object.in_world
+            },
+            if client {
+                "execution.spells.Spell_214.live_map_unit_owner"
+            } else {
+                "execution.player.Player_3400.detached_spell_caster_owner"
+            },
         )?;
-        let live = self.live()?;
+        let live = self.units.get(self.objects, caster)?;
+        let player = object.kind == SourceObjectKind::Player;
+        let movement = if client && player {
+            live.movement
+                .as_ref()
+                .and_then(|value| value.flags)
+                .ok_or_else(|| refuse("execution.spells.Spell_4743.IsMoving_owner"))?
+        } else {
+            0
+        };
+        if player && client {
+            require(
+                caster == self.player.object && self.player.battleground_instance == 0,
+                "execution.spells.Spell_4702.GetBattleGround_owner",
+            )?;
+        }
         // Unit.cpp:348. Creation has not changed the ALIVE death state.
         Ok(SpellUnitState {
-            player: true,
+            player,
             gameobject: false,
-            alive: true,
-            standing: live.stand_state == 0,
+            alive: object.alive,
+            standing: live.is_standing(),
             player_controlled: live.flags & 8 != 0,
             combat: live.flags & 0x80000 != 0,
             battleground_wait_leave: false,
             gm: live.gm,
-            moving: false,
-            falling_far: false,
+            // Object.h:739-744 and Unit.h:1785.
+            moving: movement & 0x0400_60cf != 0,
+            falling_far: movement & 0x4000 != 0,
             stealth: live.auras.has_aura_type(16),
             form: live.shapeshift_form,
             class: live
@@ -256,6 +410,47 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
     fn terrain_geometry(&mut self) -> Result<(&SourceObjects, &mut SourceTerrainManager)> {
         Ok((self.objects, self.inputs.terrain))
     }
+
+    // Spell.cpp:4850 and Object.cpp:1379-1391. The object overload ignores M2.
+    fn line_of_sight(&mut self, caster: ObjectHandle, target: ObjectHandle) -> Result<bool> {
+        let origin = self.objects.get(caster)?;
+        let victim = self.objects.get(target)?;
+        if !origin.in_world || !victim.in_world || origin.map != victim.map {
+            return Ok(false);
+        }
+        let map = self.map()?;
+        let map_data = self
+            .client_map
+            .as_ref()
+            .ok_or_else(|| refuse("execution.spells.f6_WorldObject_IsWithinLOSInMap_owner"))?;
+        let [x2, y2, z2, _] = self.objects.pose(target)?.0.map(f32::from_bits);
+        let end = [
+            x2,
+            y2,
+            z2 + self.collision_height(target, map_data.collision)?,
+        ];
+        let [x1, y1, z1, _] = self.objects.pose(caster)?.0.map(f32::from_bits);
+        let start = [
+            x1,
+            y1,
+            z1 + self.collision_height(caster, map_data.collision)?,
+        ];
+        let vmap = &self.inputs.terrain.vmap;
+        if !vmap.line_of_sight(map.map, start, end, true)? {
+            return Ok(false);
+        }
+        let map_data = self
+            .client_map
+            .as_mut()
+            .ok_or_else(|| refuse("execution.dynamic_collision.spell_map_tree_owner"))?;
+        require(
+            map_data.dynamic.map() == map,
+            "execution.dynamic_collision.spell_map_tree_owner",
+        )?;
+        map_data
+            .dynamic
+            .line_of_sight(map_data.models, vmap, start, end, true)
+    }
     fn indoor_policy(&mut self) -> Result<bool> {
         Ok(self.inputs.indoor_policy && self.inputs.terrain.vmap.settings()[0])
     }
@@ -276,8 +471,61 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
         use SpellCastResult as R;
         let live = self.live()?;
         match check {
+            SpellCheck::IsSpellReady | SpellCheck::HasGcd if self.client_map.is_some() => {
+                let map_data = self
+                    .client_map
+                    .as_ref()
+                    .ok_or_else(|| check.missing_owner())?;
+                let now = || (map_data.clock_millis)(self.map()?);
+                let ready = if check == SpellCheck::IsSpellReady {
+                    live.cooldowns.ready_at(t, spell.item_cast, now()?)?
+                } else {
+                    !live
+                        .cooldowns
+                        .gcd
+                        .has_with_clock(t.startrecoverycategory, now)?
+                };
+                Ok(if ready { R::Ok } else { R::NotReady })
+            }
+            SpellCheck::Shapeshift => self.stores.shapeshift_error(t, live.shapeshift_form),
+            SpellCheck::LowLevelRank if self.client_map.is_some() => {
+                let target = spell.targets.unit.ok_or_else(|| check.missing_owner())?;
+                require_same_aura_rank(t, Self::level(self.units.get(self.objects, target)?)?)?;
+                Ok(R::Ok)
+            }
+            SpellCheck::Visible if self.client_map.is_some() => {
+                let target = spell.targets.unit.ok_or_else(|| check.missing_owner())?;
+                let flags = self.units.get(self.objects, target)?.flags;
+                // Spell.cpp:4868-4870. This harmful visibility check is for controlled targets.
+                require(
+                    flags & 8 == 0
+                        || positive_unit_spell(self.stores, t, 7, Some((spell.caster, target)))?,
+                    "execution.spells.Spell_4869.IsVisibleForOrDetect_owner",
+                )?;
+                Ok(R::Ok)
+            }
+            SpellCheck::TargetFilter(index) if self.client_map.is_some() => {
+                let map_data = self
+                    .client_map
+                    .as_ref()
+                    .ok_or_else(|| check.missing_owner())?;
+                spell.check_target_filter(
+                    t,
+                    usize::from(index),
+                    self.objects,
+                    &SourcePlayerRelations {
+                        live: SourceRelations {
+                            objects: self.objects,
+                            units: self.units,
+                            factions: map_data.factions,
+                        },
+                        players: &[self.player],
+                    },
+                )
+            }
             SpellCheck::PositiveImmunity(mask) => {
-                let target = self.player.object;
+                let target = spell.targets.unit.unwrap_or(self.player.object);
+                let live = self.units.get(self.objects, target)?;
                 let positive =
                     positive_unit_spell(self.stores, t, 7, Some((spell.caster, target)))?;
                 if positive
@@ -295,16 +543,24 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
                     Ok(R::Ok)
                 }
             }
-            SpellCheck::SpiritOfRedemption
-                if live.auras.has_aura_type(176) && t.attributesex3 & 0x0010_0000 == 0 =>
-            {
-                Ok(R::BadTargets)
+            SpellCheck::SpiritOfRedemption => {
+                let target = spell.targets.unit.unwrap_or(self.player.object);
+                let fields = self.units.get(self.objects, target)?;
+                Ok(
+                    if fields.auras.has_aura_type(176) && t.attributesex3 & 0x0010_0000 == 0 {
+                        R::BadTargets
+                    } else {
+                        R::Ok
+                    },
+                )
             }
-            SpellCheck::SpiritOfRedemption => Ok(R::Ok),
             SpellCheck::AllowedInLocation(location) => {
                 self.location_context()?.check(t, spell.caster, location)
             }
             SpellCheck::Items => spell.check_items(t, true, self),
+            SpellCheck::Range(_) if self.client_map.is_some() => {
+                Err(refuse("execution.spells.Spell_5145.CheckRange_owner"))
+            }
             _ => Err(check.missing_owner()),
         }
     }
@@ -338,7 +594,14 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
                 |index| live.stores.dbc("SpellCastTimes.dbc", index),
                 spell,
                 t,
-                || live.player.spell_rank(live.skills, t),
+                || {
+                    live.player.spell_rank(
+                        live.skills.ok_or_else(|| {
+                            refuse("execution.spells.Player_5885.GetSpellRank_owner")
+                        })?,
+                        t,
+                    )
+                },
                 |time| {
                     live.player
                         .apply_spell_mod(live.stores, t, MOD_CASTING_TIME, time)
@@ -712,8 +975,9 @@ fn detached_cast_binds_empty_duration_mods_and_refuses_cooldown_and_delivery() {
         objects: &objects,
         units: &mut units,
         stores: &stores,
-        skills: &Default::default(),
+        skills: Some(&Default::default()),
         inputs: &mut inputs,
+        client_map: None,
     };
     let t = SpellTemplate::default();
     let mut spell = SourceSpell::new(1, &t, caster, SpellTriggerFlags(0), 0).unwrap();
@@ -786,4 +1050,246 @@ fn apply_spell_mod_checks_the_client_gate_and_the_selected_operation() {
     ] {
         assert_eq!(radius(&player, &t).unwrap(), 12.5);
     }
+}
+
+#[test]
+fn client_fireball_admission_retains_the_queued_spell_at_range() {
+    use crate::native::production_compiler::VerifiedCatalog;
+    use benilla_sim::source_rng::{DrawCursor, Mt19937, SourceRandom};
+    use std::path::Path;
+
+    let Some(root) = std::env::var_os("BENILLA_F2_CATALOG") else {
+        eprintln!("SKIP client Fireball admission: BENILLA_F2_CATALOG absent");
+        return;
+    };
+    let mut catalog = VerifiedCatalog::open(Path::new(&root), false).unwrap();
+    let collision = SourceCollisionModels::load(&mut catalog).unwrap();
+    let map = MapIdentity {
+        map: 0,
+        instance: 0,
+        creation_generation: 1,
+    };
+    let cells = SourceCells::new(map).unwrap();
+    let mut objects = SourceObjects::default();
+    let mut units = SourceUnits::default();
+    let mut mage = SourcePlayer::construct(
+        &mut objects,
+        &mut units,
+        12,
+        900_000,
+        |min, _| Ok(min),
+        || Ok(0),
+    )
+    .unwrap();
+    let caster = mage.object();
+    let victim = objects.construct(12, SourceObjectKind::Creature).unwrap();
+    for (unit, guid, x, class, level, faction) in [
+        (caster, SourceGuid::from_raw(1), 0.0_f32, 8, 1, 1),
+        (
+            victim,
+            SourceGuid::with_entry(HighGuid::Creature, 6, 79994),
+            4.0,
+            1,
+            2,
+            25,
+        ),
+    ] {
+        objects.assign_guid(unit, 0, guid).unwrap();
+        objects.bind_map(unit, map, &cells).unwrap();
+        objects
+            .set_pose(unit, SourcePose([x.to_bits(), 0, 10.0_f32.to_bits(), 0]))
+            .unwrap();
+        objects.add_to_world(unit).unwrap();
+        if unit == victim {
+            units
+                .register(&objects, victim, SourceUnitFields::constructed_creature())
+                .unwrap();
+        }
+        let fields = units.get_mut(&objects, unit).unwrap();
+        fields.unit_class = Some(class);
+        fields.power_fields = Some(SourceUnitPowerFields {
+            level,
+            create_health: 0,
+            create_mana: 0,
+            auxiliary_current: None,
+            auxiliary_maximum: None,
+        });
+        fields.faction = faction;
+    }
+    units.get_mut(&objects, caster).unwrap().flags |= 8;
+    mage.native_display = 49;
+    mage.scale = 1.;
+    let creature = &mut units.get_mut(&objects, victim).unwrap().loaded_creature;
+    creature.native_display = 10913; // pre-start-classicmangos.sql:421114.
+    creature.scale = Some(1.0_f32.to_bits());
+    mage.spells.insert(
+        133,
+        SourcePlayerSpell {
+            state: SourcePlayerSpellState::Unchanged,
+            active: true,
+            dependent: false,
+            disabled: false,
+        },
+    );
+    let mut stores = SourceSpellStores::default();
+    // pre-start-classicmangos.sql:837896. Fields reached by the admission path.
+    stores
+        .insert_template(SpellTemplate {
+            id: 133,
+            school: 2,
+            spelllevel: 1,
+            attributes: 65536,
+            equippeditemclass: -1,
+            effect1: 2,
+            effect2: 6,
+            effectimplicittargeta1: 6,
+            effectimplicittargeta2: 6,
+            effectapplyauraname2: 3,
+            rangeindex: 35,
+            dmgclass: 1,
+            ..Default::default()
+        })
+        .unwrap();
+    let targets = SourceSpellTargetMgr::initialize(&stores);
+    let factions = CreatureAiFactions::load_catalog(&mut catalog).unwrap();
+    let mut terrain = SourceTerrainManager::default();
+    terrain.files.retain_source_absence(0, 32, 32);
+    terrain.dbc.areas.insert(
+        87,
+        SourceAreaEntry {
+            id: 87,
+            map: 0,
+            zone: 12,
+            flag: 0,
+        },
+    );
+    terrain.dbc.linked_zones.insert(0, 87);
+    let mut mt = Mt19937::from_seed(1);
+    let mut cursor = DrawCursor::default();
+    let mut sink = |_| {};
+    let mut random = SourceRandom::new(12, &mut mt, &mut cursor, &mut sink).unwrap();
+    terrain.load_terrain(0, &mut random).unwrap();
+    let session = SourceWorldSession::construct(1, true);
+    let mut inputs = SourcePlayerCastInputs {
+        targets: &targets,
+        terrain: &mut terrain,
+        map_time: &|_| Ok(29558),
+        aura_seconds: &mut |_| panic!("cast has not reached aura work"),
+        irand: &mut |_, _| panic!("cast has not reached launch"),
+        session: &session,
+        max_casts: 20,
+        indoor_policy: false,
+    };
+    let mut dynamic = SourceDynamicMap::new(map);
+    let models = SourceDynamicModels::default();
+    let mut invoke = |player: &mut SourcePlayer, units: &mut SourceUnits, packet: &[u8]| {
+        player.client_unit_cast(
+            packet,
+            &objects,
+            units,
+            &stores,
+            &mut inputs,
+            SourceClientCastMap {
+                factions: &factions,
+                collision: &collision,
+                dynamic: &mut dynamic,
+                models: &models,
+                clock_millis: &|_| Ok(29558),
+            },
+        )
+    };
+    // northshire-03 A trace.tsv:75148171 and client-packets.jsonl:371.
+    let packet = [0x85, 0, 0, 0, 2, 0, 0xcf, 0x7a, 0x38, 1, 6, 0x30, 0xf1];
+    mage.spells.get_mut(&133).unwrap().disabled = true;
+    assert_eq!(invoke(&mut mage, &mut units, &packet).unwrap(), None);
+    assert!(units
+        .get(&objects, caster)
+        .unwrap()
+        .unit_events
+        .inventory()
+        .queued
+        .is_empty());
+    mage.spells.get_mut(&133).unwrap().disabled = false;
+    assert_eq!(
+        invoke(&mut mage, &mut units, &packet).unwrap_err().id,
+        "execution.spells.Spell_5145.CheckRange_owner"
+    );
+    let live = units.get(&objects, caster).unwrap();
+    let spell = &live.spell_starts.spells[&1];
+    assert_eq!(spell.targets.unit, Some(victim));
+    assert!(spell.client_cast);
+    assert_eq!(spell.state, SourceSpellState::Targeting);
+    assert_eq!(live.spell_slots.current(SpellSlot::Generic), None);
+    // Trace.tsv:75160591-75160593. SpellStart queues before CheckCast.
+    assert_eq!(
+        spell.event,
+        Some(live.unit_events.inventory().queued[0].event_id)
+    );
+}
+
+#[test]
+fn check_cast_uses_false_line_of_sight_before_target_rank() {
+    struct BlockedSight(SpellUnitState);
+    impl SpellExecutionOwner for BlockedSight {
+        fn unit(&mut self, _: ObjectHandle) -> Result<SpellUnitState> {
+            Ok(self.0)
+        }
+        fn check(
+            &mut self,
+            _: &mut SourceSpell,
+            _: &SpellTemplate,
+            check: SpellCheck,
+        ) -> Result<SpellCastResult> {
+            assert_eq!(check, SpellCheck::IsSpellReady);
+            Ok(SpellCastResult::Ok)
+        }
+        fn indoor_policy(&mut self) -> Result<bool> {
+            Ok(false)
+        }
+        fn line_of_sight(&mut self, caster: ObjectHandle, target: ObjectHandle) -> Result<bool> {
+            assert_ne!(caster, target);
+            Ok(false)
+        }
+    }
+    let (mut objects, mut units) = (SourceObjects::default(), SourceUnits::default());
+    let player = super::tests::construct(&mut objects, &mut units);
+    let target = objects.construct(1, SourceObjectKind::Creature).unwrap();
+    let template = SpellTemplate {
+        effect1: 2,
+        effectimplicittargeta1: 6,
+        ..Default::default()
+    };
+    let mut spell =
+        SourceSpell::new(1, &template, player.object(), SpellTriggerFlags(0), 0).unwrap();
+    spell.targets.unit = Some(target);
+    spell.targets.mask = 2;
+    let state = SpellUnitState {
+        player: true,
+        gameobject: false,
+        alive: true,
+        standing: true,
+        player_controlled: true,
+        combat: false,
+        battleground_wait_leave: false,
+        gm: false,
+        moving: false,
+        falling_far: false,
+        stealth: false,
+        form: 0,
+        class: 8,
+        combo_target: None,
+        mounted: false,
+        taxi: false,
+        totem: false,
+        untargetable: false,
+        has_ai: false,
+        position: [0; 4],
+    };
+    // Spell.cpp:4850-4859 returns for a blocked sight line before the rank read.
+    assert_eq!(
+        spell
+            .check_cast(&template, false, &mut BlockedSight(state))
+            .unwrap(),
+        SpellCastResult::LineOfSight
+    );
 }

@@ -34,11 +34,14 @@ impl SourceLiveDamage<'_> {
         }
     }
 
-    fn relations(&self) -> SourceRelations<'_> {
-        SourceRelations {
-            objects: self.objects,
-            units: self.units,
-            factions: self.factions,
+    fn relations(&self) -> crate::native::source_execution::relations::SourcePlayerRelations<'_> {
+        crate::native::source_execution::relations::SourcePlayerRelations {
+            live: SourceRelations {
+                objects: self.objects,
+                units: self.units,
+                factions: self.factions,
+            },
+            players: self.players,
         }
     }
 
@@ -331,66 +334,6 @@ impl SourceLiveDamage<'_> {
     }
 }
 
-impl SourceRelationOwner for SourceLiveDamage<'_> {
-    fn relation_kind(&self, unit: ObjectHandle) -> Result<SourceObjectKind> {
-        Ok(self.objects.get(unit)?.kind)
-    }
-
-    fn relation_player_flags(&self, player: ObjectHandle, read: &'static str) -> Result<u32> {
-        Ok(live_player(self.players, player, read)?.player_flags())
-    }
-
-    fn relation_flags(&self, unit: ObjectHandle) -> Result<u32> {
-        self.relations().relation_flags(unit)
-    }
-
-    fn relation_master(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
-        self.relations().relation_master(unit)
-    }
-
-    fn relation_faction(&self, unit: ObjectHandle) -> Result<Option<&SourceFactionTemplate>> {
-        Ok(self
-            .factions
-            .relation_template(self.units.get(self.objects, unit)?.faction))
-    }
-
-    fn relation_persuaded(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
-        self.relations().relation_persuaded(unit)
-    }
-
-    fn relation_has_reputation(&self, faction: u32) -> Result<bool> {
-        self.relations().relation_has_reputation(faction)
-    }
-
-    fn relation_faction_player(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
-        // Relations.cpp:72-90. An empty master GUID makes a player their own controller.
-        require(
-            self.objects.get(unit)?.kind == SourceObjectKind::Player
-                && self
-                    .units
-                    .get(self.objects, unit)?
-                    .control_guids
-                    .master_guid()
-                    .raw()
-                    == 0,
-            "execution.relations.GetFactionReaction_166_GetControllingPlayer_owner",
-        )?;
-        Ok(Some(unit))
-    }
-
-    fn relation_forced_rank(&self, player: ObjectHandle, _faction: u32) -> Result<Option<u32>> {
-        let read = "execution.relations.Relations_172.GetForcedRankIfAny_owner";
-        // ReputationMgr.cpp:128-129. The forced-reaction writer has not been ported.
-        require(
-            live_player(self.players, player, read)?
-                .forced_reactions
-                .is_empty(),
-            read,
-        )?;
-        Ok(None)
-    }
-}
-
 struct CombatEntry<'a> {
     spells: &'a SourceSpellStores,
 }
@@ -432,7 +375,7 @@ impl UnitAiExecutionOwner for CombatEntry<'_> {
 
 impl ThreatExecutionOwner for SourceLiveDamage<'_> {
     fn can_attack(&mut self, source: ObjectHandle, target: ObjectHandle) -> Result<bool> {
-        unit_can_attack(source, target, self)
+        unit_can_attack(source, target, &self.relations())
     }
 
     fn can_enter_combat(&mut self, unit: ObjectHandle) -> Result<bool> {

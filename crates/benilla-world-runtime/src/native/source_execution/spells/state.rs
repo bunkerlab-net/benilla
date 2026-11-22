@@ -382,6 +382,16 @@ impl SourceSpellGcd {
     pub fn has(&self, category: u32, now: i64) -> bool {
         self.deadlines.get(&category).is_some_and(|at| *at > now)
     }
+    // Object.cpp:2611-2613 reads the clock only when its category exists.
+    pub(in crate::native::source_execution) fn has_with_clock(
+        &self,
+        category: u32,
+        clock: impl FnOnce() -> Result<i64>,
+    ) -> Result<bool> {
+        self.deadlines
+            .get(&category)
+            .map_or(Ok(false), |at| Ok(*at > clock()?))
+    }
     pub fn add(&mut self, t: &SpellTemplate, now: i64, duration: u32) -> Result<()> {
         if duration != 0 {
             let at = now

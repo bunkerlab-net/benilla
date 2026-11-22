@@ -106,6 +106,10 @@ pub struct SourcePlayerCreateConfig {
 /// Creation is detached. A refusal leaves no accessor, map-player list, or grid registration.
 pub struct SourcePlayer {
     object: ObjectHandle,
+    // Player.cpp:471 starts control on the player's own Unit.
+    mover: ObjectHandle,
+    // Player.h:791 initializes BGData with no battleground instance.
+    battleground_instance: u32,
     object_type: u32,
     pub name: String,
     pub extra_flags: u32,
@@ -205,6 +209,13 @@ impl SourcePlayer {
             // Player.cpp:581-582 overrides the Unit defaults.
             fields.can_parry = false;
             fields.can_block = false;
+            // Object.h:753-754 and Unit.cpp:412-413 initialize MovementInfo and rates.
+            fields.movement = Some(SourceCreatureMovement {
+                flags: Some(0),
+                rates: [Some(1.); 6],
+                server_time: 0,
+                fall_time: 0,
+            });
             units.register(objects, object, fields)?;
 
             // uint32 multiplication wraps before division at Player.cpp:515.
@@ -219,6 +230,8 @@ impl SourcePlayer {
             // Object.cpp:105-108 clears update fields on _Create. These are the zero words.
             Ok(Self {
                 object,
+                mover: object,
+                battleground_instance: 0,
                 object_type: 0,
                 name: String::new(),
                 extra_flags: 4, // Player.cpp:490-496; normal security accepts whispers.

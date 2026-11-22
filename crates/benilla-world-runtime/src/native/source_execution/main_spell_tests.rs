@@ -536,7 +536,8 @@ fn target_filter_uses_the_source_table_and_refuses_the_selected_relation() {
     };
     for (ty, id) in [
         (21, ""),
-        (6, "execution.relations.Unit_CanAttackSpell_1065_owner"),
+        // The restricted relation owner has no IsAlive binding for a harmful filter.
+        (6, "execution.relations.Relations_1074.IsAlive_owner"),
         (35, "execution.relations.CheckCast_5088_IsInGroup_owner"),
         (57, "execution.relations.CheckCast_5088_IsInGroup_owner"),
     ] {

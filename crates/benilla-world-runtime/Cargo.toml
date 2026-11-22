@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 benilla-sim = { path = "../benilla-sim" }
+benilla-protocol = { path = "../benilla-protocol" }
 benilla-native-terrain = { path = "../benilla-native-terrain" }
 benilla-native-vmap = { path = "../benilla-native-vmap" }
 # Only the launcher's explicit dev feature may enable source-tree path resolution.
@@ -20,9 +21,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 sha2 = "0.10"
 rustc_apfloat = "=0.2.3"
-
-[dev-dependencies]
-benilla-protocol = { path = "../benilla-protocol" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

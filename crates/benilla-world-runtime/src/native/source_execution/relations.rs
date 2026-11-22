@@ -2,6 +2,7 @@
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 //! Relations.cpp:100-267,458-510,1131-1134, with first-read refusals.
 use super::*;
+use super::{player::SourcePlayer, unit_vitals::live_player};
 
 pub trait SourceRelationOwner {
     fn relation_flags(&self, unit: ObjectHandle) -> Result<u32>;
@@ -32,15 +33,31 @@ pub trait SourceRelationOwner {
             "execution.relations.Relations_360.GetCreatureInfo_owner",
         ))
     }
-    fn relation_faction_player(&self, _unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
-        Err(refuse(
-            "execution.relations.GetFactionReaction_166_GetControllingPlayer_owner",
-        ))
+    fn relation_controlling_player(
+        &self,
+        _unit: ObjectHandle,
+        read: &'static str,
+    ) -> Result<Option<ObjectHandle>> {
+        Err(refuse(read))
     }
-    fn relation_forced_rank(&self, _player: ObjectHandle, _faction: u32) -> Result<Option<u32>> {
-        Err(refuse(
-            "execution.relations.Relations_172.GetForcedRankIfAny_owner",
-        ))
+    fn relation_forced_rank(
+        &self,
+        _player: ObjectHandle,
+        _faction: u32,
+        read: &'static str,
+    ) -> Result<Option<u32>> {
+        Err(refuse(read))
+    }
+    fn relation_alive(&self, _unit: ObjectHandle) -> Result<bool> {
+        Err(refuse("execution.relations.Relations_1074.IsAlive_owner"))
+    }
+    fn relation_at_war(
+        &self,
+        _player: ObjectHandle,
+        _faction: u32,
+        read: &'static str,
+    ) -> Result<bool> {
+        Err(refuse(read))
     }
     fn relation_reputation_rank(&self, _player: ObjectHandle, _faction: u32) -> Result<u32> {
         Err(refuse("execution.relations.Relations_179.GetRank_owner"))
@@ -74,6 +91,86 @@ impl SourceRelationOwner for SourceRelations<'_> {
     }
     fn relation_has_reputation(&self, faction: u32) -> Result<bool> {
         Ok(self.factions.relation_has_reputation(faction))
+    }
+}
+
+pub(super) struct SourcePlayerRelations<'a> {
+    pub live: SourceRelations<'a>,
+    pub players: &'a [&'a SourcePlayer],
+}
+
+impl SourceRelationOwner for SourcePlayerRelations<'_> {
+    fn relation_flags(&self, unit: ObjectHandle) -> Result<u32> {
+        self.live.relation_flags(unit)
+    }
+
+    fn relation_master(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        self.live.relation_master(unit)
+    }
+
+    fn relation_faction(&self, unit: ObjectHandle) -> Result<Option<&SourceFactionTemplate>> {
+        self.live.relation_faction(unit)
+    }
+
+    fn relation_persuaded(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        self.live.relation_persuaded(unit)
+    }
+
+    fn relation_has_reputation(&self, faction: u32) -> Result<bool> {
+        self.live.relation_has_reputation(faction)
+    }
+
+    fn relation_kind(&self, unit: ObjectHandle) -> Result<SourceObjectKind> {
+        Ok(self.live.objects.get(unit)?.kind)
+    }
+
+    fn relation_alive(&self, unit: ObjectHandle) -> Result<bool> {
+        Ok(self.live.objects.get(unit)?.alive)
+    }
+
+    fn relation_player_flags(&self, player: ObjectHandle, read: &'static str) -> Result<u32> {
+        Ok(live_player(self.players, player, read)?.player_flags())
+    }
+
+    fn relation_controlling_player(
+        &self,
+        unit: ObjectHandle,
+        read: &'static str,
+    ) -> Result<Option<ObjectHandle>> {
+        // Relations.cpp:72-90 resolves a nonempty master before the self case.
+        let object = self.live.objects.get(unit)?;
+        let master = self
+            .live
+            .units
+            .get(self.live.objects, unit)?
+            .control_guids
+            .master_guid();
+        if master.raw() != 0 {
+            let map = object.map.ok_or_else(|| refuse(read))?;
+            if let Some(master) = self.live.objects.lookup_unit(map, master) {
+                return Ok(
+                    (self.relation_kind(master)? == SourceObjectKind::Player).then_some(master)
+                );
+            }
+            return Ok(None);
+        }
+        Ok((object.kind == SourceObjectKind::Player).then_some(unit))
+    }
+
+    fn relation_forced_rank(
+        &self,
+        player: ObjectHandle,
+        _faction: u32,
+        read: &'static str,
+    ) -> Result<Option<u32>> {
+        // ReputationMgr.cpp:128-129. The forced-reaction writer is not bound.
+        require(
+            live_player(self.players, player, read)?
+                .forced_reactions
+                .is_empty(),
+            read,
+        )?;
+        Ok(None)
     }
 }
 
@@ -361,7 +458,10 @@ fn unit_faction_reaction(
     owner: &(impl SourceRelationOwner + ?Sized),
 ) -> Result<u32> {
     if owner.relation_flags(target)? & 8 != 0 {
-        if let Some(player) = owner.relation_faction_player(target)? {
+        if let Some(player) = owner.relation_controlling_player(
+            target,
+            "execution.relations.GetFactionReaction_166_GetControllingPlayer_owner",
+        )? {
             let flags = owner.relation_player_flags(
                 player,
                 "execution.relations.Relations_169.PLAYER_FLAGS_owner",
@@ -369,7 +469,11 @@ fn unit_faction_reaction(
             if flags & 0x100 != 0 && this.flags & 0x1000 != 0 {
                 return Ok(1);
             }
-            if let Some(rank) = owner.relation_forced_rank(player, this.faction)? {
+            if let Some(rank) = owner.relation_forced_rank(
+                player,
+                this.faction,
+                "execution.relations.Relations_172.GetForcedRankIfAny_owner",
+            )? {
                 return Ok(rank);
             }
             if owner.relation_has_reputation(this.faction)? {
@@ -390,9 +494,46 @@ pub fn unit_reaction_to(
         return Ok(4);
     }
     if owner.relation_flags(caster)? & 8 != 0 {
-        return Err(refuse(
+        let player = owner.relation_controlling_player(
+            caster,
             "execution.relations.GetReactionTo_208_GetControllingPlayer_owner",
-        ));
+        )?;
+        require(
+            owner.relation_flags(target)? & 8 == 0,
+            "execution.relations.Relations_212.GetControllingPlayer_owner",
+        )?;
+        // Relations.cpp:233-249. Forced rank precedes the reputation row.
+        if let Some(player) = player {
+            if let Some(other) = owner.relation_faction(target)? {
+                if let Some(rank) = owner.relation_forced_rank(
+                    player,
+                    other.faction,
+                    "execution.relations.Relations_238.GetForcedRankIfAny_owner",
+                )? {
+                    return Ok(rank);
+                }
+                if owner.relation_has_reputation(other.faction)? {
+                    let flags = owner.relation_player_flags(
+                        player,
+                        "execution.relations.Relations_246.PLAYER_FLAGS_owner",
+                    )?;
+                    if flags & 0x100 != 0 && other.flags & 0x1000 != 0 {
+                        return Ok(1);
+                    }
+                    return Ok(
+                        if owner.relation_at_war(
+                            player,
+                            other.faction,
+                            "execution.relations.Relations_249.IsAtWar_owner",
+                        )? {
+                            1
+                        } else {
+                            4
+                        },
+                    );
+                }
+            }
+        }
     }
     let mut reaction = 3;
     if let Some(this) = owner.relation_faction(caster)? {
@@ -420,6 +561,17 @@ pub fn unit_can_attack(
     target: ObjectHandle,
     owner: &(impl SourceRelationOwner + ?Sized),
 ) -> Result<bool> {
+    unit_can_attack_checked(source, target, None, owner)
+}
+
+// Relations.cpp:351-416 and 1206-1278 share the same reaction rules.
+// Only the server path uses the spell's immunity bypass.
+fn unit_can_attack_checked(
+    source: ObjectHandle,
+    target: ObjectHandle,
+    server_ignore: Option<bool>,
+    owner: &(impl SourceRelationOwner + ?Sized),
+) -> Result<bool> {
     // TYPEID_UNIT includes pets. Player flags precede the Unit flag reads.
     if matches!(
         owner.relation_kind(source)?,
@@ -427,7 +579,11 @@ pub fn unit_can_attack(
     ) && owner.relation_kind(target)? == SourceObjectKind::Player
         && owner.relation_player_flags(
             target,
-            "execution.relations.Relations_358.PLAYER_FLAGS_owner",
+            if server_ignore.is_some() {
+                "execution.relations.Relations_1213.PLAYER_FLAGS_owner"
+            } else {
+                "execution.relations.Relations_358.PLAYER_FLAGS_owner"
+            },
         )? & 0x10
             != 0
         && owner.relation_creature_type_flags(source)? & 0x0020_0000 == 0
@@ -441,8 +597,9 @@ pub fn unit_can_attack(
     let source_flags = owner.relation_flags(source)?;
     let source_controlled = source_flags & 8 != 0;
     let target_controlled = target_flags & 8 != 0;
-    if target_flags & (if source_controlled { 0x100 } else { 0x200 }) != 0
-        || source_flags & (if target_controlled { 0x100 } else { 0x200 }) != 0
+    if !server_ignore.unwrap_or(false)
+        && (target_flags & (if source_controlled { 0x100 } else { 0x200 }) != 0
+            || source_flags & (if target_controlled { 0x100 } else { 0x200 }) != 0)
     {
         return Ok(false);
     }
@@ -461,6 +618,76 @@ pub fn unit_can_attack(
         unit_reaction_to(source, target, owner)? < 2
             || unit_reaction_to(target, source, owner)? < 2,
     )
+}
+
+// Relations.cpp:1065-1120,1172-1195. Spell targeting adds the dead-target
+// guard and the server-side at-war fallback.
+pub(super) fn unit_can_attack_spell(
+    source: ObjectHandle,
+    target: ObjectHandle,
+    attrs_ex2: u32,
+    attrs_ex3: u32,
+    owner: &(impl SourceRelationOwner + ?Sized),
+) -> Result<bool> {
+    if !owner.relation_alive(target)? && attrs_ex2 & 1 == 0 {
+        return Ok(false);
+    }
+    let ignore = attrs_ex3 & 0x1000_0000 != 0;
+    if !unit_can_attack_checked(source, target, Some(ignore), owner)?
+        && (owner.relation_flags(target)? & 8 == 0
+            || unit_reaction_to(source, target, owner)? < 4
+            || !target_at_war(
+                source,
+                target,
+                "execution.relations.Relations_1181.GetControllingPlayer_owner",
+                "execution.relations.Relations_1186.IsAtWar_owner",
+                owner,
+            )?
+            .unwrap_or(false))
+    {
+        return Ok(false);
+    }
+    // Spell.cpp:5085 uses the non-AOE call at this entry.
+    if owner.relation_flags(target)? & 8 != 0
+        && owner.relation_flags(source)? & 8 == 0
+        && unit_reaction_to(source, target, owner)? >= 2
+    {
+        if let Some(at_war) = target_at_war(
+            source,
+            target,
+            "execution.relations.Relations_1106.GetControllingPlayer_owner",
+            "execution.relations.Relations_1112.IsAtWar_owner",
+            owner,
+        )? {
+            return Ok(at_war);
+        }
+    }
+    Ok(true)
+}
+
+// Relations.cpp:1106-1112,1181-1187. A missing player or faction leaves
+// the caller's original attackability result untouched.
+fn target_at_war(
+    source: ObjectHandle,
+    target: ObjectHandle,
+    player_read: &'static str,
+    war_read: &'static str,
+    owner: &(impl SourceRelationOwner + ?Sized),
+) -> Result<Option<bool>> {
+    let Some(player) = owner.relation_controlling_player(target, player_read)? else {
+        return Ok(None);
+    };
+    let Some(faction) = owner.relation_faction(source)? else {
+        return Ok(None);
+    };
+    if !owner.relation_has_reputation(faction.faction)? {
+        return Ok(None);
+    }
+    Ok(Some(owner.relation_at_war(
+        player,
+        faction.faction,
+        war_read,
+    )?))
 }
 
 /// Relations.cpp:473-482 reads immunity only when a master exists.

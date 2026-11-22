@@ -1601,22 +1601,25 @@ fn live_event_ai_latches_death_prevention_before_health_thresholds() {
 #[test]
 fn live_forced_reaction_read_accepts_only_the_empty_constructor_map() {
     let mut f = LiveFixture::vermin();
-    let read = |f: &mut LiveFixture| {
-        SourceLiveDamage {
-            objects: &f.objects,
-            units: &mut f.units,
-            spells: &f.spells,
+    let read = |f: &LiveFixture| {
+        crate::native::source_execution::relations::SourcePlayerRelations {
+            live: SourceRelations {
+                objects: &f.objects,
+                units: &f.units,
+                factions: &f.factions,
+            },
             players: &[&f.mage],
-            ais: &f.ais,
-            event_ais: &mut f.event_ais,
-            factions: &f.factions,
         }
-        .relation_forced_rank(f.mage.object(), 25)
+        .relation_forced_rank(
+            f.mage.object(),
+            25,
+            "execution.relations.Relations_172.GetForcedRankIfAny_owner",
+        )
     };
-    assert_eq!(read(&mut f).unwrap(), None);
+    assert_eq!(read(&f).unwrap(), None);
     f.mage.forced_reactions.insert(25, 1);
     assert_eq!(
-        read(&mut f).unwrap_err().id,
+        read(&f).unwrap_err().id,
         "execution.relations.Relations_172.GetForcedRankIfAny_owner"
     );
 }
@@ -1660,4 +1663,39 @@ fn live_event_ai_stops_at_a_configured_death_prevention_event() {
     );
     assert!(f.combat.death_prevented(f.victim));
     assert_eq!(f.event_ais[&f.victim].throw_step, 0);
+}
+
+#[test]
+fn explicit_spell_attackability_honors_live_immunity_and_dead_target() {
+    let mut f = LiveFixture::vermin();
+    let player = f.mage.object();
+    let target = f.victim;
+    let can_attack = |f: &LiveFixture, attrs_ex2, attrs_ex3| {
+        use crate::native::source_execution::relations::{
+            unit_can_attack_spell, SourcePlayerRelations,
+        };
+        unit_can_attack_spell(
+            player,
+            target,
+            attrs_ex2,
+            attrs_ex3,
+            &SourcePlayerRelations {
+                live: SourceRelations {
+                    objects: &f.objects,
+                    units: &f.units,
+                    factions: &f.factions,
+                },
+                players: &[&f.mage],
+            },
+        )
+        .unwrap()
+    };
+    // Relations.cpp:1074,1081,1219-1237. Ignore immunity does not ignore death.
+    assert!(can_attack(&f, 0, 0));
+    f.victim_mut().flags |= 0x100;
+    assert!(!can_attack(&f, 0, 0));
+    assert!(can_attack(&f, 0, 0x1000_0000));
+    f.objects.get_mut(target).unwrap().alive = false;
+    assert!(!can_attack(&f, 0, 0x1000_0000));
+    assert!(can_attack(&f, 1, 0x1000_0000));
 }

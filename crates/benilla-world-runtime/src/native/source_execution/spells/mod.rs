@@ -218,6 +218,15 @@ impl SpellCall {
         })
     }
 }
+
+/// Live map data read by CheckCast for an in-world player cast.
+pub struct SourceClientCastMap<'a> {
+    pub factions: &'a CreatureAiFactions,
+    pub collision: &'a SourceCollisionModels,
+    pub dynamic: &'a mut SourceDynamicMap,
+    pub models: &'a SourceDynamicModels,
+    pub clock_millis: &'a dyn Fn(MapIdentity) -> Result<i64>,
+}
 /// External state queries are fallible. An unbound query never becomes false/OK.
 pub trait SpellExecutionOwner {
     fn active_spell_mod(
@@ -507,7 +516,7 @@ pub trait SpellExecutionOwner {
             "execution.spells.f5_12_pushback_modifiers_rng_owner",
         ))
     }
-    fn line_of_sight(&mut self, _caster: ObjectHandle, _target: ObjectHandle) -> Result<()> {
+    fn line_of_sight(&mut self, _caster: ObjectHandle, _target: ObjectHandle) -> Result<bool> {
         Err(refuse(
             "execution.spells.f6_WorldObject_IsWithinLOSInMap_owner",
         ))
