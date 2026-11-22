@@ -5,6 +5,9 @@ use super::*;
 use benilla_sim::creature_ai::{melee_decision, SwingConditions, SwingDecision};
 use std::collections::BTreeSet;
 
+mod live;
+pub use live::SourceLiveDamage;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceDamageType {
     Direct,
@@ -12,8 +15,33 @@ pub enum SourceDamageType {
     Dot,
     SelfDamage,
     Shield,
+    NoDamage,
     Split,
     Instakill,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceDamageAttack {
+    MainHand,
+    OffHand,
+    Ranged,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceDamageOutcome {
+    Normal,
+    Dodge,
+    Parry,
+    Critical,
+}
+
+/// Unit.h:632-641. The damage used for rage can differ from the landed amount.
+#[derive(Clone, Copy, Debug)]
+pub struct SourceCleanDamage {
+    pub damage: u32,
+    pub attack: SourceDamageAttack,
+    pub outcome: SourceDamageOutcome,
+    pub taken_or_absorbed: bool,
 }
 #[derive(Clone, Copy, Debug)]
 pub struct SourceDamage {
@@ -23,7 +51,9 @@ pub struct SourceDamage {
     pub kind: SourceDamageType,
     pub school: u32,
     pub spell: Option<ThreatSpell>,
-    pub critical: bool,
+    pub clean_damage: Option<SourceCleanDamage>,
+    pub travel_started_ms: Option<u32>,
+    pub durability_loss: bool,
 }
 #[derive(Clone, Copy, Debug)]
 pub struct CombatUnit {
@@ -52,6 +82,12 @@ pub enum CombatCall {
 pub trait CombatExecutionOwner: ThreatExecutionOwner {
     fn combat_unit(&mut self, _unit: ObjectHandle) -> Result<CombatUnit> {
         Err(refuse("execution.combat.f5_04b_unit_fields_owner"))
+    }
+    fn combat_health(&mut self, unit: ObjectHandle) -> Result<u32> {
+        Ok(self.combat_unit(unit)?.health)
+    }
+    fn preventing_death(&mut self, unit: ObjectHandle) -> Result<bool> {
+        Ok(self.combat_unit(unit)?.preventing_death)
     }
     fn combat_call(&mut self, call: CombatCall, _damage: &mut SourceDamage) -> Result<()> {
         Err(refuse(match call {
@@ -157,9 +193,9 @@ impl SourceCombat {
             return Ok(0);
         }
         // health is captured before duel/loot work, Unit.cpp:969-1007.
-        let health = owner.combat_unit(damage.victim)?.health;
+        let health = owner.combat_health(damage.victim)?;
         owner.combat_call(CombatCall::DealDamageNonzeroPrelude, damage)?;
-        if owner.combat_unit(damage.victim)?.preventing_death
+        if owner.preventing_death(damage.victim)?
             && damage.kind != SourceDamageType::Instakill
             && health <= damage.amount
         {
@@ -196,7 +232,9 @@ impl SourceCombat {
                     damage.victim,
                     Some(dealer),
                     value,
-                    damage.critical,
+                    damage
+                        .clean_damage
+                        .is_some_and(|clean| clean.outcome == SourceDamageOutcome::Critical),
                     damage.school,
                     damage.spell,
                     owner,
@@ -220,7 +258,7 @@ impl SourceCombat {
         threats: &mut SourceThreats,
         owner: &mut impl CombatExecutionOwner,
     ) -> Result<u32> {
-        let amount = owner.combat_unit(unit)?.health;
+        let amount = owner.combat_health(unit)?;
         self.deal_damage(
             &mut SourceDamage {
                 dealer: Some(unit),
@@ -229,7 +267,9 @@ impl SourceCombat {
                 kind: SourceDamageType::Instakill,
                 school: 1,
                 spell: None,
-                critical: false,
+                clean_damage: None,
+                travel_started_ms: None,
+                durability_loss: false,
             },
             threats,
             owner,

@@ -145,6 +145,11 @@ pub struct SourceUnitFields {
     pub last_refresh_position: Option<[u32; 4]>,
     pub combat_tick: u32,
     pub damage_by_others: u32,
+    /// ObjectGuid.h:85 and Creature.cpp:137. Creature tap fields.
+    #[serde(skip)]
+    pub loot_recipient_guid: SourceGuid,
+    #[serde(skip)]
+    pub loot_group_recipient_id: u32,
     pub already_called_assistance: bool,
     pub can_call_assistance: bool,
     pub can_check_help: bool,
@@ -516,6 +521,8 @@ impl SourceUnitFields {
             last_refresh_position: None,
             combat_tick: 1200,
             damage_by_others: 0,
+            loot_recipient_guid: SourceGuid::default(),
+            loot_group_recipient_id: 0,
             already_called_assistance: false,
             can_call_assistance: true,
             can_check_help: true,

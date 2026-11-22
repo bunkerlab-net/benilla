@@ -2,8 +2,6 @@
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 use super::*;
 
-const UNIT_STAND_STATE_STAND: u8 = 0; // Unit.h:97.
-const UNIT_STAND_STATE_SLEEP: u8 = 3; // Unit.h:100.
 const UNIT_STAND_STATE_KNEEL: u8 = 8; // Unit.h:105.
 const UNIT_FLAG_PVP: u32 = 0x1000; // Unit.h:478.
 
@@ -112,7 +110,7 @@ impl GarmentsOfQuestsAi {
             run_away_timer_ms: 5000, // npcs_special.cpp:586.
         });
         let live = units.get_mut(objects, unit)?;
-        set_stand_state(objects, unit, live, UNIT_STAND_STATE_KNEEL, false)?;
+        live.set_stand_state(objects, unit, UNIT_STAND_STATE_KNEEL, false)?;
         objects.update_flags(unit, UNIT_FIELD_FLAGS, &mut live.flags, UNIT_FLAG_PVP, true)?;
         let vitals = live
             .vitals
@@ -124,73 +122,13 @@ impl GarmentsOfQuestsAi {
             scaled < f64::from(i32::MAX) + 1.0,
             "execution.ai.npcs_special_592.health_int_out_of_range_undefined",
         )?;
-        set_health(objects, unit, live, scaled as i32 as u32)?;
+        live.set_health(objects, unit, scaled as i32 as u32, &[])?;
         Ok(quest)
     }
 
     pub fn spell_hit(&mut self, _caster: ObjectHandle, _spell: u32) -> Result<()> {
         Err(refuse("execution.ai.npcs_special_595.SpellHit_owner"))
     }
-}
-
-// Unit.cpp:10170-10192. A changed Kneel byte skips the standing aura scan.
-fn set_stand_state(
-    objects: &SourceObjects,
-    unit: ObjectHandle,
-    live: &mut SourceUnitFields,
-    state: u8,
-    acknowledge: bool,
-) -> Result<()> {
-    if !objects.set_update_value(unit, UNIT_FIELD_BYTES_1, &mut live.stand_state, state)? {
-        return Ok(());
-    }
-    require(
-        !matches!(
-            live.stand_state,
-            UNIT_STAND_STATE_STAND | UNIT_STAND_STATE_SLEEP
-        ),
-        "execution.unit.Unit_10184.RemoveAurasWithInterruptFlags_owner",
-    )?;
-    if !acknowledge && objects.get(unit)?.kind == SourceObjectKind::Player {
-        return Err(refuse("execution.unit.Unit_10190.SendPacket_owner"));
-    }
-    Ok(())
-}
-
-// Unit.cpp:9224-9244. Group checks follow the update-field write, even on equality.
-fn set_health(
-    objects: &SourceObjects,
-    unit: ObjectHandle,
-    live: &mut SourceUnitFields,
-    value: u32,
-) -> Result<()> {
-    let vitals = live
-        .vitals
-        .as_mut()
-        .ok_or_else(|| refuse("execution.unit.Unit_9226.GetMaxHealth_owner"))?;
-    objects.set_update_value(
-        unit,
-        UNIT_FIELD_HEALTH,
-        &mut vitals.health,
-        vitals.max_health.min(value),
-    )?;
-    if objects.get(unit)?.kind == SourceObjectKind::Player {
-        return Err(refuse("execution.unit.Unit_9235.GetGroup_owner"));
-    }
-    if !live.control_guids.has_charmer() {
-        return Ok(());
-    }
-    let Some(charmer) = live
-        .control_guids
-        .get_charmer(objects, unit, None, unbound_pet_loading)?
-        .unit()
-    else {
-        return Ok(());
-    };
-    if objects.get(charmer)?.kind == SourceObjectKind::Player {
-        return Err(refuse("execution.unit.Unit_9241.GetGroup_owner"));
-    }
-    Ok(())
 }
 
 #[cfg(test)]

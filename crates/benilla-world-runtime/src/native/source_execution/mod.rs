@@ -41,6 +41,7 @@ mod main_spell;
 mod unit_ai;
 pub use unit_ai::*;
 mod relations;
+mod unit_vitals;
 pub use relations::*;
 #[cfg(test)]
 mod relations_tests;

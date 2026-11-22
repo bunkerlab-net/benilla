@@ -94,6 +94,10 @@ pub struct SourcePlayer {
     object_type: u32,
     pub name: String,
     pub extra_flags: u32,
+    // Player.cpp:525 and GroupReference.h:35 start with no group link.
+    pub(super) group: Option<u32>,
+    // Player.cpp:531 initializes the duel pointer to null.
+    pub(super) duel_opponent: Option<ObjectHandle>,
     pub next_save_ms: u32,
     pub login_time: i64,
     pub last_tick: i64,
@@ -189,6 +193,8 @@ impl SourcePlayer {
                 object_type: 0,
                 name: String::new(),
                 extra_flags: 4, // Player.cpp:490-496; normal security accepts whispers.
+                group: None,
+                duel_opponent: None,
                 next_save_ms,
                 login_time,
                 last_tick: login_time,
