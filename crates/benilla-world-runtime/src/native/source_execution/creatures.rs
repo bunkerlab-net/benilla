@@ -1360,6 +1360,76 @@ where
     factory.creature_created(state, context)?;
     Ok(GridCandidateOutcome::Loaded(object))
 }
+
+trait CreatureProtoWork {
+    // Creature.cpp:1608 assigns the GUID before UpdateEntry at :1610.
+    fn assign_proto_guid(
+        &mut self,
+        object: ObjectHandle,
+        database: u32,
+        guid: SourceGuid,
+    ) -> Result<()>;
+    // Creature.cpp:322-327 and :698 resolve the effective and fallback templates.
+    fn proto_template(&mut self, entry: u32) -> Result<Option<CreatureTemplate>>;
+    // Creature.cpp:664-668 reads the spawn's display override.
+    fn proto_spawn_model(&mut self, spawn: &CreatureSpawn) -> Result<u32>;
+    // Creature.cpp:353-357 calls ObjectMgr.cpp:1615-1633 to resolve the selected model.
+    fn proto_model(&mut self, display: u32) -> Result<Option<CreatureModel>>;
+    // Creature.cpp:678,1279 and ObjectMgr.cpp:1624 use the calling thread.
+    fn proto_random(&mut self) -> Result<&mut dyn CreatureRandom>;
+    // Util.cpp:35-39,68-77 reads the executing thread's RNG.
+    fn proto_thread(&self) -> u64;
+    // Creature.cpp:335-501,508-538,541-631 applies the entry phases in order.
+    fn proto_phase(&mut self, phase: CreaturePhase, state: &mut CreatureConstruction)
+        -> Result<()>;
+    fn observe_proto(&mut self, observation: CreatureFactoryObservation);
+}
+
+struct DbCreatureProtoWork<'a, 'ctx, D, P, F> {
+    factory: &'a mut F,
+    context: &'a mut GridFactoryContext<'ctx, D, P>,
+}
+
+impl<D, P, F> CreatureProtoWork for DbCreatureProtoWork<'_, '_, D, P, F>
+where
+    D: GridDefinitions,
+    P: GridProductOwner,
+    F: CreatureFactoryOwner<D, P>,
+{
+    fn assign_proto_guid(
+        &mut self,
+        object: ObjectHandle,
+        database: u32,
+        guid: SourceGuid,
+    ) -> Result<()> {
+        self.context.objects.assign_guid(object, database, guid)
+    }
+    fn proto_template(&mut self, entry: u32) -> Result<Option<CreatureTemplate>> {
+        self.factory.creature_template(entry)
+    }
+    fn proto_spawn_model(&mut self, spawn: &CreatureSpawn) -> Result<u32> {
+        self.factory.creature_spawn_model(spawn)
+    }
+    fn proto_model(&mut self, display: u32) -> Result<Option<CreatureModel>> {
+        self.factory.creature_model(display)
+    }
+    fn proto_random(&mut self) -> Result<&mut dyn CreatureRandom> {
+        self.factory.creature_random()
+    }
+    fn proto_thread(&self) -> u64 {
+        self.factory.creature_thread()
+    }
+    fn proto_phase(
+        &mut self,
+        phase: CreaturePhase,
+        state: &mut CreatureConstruction,
+    ) -> Result<()> {
+        self.factory.creature_phase(phase, state, self.context)
+    }
+    fn observe_proto(&mut self, observation: CreatureFactoryObservation) {
+        self.factory.observe_creature_factory(observation);
+    }
+}
 pub(super) fn prepare_source_creature<D, P, F>(
     factory: &mut F,
     attempt: GridLoadAttempt,
@@ -1470,19 +1540,42 @@ where
         SourcePose(spawn.position.map(f32::to_bits)),
         true,
     )?;
-    // GUID uses the original entry before event InitEntry override; Creature.cpp:1604-1610,322-324.
-    context.objects.assign_guid(
+    let state = create_source_creature_from_proto(
+        &mut DbCreatureProtoWork { factory, context },
         object,
-        attempt.guid,
-        SourceGuid::with_entry(HighGuid::Creature, entry, allocation.counter),
+        allocation.counter,
+        spawn,
+        original,
+        event,
+        group,
     )?;
-    factory.observe_creature_factory(CreatureFactoryObservation::CreateFromProto);
+    Ok((object, state))
+}
+
+// Creature.cpp:1602-1610 assigns the original identity before UpdateEntry.
+fn create_source_creature_from_proto(
+    work: &mut impl CreatureProtoWork,
+    object: ObjectHandle,
+    counter: u32,
+    spawn: CreatureSpawn,
+    original: CreatureTemplate,
+    event: Option<CreatureEventData>,
+    group: Option<CreatureGroup>,
+) -> Result<Option<CreatureConstruction>> {
+    let entry = original.entry;
+    // Creature.cpp:1604-1610,322-324 uses the original entry before the event override.
+    work.assign_proto_guid(
+        object,
+        spawn.database_guid,
+        SourceGuid::with_entry(HighGuid::Creature, entry, counter),
+    )?;
+    work.observe_proto(CreatureFactoryObservation::CreateFromProto);
     let effective = event.filter(|e| e.entry != 0).map_or(entry, |e| e.entry);
     let template = if effective == entry {
         original
     } else {
-        let Some(template) = factory.creature_template(effective)? else {
-            return Ok((object, None));
+        let Some(template) = work.proto_template(effective)? else {
+            return Ok(None);
         };
         require(
             template.entry == effective,
@@ -1491,71 +1584,61 @@ where
         template
     };
     let mut state = CreatureConstruction::new(object, spawn, entry, template, event, group);
-    factory.creature_phase(CreaturePhase::InitEntryBase, &mut state, context)?;
+    work.proto_phase(CreaturePhase::InitEntryBase, &mut state)?;
     let mut display = event.map_or(0, |event| event.model);
     if display == 0 {
-        display = factory.creature_spawn_model(&state.spawn)?;
+        display = work.proto_spawn_model(&state.spawn)?;
     }
     if display == 0 {
         let choices = state.template.displays;
         let total = source_creature_display_chance(&choices);
-        factory.observe_creature_factory(CreatureFactoryObservation::DisplayChance(total));
+        work.observe_proto(CreatureFactoryObservation::DisplayChance(total));
         let (chosen, roll) =
-            draw_source_creature_display_with_chance(choices, total, factory.creature_random()?)?;
-        factory.observe_creature_factory(CreatureFactoryObservation::DisplayDrawn);
+            draw_source_creature_display_with_chance(choices, total, work.proto_random()?)?;
+        work.observe_proto(CreatureFactoryObservation::DisplayDrawn);
         display = chosen;
         state.rolls.model = Some(roll as u32);
         if display == 0 {
-            display = factory
-                .creature_template(1)?
-                .map_or(0, |t| t.displays[0].id);
-            factory.observe_creature_factory(CreatureFactoryObservation::DisplayFallback);
+            display = work.proto_template(1)?.map_or(0, |t| t.displays[0].id);
+            work.observe_proto(CreatureFactoryObservation::DisplayFallback);
         }
     }
     if display == 0 {
-        return Ok((object, None));
+        return Ok(None);
     }
     let selection = select_source_creature_model(
-        factory,
+        work,
         display,
-        F::creature_model,
+        CreatureProtoWork::proto_model,
         |model| model.other_gender,
-        |factory| factory.creature_random()?.creature_urand(0, 1),
+        |work| work.proto_random()?.creature_urand(0, 1),
     )?;
     if let Some(notice) = selection.missing_gender {
-        factory.observe_creature_factory(CreatureFactoryObservation::MissingModelGender(notice));
+        work.observe_proto(CreatureFactoryObservation::MissingModelGender(notice));
     }
     let Some(model) = selection.model else {
-        return Ok((object, None));
+        return Ok(None);
     };
     state.rolls.gender = selection.roll;
-    factory.observe_creature_factory(CreatureFactoryObservation::ModelSelected);
+    work.observe_proto(CreatureFactoryObservation::ModelSelected);
     state.model = Some(model);
-    factory.creature_phase(CreaturePhase::ModelAndDisplay, &mut state, context)?;
-    factory.creature_phase(
-        CreaturePhase::InitEntryEquipmentAndFlags,
-        &mut state,
-        context,
-    )?;
+    work.proto_phase(CreaturePhase::ModelAndDisplay, &mut state)?;
+    work.proto_phase(CreaturePhase::InitEntryEquipmentAndFlags, &mut state)?;
     let [min, max] = state.template.levels;
     if min == max {
         state.select_level(None)?;
     } else {
-        let thread = factory.creature_thread();
-        let random = factory.creature_random()?;
+        let thread = work.proto_thread();
+        let random = work.proto_random()?;
         require(
             random.creature_stream()? == thread,
             "execution.creature.SelectLevel_urand_thread_mismatch",
         )?;
         state.select_level(Some(random))?;
     }
-    factory.creature_phase(CreaturePhase::SelectLevelStats, &mut state, context)?;
-    factory.creature_phase(
-        CreaturePhase::UpdateEntryFlagsAndSpells,
-        &mut state,
-        context,
-    )?;
-    Ok((object, Some(state)))
+    work.proto_phase(CreaturePhase::SelectLevelStats, &mut state)?;
+    work.proto_phase(CreaturePhase::UpdateEntryFlagsAndSpells, &mut state)?;
+    Ok(Some(state))
 }
 
 /// Selected construction only. EventAI keeps its existing definition/build/base owner path.
