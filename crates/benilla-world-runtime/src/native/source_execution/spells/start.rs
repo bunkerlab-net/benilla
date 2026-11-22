@@ -456,6 +456,10 @@ pub enum SpellSlot {
     AutoRepeat,
 }
 impl SpellSlot {
+    // Unit.h:799-806, ordered by the source's CurrentSpellTypes.
+    pub(in crate::native::source_execution) const NON_MELEE: [Self; 3] =
+        [Self::Generic, Self::AutoRepeat, Self::Channel];
+
     pub fn for_spell(t: &SpellTemplate, s: &SourceSpell) -> Self {
         if is_melee(t) {
             Self::Melee
@@ -702,6 +706,36 @@ impl SourceUnits {
             stores,
         };
         set_current_spell(spell, t, stores, &mut live)
+    }
+
+    /// Unit.cpp:7957-7961; SpellMgr.h:452-455.
+    pub(in crate::native::source_execution) fn interrupt_non_combat_spells(
+        &mut self,
+        objects: &SourceObjects,
+        stores: &SourceSpellStores,
+        caster: ObjectHandle,
+    ) -> Result<()> {
+        let mut slots = RegistrySpellSlots {
+            caster,
+            objects,
+            units: self,
+            stores,
+        };
+        for slot in SpellSlot::NON_MELEE {
+            let Some(id) = slots.slot(slot)? else {
+                continue;
+            };
+            let spell = slots
+                .spell(id)
+                .ok_or_else(|| refuse("execution.spells.Unit_7959.GetCurrentSpell_owner"))?;
+            let template = stores
+                .template(spell.spell)
+                .ok_or_else(|| refuse("execution.spells.Unit_7960.IsNonCombatSpell_owner"))?;
+            if template.attributes & 0x1000_0000 != 0 {
+                slots.interrupt_slot(slot, false)?;
+            }
+        }
+        Ok(())
     }
 }
 

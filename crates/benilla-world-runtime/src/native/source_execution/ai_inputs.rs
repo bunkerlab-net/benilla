@@ -124,35 +124,59 @@ impl CreatureAiFactions {
         let mut view = catalog.dbc_view("Faction.dbc")?;
         for ordinal in 0..view.record_count() {
             let row = view.record(ordinal)?;
-            this.reputation
-                .insert(word(&row, 0)?, (word(&row, 1)? as i32) >= 0);
+            this.add_reputation_row(&row)?;
         }
         drop(view);
         let mut view = catalog.dbc_view("FactionTemplate.dbc")?;
         for ordinal in 0..view.record_count() {
             let row = view.record(ordinal)?;
-            this.templates.insert(
-                word(&row, 0)?,
-                SourceFactionTemplate {
-                    faction: word(&row, 1)?,
-                    flags: word(&row, 2)?,
-                    group: word(&row, 3)?,
-                    friends: word(&row, 4)?,
-                    enemies: word(&row, 5)?,
-                    enemy_factions: [
-                        word(&row, 6)?,
-                        word(&row, 7)?,
-                        word(&row, 8)?,
-                        word(&row, 9)?,
-                    ],
-                    friend_factions: [
-                        word(&row, 10)?,
-                        word(&row, 11)?,
-                        word(&row, 12)?,
-                        word(&row, 13)?,
-                    ],
-                },
-            );
+            this.add_template_row(&row)?;
+        }
+        Ok(this)
+    }
+    fn add_reputation_row(&mut self, row: &serde_json::Value) -> Result<()> {
+        self.reputation
+            .insert(word(row, 0)?, (word(row, 1)? as i32) >= 0);
+        Ok(())
+    }
+
+    fn add_template_row(&mut self, row: &serde_json::Value) -> Result<()> {
+        self.templates.insert(
+            word(row, 0)?,
+            SourceFactionTemplate {
+                faction: word(row, 1)?,
+                flags: word(row, 2)?,
+                group: word(row, 3)?,
+                friends: word(row, 4)?,
+                enemies: word(row, 5)?,
+                enemy_factions: [word(row, 6)?, word(row, 7)?, word(row, 8)?, word(row, 9)?],
+                friend_factions: [
+                    word(row, 10)?,
+                    word(row, 11)?,
+                    word(row, 12)?,
+                    word(row, 13)?,
+                ],
+            },
+        );
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(super) fn from_dbc_rows(reputation: &[&[u32]], templates: &[&[u32]]) -> Result<Self> {
+        fn record(words: &[u32]) -> serde_json::Value {
+            let values: Vec<_> = words
+                .iter()
+                .enumerate()
+                .map(|(i, word)| (i, "u32", word))
+                .collect();
+            serde_json::json!({"values": values})
+        }
+        let mut this = Self::default();
+        for row in reputation {
+            this.add_reputation_row(&record(row))?;
+        }
+        for row in templates {
+            this.add_template_row(&record(row))?;
         }
         Ok(this)
     }

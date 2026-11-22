@@ -109,6 +109,8 @@ pub struct SourcePlayer {
     pub(super) group: Option<u32>,
     // Player.cpp:531 initializes the duel pointer to null.
     pub(super) duel_opponent: Option<ObjectHandle>,
+    // Player.cpp:471 and ReputationMgr.h:60,123 construct the map empty.
+    pub(super) forced_reactions: BTreeMap<u32, u32>,
     pub next_save_ms: u32,
     pub login_time: i64,
     pub last_tick: i64,
@@ -210,6 +212,7 @@ impl SourcePlayer {
                 extra_flags: 4, // Player.cpp:490-496; normal security accepts whispers.
                 group: None,
                 duel_opponent: None,
+                forced_reactions: BTreeMap::new(),
                 next_save_ms,
                 login_time,
                 last_tick: login_time,

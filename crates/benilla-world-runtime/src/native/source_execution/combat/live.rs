@@ -5,6 +5,7 @@ use crate::native::source_execution::{
     player::SourcePlayer,
     unit_vitals::{live_player, UNIT_STAND_STATE_STAND},
 };
+use std::collections::BTreeMap;
 
 const UNIT_DYNAMIC_FLAGS: usize = 143; // UpdateFields.h:131.
 const PLAYER_CONTROLLED: u32 = 8; // Unit.h:472.
@@ -20,9 +21,27 @@ pub struct SourceLiveDamage<'a> {
     pub units: &'a mut SourceUnits,
     pub spells: &'a SourceSpellStores,
     pub players: &'a [&'a SourcePlayer],
+    pub ais: &'a SourceCreatureAis,
+    pub event_ais: &'a mut BTreeMap<ObjectHandle, SourceEventAi>,
+    pub factions: &'a CreatureAiFactions,
 }
 
 impl SourceLiveDamage<'_> {
+    fn unit_queries(&mut self) -> SourceUnitQueries<'_> {
+        SourceUnitQueries {
+            objects: self.objects,
+            units: self.units,
+        }
+    }
+
+    fn relations(&self) -> SourceRelations<'_> {
+        SourceRelations {
+            objects: self.objects,
+            units: self.units,
+            factions: self.factions,
+        }
+    }
+
     fn rage_user(&self, unit: ObjectHandle, missing_owner: &'static str) -> Result<bool> {
         if self.objects.get(unit)?.kind != SourceObjectKind::Player {
             return Ok(false);
@@ -312,9 +331,214 @@ impl SourceLiveDamage<'_> {
     }
 }
 
+impl SourceRelationOwner for SourceLiveDamage<'_> {
+    fn relation_kind(&self, unit: ObjectHandle) -> Result<SourceObjectKind> {
+        Ok(self.objects.get(unit)?.kind)
+    }
+
+    fn relation_flags(&self, unit: ObjectHandle) -> Result<u32> {
+        self.relations().relation_flags(unit)
+    }
+
+    fn relation_master(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        self.relations().relation_master(unit)
+    }
+
+    fn relation_faction(&self, unit: ObjectHandle) -> Result<Option<&SourceFactionTemplate>> {
+        Ok(self
+            .factions
+            .relation_template(self.units.get(self.objects, unit)?.faction))
+    }
+
+    fn relation_persuaded(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        self.relations().relation_persuaded(unit)
+    }
+
+    fn relation_has_reputation(&self, faction: u32) -> Result<bool> {
+        self.relations().relation_has_reputation(faction)
+    }
+
+    fn relation_faction_player(&self, unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        // Relations.cpp:72-90. An empty master GUID makes a player their own controller.
+        require(
+            self.objects.get(unit)?.kind == SourceObjectKind::Player
+                && self
+                    .units
+                    .get(self.objects, unit)?
+                    .control_guids
+                    .master_guid()
+                    .raw()
+                    == 0,
+            "execution.relations.GetFactionReaction_166_GetControllingPlayer_owner",
+        )?;
+        Ok(Some(unit))
+    }
+
+    fn relation_forced_rank(&self, player: ObjectHandle, _faction: u32) -> Result<Option<u32>> {
+        let read = "execution.relations.Relations_172.GetForcedRankIfAny_owner";
+        // ReputationMgr.cpp:128-129. The forced-reaction writer has not been ported.
+        require(
+            live_player(self.players, player, read)?
+                .forced_reactions
+                .is_empty(),
+            read,
+        )?;
+        Ok(None)
+    }
+}
+
+struct CombatEntry<'a> {
+    spells: &'a SourceSpellStores,
+}
+
+impl UnitAiExecutionOwner for CombatEntry<'_> {
+    fn call(
+        &mut self,
+        unit: ObjectHandle,
+        call: UnitAiCall,
+        units: &mut SourceUnits,
+        objects: &SourceObjects,
+    ) -> Result<()> {
+        match call {
+            UnitAiCall::PropagateCombat(_) => {
+                // Unit.cpp:7930-7932. A missing controller does not propagate.
+                if units
+                    .get(objects, unit)?
+                    .control_guids
+                    .get_master(objects, unit, None, unbound_pet_loading)?
+                    .unit()
+                    .is_some()
+                {
+                    return Err(refuse(
+                        "execution.combat.Unit_7932.CanJoinInAttacking_owner",
+                    ));
+                }
+                Ok(())
+            }
+            UnitAiCall::InterruptNonCombatCasts => {
+                units.interrupt_non_combat_spells(objects, self.spells, unit)
+            }
+            UnitAiCall::CreatureCombatStart(_) => {
+                Err(refuse("execution.combat.Unit_7973.GetCreatureAddon_owner"))
+            }
+            _ => Err(call.missing_owner()),
+        }
+    }
+}
+
 impl ThreatExecutionOwner for SourceLiveDamage<'_> {
-    fn can_attack(&mut self, _source: ObjectHandle, _target: ObjectHandle) -> Result<bool> {
-        Err(refuse("execution.combat.Unit_1211.CanAttack_owner"))
+    fn can_attack(&mut self, source: ObjectHandle, target: ObjectHandle) -> Result<bool> {
+        unit_can_attack(source, target, self)
+    }
+
+    fn can_enter_combat(&mut self, unit: ObjectHandle) -> Result<bool> {
+        self.unit_queries().can_enter_combat(unit)
+    }
+
+    fn threat_unit(&mut self, unit: ObjectHandle) -> Result<ThreatUnit> {
+        self.unit_queries().threat_unit(unit)
+    }
+
+    fn threat_master(&mut self, unit: ObjectHandle) -> Result<SourceMasterLookup> {
+        self.unit_queries().threat_master(unit)
+    }
+
+    fn threat_lookup(&mut self, source: ObjectHandle, guid: u64) -> Result<Option<ObjectHandle>> {
+        self.unit_queries().threat_lookup(source, guid)
+    }
+
+    fn combat_timer(&mut self, source: ObjectHandle, target: ObjectHandle) -> Result<()> {
+        self.unit_queries().combat_timer(source, target)
+    }
+
+    fn spell_threat_mod(
+        &mut self,
+        unit: ObjectHandle,
+        spell: u32,
+        value: ThreatValue,
+    ) -> Result<ThreatValue> {
+        // ThreatManager.cpp:46-49; Object.h:1156, Player.h:990, Pet.h:187, Totem.h:46.
+        let kind = self.objects.get(unit)?.kind;
+        if kind != SourceObjectKind::Player {
+            require(
+                kind != SourceObjectKind::Pet && !self.units.get(self.objects, unit)?.totem,
+                "execution.threat.ThreatManager_48.GetSpellModOwner_owner",
+            )?;
+            return Ok(value);
+        }
+        let player = live_player(
+            self.players,
+            unit,
+            "execution.threat.ThreatManager_48.GetSpellModOwner_owner",
+        )?;
+        let template = self
+            .spells
+            .template(spell)
+            .ok_or_else(|| refuse("execution.threat.ThreatManager_49.spell_template_owner"))?;
+        // SpellDefines.h:398, SPELLMOD_THREAT.
+        let amount =
+            player.apply_spell_mod(self.spells, template, 2, f32::from_bits(value.bits()))?;
+        Ok(ThreatValue::from_bits(amount.to_bits()))
+    }
+
+    fn critical_threat_mod(&mut self, unit: ObjectHandle, school: u32) -> Result<ThreatValue> {
+        // ThreatManager.cpp:51-52; Unit.cpp:4558-4572; SpellAuraDefines.h:318.
+        let auras = &self.units.get(self.objects, unit)?.auras;
+        let mut multiplier = ThreatValue::from_u32(1);
+        if school == 0 {
+            return Ok(multiplier);
+        }
+        let hundred = ThreatValue::from_u32(100);
+        for effect in auras.auras_of_type(183) {
+            let aura = auras
+                .aura_holder(effect.holder)
+                .and_then(|holder| holder.effects.get(usize::from(effect.effect)))
+                .and_then(Option::as_ref)
+                .ok_or_else(|| refuse("execution.threat.Unit_4568.GetModifier_owner"))?;
+            if aura.misc as u32 & school != 0 {
+                let factor = hundred
+                    .add_value(ThreatValue::from_i32(aura.amount))
+                    .divide(hundred);
+                multiplier = multiplier.multiply(factor);
+            }
+        }
+        Ok(multiplier)
+    }
+
+    fn total_threat_mod(
+        &mut self,
+        unit: ObjectHandle,
+        school: u32,
+        value: ThreatValue,
+    ) -> Result<ThreatValue> {
+        // Unit.cpp:8638-8649; SpellAuraDefines.h:81.
+        let fields = self.units.get(self.objects, unit)?;
+        if fields.auras.auras_of_type(10).is_empty() || school == 0 {
+            return Ok(value);
+        }
+        // SharedDefines.h:238-244 falls back to the physical school if no bit matches.
+        let index = (school & 0x7f).trailing_zeros();
+        let modifier = fields.threat_modifier[if index < 7 { index as usize } else { 0 }];
+        Ok(value.multiply(ThreatValue::from_bits(modifier.to_bits())))
+    }
+
+    fn aggro_linking(
+        &mut self,
+        _threats: &mut SourceThreats,
+        _source: ObjectHandle,
+        _target: ObjectHandle,
+    ) -> Result<()> {
+        Err(refuse(
+            "execution.threat.ThreatManager_483.TriggerAggroLinkingEvent_owner",
+        ))
+    }
+
+    fn offline_target(&mut self, source: ObjectHandle, target: ObjectHandle) -> Result<bool> {
+        // Unit.cpp:8944-8949, Creature.cpp:2962-2965, Unit.h:2298,2300.
+        let kind = self.objects.get(source)?.kind;
+        let ignores_feign = matches!(kind, SourceObjectKind::Creature | SourceObjectKind::Pet)
+            && self.units.get(self.objects, source)?.static_flags[1] & 0x100 != 0;
+        Ok(!ignores_feign && self.units.get(self.objects, target)?.state & 4 != 0)
     }
 }
 
@@ -332,6 +556,20 @@ impl CombatExecutionOwner for SourceLiveDamage<'_> {
             unkillable: fields.static_flags[0] & 8 != 0,
             preventing_death,
         })
+    }
+
+    fn can_apply_damage_mods(&mut self, unit: ObjectHandle) -> Result<bool> {
+        // Unit.cpp:867. A dead victim returns before any other Unit field read.
+        if !self.objects.get(unit)?.alive {
+            return Ok(false);
+        }
+        let fields = self.units.get(self.objects, unit)?;
+        Ok(fields.state & 0x80 == 0 && !fields.in_evade())
+    }
+
+    fn has_damage_ai(&mut self, unit: ObjectHandle) -> Result<bool> {
+        // Unit.cpp:880,884 only checks the AI pointer.
+        Ok(self.units.get(self.objects, unit)?.has_ai)
     }
 
     // Unit.cpp:969. Read the same health field that ModifyHealth writes.
@@ -363,12 +601,68 @@ impl CombatExecutionOwner for SourceLiveDamage<'_> {
             CombatCall::DealDamageNonzeroPrelude => self.nonzero_prelude(damage),
             CombatCall::DamageDealtSuffix => self.suffix(damage),
             CombatCall::Kill => Err(refuse("execution.combat.Unit_1010.Kill_owner")),
-            CombatCall::DamageDeal => Err(refuse("execution.combat.Unit_881.DamageDeal_owner")),
+            CombatCall::DamageDeal => self.ais.require_base_damage_ai(
+                self.objects,
+                damage
+                    .dealer
+                    .ok_or_else(|| refuse("execution.combat.Unit_881.DamageDeal_owner"))?,
+                "execution.combat.Unit_881.DamageDeal_owner",
+            ),
             CombatCall::DamageTaken => Err(refuse("execution.combat.Unit_885.DamageTaken_owner")),
-            CombatCall::JustPreventedDeath => Err(refuse(
-                "execution.combat.CreatureAI_111.JustPreventedDeath_owner",
-            )),
+            CombatCall::JustPreventedDeath => {
+                self.ais.require_base_damage_ai(
+                    self.objects,
+                    damage.victim,
+                    "execution.combat.CreatureAI_111.JustPreventedDeath_owner",
+                )?;
+                if let Some(event_ai) = self.event_ais.get_mut(&damage.victim) {
+                    event_ai.just_prevented_death(self.objects)?;
+                }
+                Ok(())
+            }
         }
+    }
+
+    fn damage_taken(&mut self, combat: &mut SourceCombat, damage: &mut SourceDamage) -> Result<()> {
+        self.ais.require_base_damage_ai(
+            self.objects,
+            damage.victim,
+            "execution.combat.Unit_885.DamageTaken_owner",
+        )?;
+        combat.creature_damage_taken(damage, self)?;
+        if let Some(event_ai) = self.event_ais.get_mut(&damage.victim) {
+            let vitals = self
+                .units
+                .get(self.objects, damage.victim)?
+                .vitals
+                .as_ref()
+                .ok_or_else(|| refuse("execution.event_ai.CreatureEventAI_1855.GetHealth_owner"))?;
+            event_ai.damage_taken(self.objects, vitals, damage.amount)?;
+        }
+        Ok(())
+    }
+
+    fn damage_threat_multiplier(&mut self, spell: Option<ThreatSpell>) -> Result<ThreatValue> {
+        // Unit.cpp:1213; SpellMgr.h:2088-2096.
+        Ok(ThreatValue::from_bits(
+            self.spells.threat_multiplier(spell.map(|s| s.id)).0,
+        ))
+    }
+
+    fn set_in_combat(
+        &mut self,
+        unit: ObjectHandle,
+        enemy: ObjectHandle,
+        _threats: &mut SourceThreats,
+    ) -> Result<()> {
+        self.units.set_in_combat_with(
+            unit,
+            enemy,
+            self.objects,
+            &mut CombatEntry {
+                spells: self.spells,
+            },
+        )
     }
 
     fn modify_health(&mut self, unit: ObjectHandle, delta: i32) -> Result<()> {

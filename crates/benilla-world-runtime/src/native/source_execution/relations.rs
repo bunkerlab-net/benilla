@@ -21,6 +21,30 @@ pub trait SourceRelationOwner {
             "execution.relations.GetReactionTo_262_Faction_owner",
         ))
     }
+    fn relation_kind(&self, _unit: ObjectHandle) -> Result<SourceObjectKind> {
+        Err(refuse("execution.relations.Relations_358.GetTypeId_owner"))
+    }
+    fn relation_player_flags(&self, _player: ObjectHandle, read: &'static str) -> Result<u32> {
+        Err(refuse(read))
+    }
+    fn relation_creature_type_flags(&self, _unit: ObjectHandle) -> Result<u32> {
+        Err(refuse(
+            "execution.relations.Relations_360.GetCreatureInfo_owner",
+        ))
+    }
+    fn relation_faction_player(&self, _unit: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        Err(refuse(
+            "execution.relations.GetFactionReaction_166_GetControllingPlayer_owner",
+        ))
+    }
+    fn relation_forced_rank(&self, _player: ObjectHandle, _faction: u32) -> Result<Option<u32>> {
+        Err(refuse(
+            "execution.relations.Relations_172.GetForcedRankIfAny_owner",
+        ))
+    }
+    fn relation_reputation_rank(&self, _player: ObjectHandle, _faction: u32) -> Result<u32> {
+        Err(refuse("execution.relations.Relations_179.GetRank_owner"))
+    }
 }
 
 pub struct SourceRelations<'a> {
@@ -329,6 +353,33 @@ impl SourceFactionTemplate {
     }
 }
 
+// Relations.cpp:154-187. Player overrides precede the faction table.
+fn unit_faction_reaction(
+    this: &SourceFactionTemplate,
+    other: &SourceFactionTemplate,
+    target: ObjectHandle,
+    owner: &(impl SourceRelationOwner + ?Sized),
+) -> Result<u32> {
+    if owner.relation_flags(target)? & 8 != 0 {
+        if let Some(player) = owner.relation_faction_player(target)? {
+            let flags = owner.relation_player_flags(
+                player,
+                "execution.relations.Relations_169.PLAYER_FLAGS_owner",
+            )?;
+            if flags & 0x100 != 0 && this.flags & 0x1000 != 0 {
+                return Ok(1);
+            }
+            if let Some(rank) = owner.relation_forced_rank(player, this.faction)? {
+                return Ok(rank);
+            }
+            if owner.relation_has_reputation(this.faction)? {
+                return owner.relation_reputation_rank(player, this.faction);
+            }
+        }
+    }
+    Ok(this.reaction_to(other))
+}
+
 pub fn unit_reaction_to(
     caster: ObjectHandle,
     target: ObjectHandle,
@@ -346,12 +397,7 @@ pub fn unit_reaction_to(
     let mut reaction = 3;
     if let Some(this) = owner.relation_faction(caster)? {
         if let Some(other) = owner.relation_faction(target)? {
-            if owner.relation_flags(target)? & 8 != 0 {
-                return Err(refuse(
-                    "execution.relations.GetFactionReaction_166_GetControllingPlayer_owner",
-                ));
-            }
-            reaction = this.reaction_to(other);
+            reaction = unit_faction_reaction(this, other, target, owner)?;
         }
     }
     if reaction > 1
@@ -366,6 +412,55 @@ pub fn unit_reaction_to(
         }
     }
     Ok(reaction)
+}
+
+/// Unit::CanAttack, Relations.cpp:351-416. The direction matters.
+pub fn unit_can_attack(
+    source: ObjectHandle,
+    target: ObjectHandle,
+    owner: &(impl SourceRelationOwner + ?Sized),
+) -> Result<bool> {
+    // TYPEID_UNIT includes pets. Player flags precede the Unit flag reads.
+    if matches!(
+        owner.relation_kind(source)?,
+        SourceObjectKind::Creature | SourceObjectKind::Pet
+    ) && owner.relation_kind(target)? == SourceObjectKind::Player
+        && owner.relation_player_flags(
+            target,
+            "execution.relations.Relations_358.PLAYER_FLAGS_owner",
+        )? & 0x10
+            != 0
+        && owner.relation_creature_type_flags(source)? & 0x0020_0000 == 0
+    {
+        return Ok(false);
+    }
+    let target_flags = owner.relation_flags(target)?;
+    if target_flags & 0x0211_0082 != 0 {
+        return Ok(false);
+    }
+    let source_flags = owner.relation_flags(source)?;
+    let source_controlled = source_flags & 8 != 0;
+    let target_controlled = target_flags & 8 != 0;
+    if target_flags & (if source_controlled { 0x100 } else { 0x200 }) != 0
+        || source_flags & (if target_controlled { 0x100 } else { 0x200 }) != 0
+    {
+        return Ok(false);
+    }
+    if source_controlled || target_controlled {
+        if unit_reaction_to(source, target, owner)? > 3 {
+            return Ok(false);
+        }
+        if source_controlled && target_controlled {
+            return Err(refuse(
+                "execution.relations.Relations_395.GetControllingPlayer_owner",
+            ));
+        }
+        return Ok(true);
+    }
+    Ok(
+        unit_reaction_to(source, target, owner)? < 2
+            || unit_reaction_to(target, source, owner)? < 2,
+    )
 }
 
 /// Relations.cpp:473-482 reads immunity only when a master exists.

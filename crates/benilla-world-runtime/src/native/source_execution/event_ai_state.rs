@@ -461,6 +461,59 @@ impl SourceEventAi {
         self.clock.reset();
         Ok(())
     }
+
+    /// CreatureEventAI.cpp:1846-1875, after CreatureAI::DamageTaken.
+    pub(super) fn damage_taken(
+        &mut self,
+        objects: &SourceObjects,
+        vitals: &SourceUnitVitals,
+        damage: u32,
+    ) -> Result<()> {
+        self.validate_callback_selection(objects)?;
+        let mut step = if self.throw_step == 100 {
+            0
+        } else {
+            self.throw_step
+        } as usize;
+        let thresholds = [90.0, 50.0, 10.0];
+        if step >= thresholds.len() {
+            return Ok(());
+        }
+        // Health and damage subtract as uint32 before either converts to float.
+        let remaining =
+            vitals.health.wrapping_sub(damage) as f32 * 100.0 / vitals.max_health as f32;
+        if remaining > thresholds[step] {
+            return Ok(());
+        }
+        // AIDefines.h:26-28, in descending health order.
+        let event_mask = [1 << 3, 1 << 2, 1 << 1];
+        for i in (step + 1..thresholds.len()).rev() {
+            if remaining < thresholds[i] && self.throw_mask & event_mask[i] != 0 {
+                step = i;
+                break;
+            }
+        }
+        require(
+            self.throw_mask & event_mask[step] == 0,
+            "execution.event_ai.CreatureEventAI_1872.SendAIEventAround_owner",
+        )?;
+        self.throw_step = step as u32 + 1;
+        Ok(())
+    }
+
+    /// CreatureEventAI.cpp:1878-1886. Empty callbacks leave no staged work.
+    pub(super) fn just_prevented_death(&mut self, objects: &SourceObjects) -> Result<()> {
+        self.validate_callback_selection(objects)?;
+        self.ensure_depth();
+        require(
+            !self.holders.iter().any(|holder| holder.event.kind == 35),
+            "execution.event_ai.CreatureEventAI_1884.CheckAndReadyEventForExecution_owner",
+        )?;
+        require(
+            self.staged[self.depth].is_empty(),
+            "execution.event_ai.CreatureEventAI_1886.ProcessEvents_owner",
+        )
+    }
     pub fn update_timers(
         &mut self,
         diff: u32,

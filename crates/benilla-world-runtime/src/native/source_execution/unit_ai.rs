@@ -2021,7 +2021,12 @@ impl SourceUnits {
                 owner.call(unit, UnitAiCall::PropagateCombat(enemy), self, objects)?;
             }
         }
-        if self.get(objects, unit)?.casting_non_melee {
+        // Unit.cpp:7957-7961 dispatches only for occupied non-melee slots.
+        let slots = &self.get(objects, unit)?.spell_slots;
+        if SpellSlot::NON_MELEE
+            .into_iter()
+            .any(|slot| slots.current(slot).is_some())
+        {
             owner.call(unit, UnitAiCall::InterruptNonCombatCasts, self, objects)?;
         }
         if first {

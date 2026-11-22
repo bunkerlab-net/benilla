@@ -89,6 +89,13 @@ pub trait CombatExecutionOwner: ThreatExecutionOwner {
     fn preventing_death(&mut self, unit: ObjectHandle) -> Result<bool> {
         Ok(self.combat_unit(unit)?.preventing_death)
     }
+    fn can_apply_damage_mods(&mut self, unit: ObjectHandle) -> Result<bool> {
+        let unit = self.combat_unit(unit)?;
+        Ok(unit.alive && !unit.taxi && !unit.evade)
+    }
+    fn has_damage_ai(&mut self, unit: ObjectHandle) -> Result<bool> {
+        Ok(self.combat_unit(unit)?.has_ai)
+    }
     fn combat_call(&mut self, call: CombatCall, _damage: &mut SourceDamage) -> Result<()> {
         Err(refuse(match call {
             CombatCall::DamageDeal | CombatCall::DamageTaken | CombatCall::JustPreventedDeath => {
@@ -100,13 +107,25 @@ pub trait CombatExecutionOwner: ThreatExecutionOwner {
             | CombatCall::DamageDealtSuffix => "execution.combat.f5_04b_unit_damage_owner",
         }))
     }
+    fn damage_taken(
+        &mut self,
+        _combat: &mut SourceCombat,
+        damage: &mut SourceDamage,
+    ) -> Result<()> {
+        self.combat_call(CombatCall::DamageTaken, damage)
+    }
     fn modify_health(&mut self, _unit: ObjectHandle, _delta: i32) -> Result<()> {
         Err(refuse("execution.combat.f5_04b_health_owner"))
     }
     fn damage_threat_multiplier(&mut self, _spell: Option<ThreatSpell>) -> Result<ThreatValue> {
         Err(refuse("execution.combat.f5_07_spell_threat_owner"))
     }
-    fn set_in_combat(&mut self, _unit: ObjectHandle, _enemy: ObjectHandle) -> Result<()> {
+    fn set_in_combat(
+        &mut self,
+        _unit: ObjectHandle,
+        _enemy: ObjectHandle,
+        _threats: &mut SourceThreats,
+    ) -> Result<()> {
         Err(refuse("execution.combat.f5_04b_combat_owner"))
     }
 }
@@ -158,8 +177,7 @@ impl SourceCombat {
         absorb: Option<&mut u32>,
         owner: &mut impl CombatExecutionOwner,
     ) -> Result<()> {
-        let victim = owner.combat_unit(damage.victim)?;
-        if !victim.alive || victim.taxi || victim.evade {
+        if !owner.can_apply_damage_mods(damage.victim)? {
             if let Some(absorb) = absorb {
                 *absorb = absorb.wrapping_add(damage.amount);
             }
@@ -168,12 +186,12 @@ impl SourceCombat {
         }
         let original = damage.amount;
         if let Some(dealer) = damage.dealer {
-            if owner.combat_unit(dealer)?.has_ai {
+            if owner.has_damage_ai(dealer)? {
                 owner.combat_call(CombatCall::DamageDeal, damage)?;
             }
         }
-        if owner.combat_unit(damage.victim)?.has_ai {
-            owner.combat_call(CombatCall::DamageTaken, damage)?;
+        if owner.has_damage_ai(damage.victim)? {
+            owner.damage_taken(self, damage)?;
         }
         if let Some(absorb) = absorb {
             if original > damage.amount {
@@ -243,8 +261,8 @@ impl SourceCombat {
                     damage.kind,
                     SourceDamageType::Dot | SourceDamageType::Shield
                 ) {
-                    owner.set_in_combat(dealer, damage.victim)?;
-                    owner.set_in_combat(damage.victim, dealer)?;
+                    owner.set_in_combat(dealer, damage.victim, threats)?;
+                    owner.set_in_combat(damage.victim, dealer, threats)?;
                     owner.combat_timer(dealer, damage.victim)?;
                 }
             }
@@ -291,7 +309,7 @@ impl SourceCombat {
             LinkingAction::AddThreat(target) => {
                 threats.unit_add(unit, Some(target), ThreatValue::ZERO, false, 0, None, owner)
             }
-            LinkingAction::SetInCombatWith(target) => owner.set_in_combat(unit, target),
+            LinkingAction::SetInCombatWith(target) => owner.set_in_combat(unit, target, threats),
             LinkingAction::TriggerCombatTimer(target) => owner.combat_timer(unit, target),
             _ => Err(action.missing_owner()),
         }

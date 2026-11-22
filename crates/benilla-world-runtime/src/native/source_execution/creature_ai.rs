@@ -668,6 +668,21 @@ impl SourceCreatureAis {
             .get_mut(&unit)
             .ok_or_else(|| refuse("execution.unit_ai.generation_missing"))
     }
+    // UnitAI.h:177,186 and CreatureAI.h:39-40. Builtins inherit the base methods.
+    pub(super) fn require_base_damage_ai(
+        &self,
+        objects: &SourceObjects,
+        unit: ObjectHandle,
+        missing_owner: &'static str,
+    ) -> Result<()> {
+        objects.get(unit)?;
+        require(
+            self.instances
+                .get(&unit)
+                .is_some_and(|ai| !matches!(ai.loaded_class, LoadedCreatureAiClass::Scripted(_))),
+            missing_owner,
+        )
+    }
     pub fn inventory(&self, objects: &SourceObjects) -> Result<serde_json::Value> {
         for unit in self.instances.keys() {
             self.get(objects, *unit)?;

@@ -44,7 +44,12 @@ impl CombatExecutionOwner for Host {
     fn damage_threat_multiplier(&mut self, _spell: Option<ThreatSpell>) -> Result<ThreatValue> {
         Ok(value(1))
     }
-    fn set_in_combat(&mut self, unit: ObjectHandle, enemy: ObjectHandle) -> Result<()> {
+    fn set_in_combat(
+        &mut self,
+        unit: ObjectHandle,
+        enemy: ObjectHandle,
+        _threats: &mut SourceThreats,
+    ) -> Result<()> {
         self.log.push(format!(
             "combat {} {}",
             unit.construction, enemy.construction
@@ -350,6 +355,9 @@ struct LiveFixture {
     threats: SourceThreats,
     combat: SourceCombat,
     spells: SourceSpellStores,
+    ais: SourceCreatureAis,
+    event_ais: std::collections::BTreeMap<ObjectHandle, SourceEventAi>,
+    factions: CreatureAiFactions,
     mage: player::SourcePlayer,
     victim: ObjectHandle,
 }
@@ -384,6 +392,7 @@ impl LiveFixture {
         // northshire-03/a/run/trace.tsv:76108095. The live dealer is a Human Mage.
         fields.power_type = Some(0);
         fields.flags |= 8;
+        fields.faction = 1;
 
         // pre-start-classicmangos.sql:125149,421114. Entry 6, spawn 79994.
         let victim = objects.construct(9, SourceObjectKind::Creature).unwrap();
@@ -407,11 +416,19 @@ impl LiveFixture {
         });
         units.register(&objects, victim, fields).unwrap();
         let mut spells = SourceSpellStores::default();
+        // pre-start-classicmangos.sql:125149, spawn 79994.
+        objects
+            .set_pose(
+                victim,
+                SourcePose([0xc609_747b, 0xc32e_97cf, 0x42a3_40df, 0x3fdf_e187]),
+            )
+            .unwrap();
         // pre-start-classicmangos.sql:837896. Rank 1 direct hit and periodic aura.
         spells
             .insert_template(SpellTemplate {
                 id: 133,
                 school: 2,
+                attributes: 65536,
                 interruptflags: 15,
                 durationindex: 35,
                 effect1: 2,
@@ -434,6 +451,55 @@ impl LiveFixture {
             threats,
             combat: SourceCombat::default(),
             spells,
+            ais: SourceCreatureAis::default(),
+            event_ais: Default::default(),
+            factions: CreatureAiFactions::from_dbc_rows(
+                // Faction.dbc ID 25: reputation list ID -1.
+                &[&[
+                    25,
+                    u32::MAX,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    434,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    8323198,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    4128876,
+                ]],
+                &[
+                    &[1, 1, 72, 3, 2, 12, 0, 0, 0, 0, 0, 0, 0, 0], // FactionTemplate.dbc ID 1, Human.
+                    &[11, 72, 2081, 3, 2, 12, 0, 0, 0, 0, 0, 0, 0, 0], // ID 11, hostile mask 12.
+                    &[25, 25, 0, 8, 0, 0, 0, 0, 0, 0, 25, 0, 0, 0], // ID 25, group 8.
+                ],
+            )
+            .unwrap(),
             mage,
             victim,
         }
@@ -448,8 +514,135 @@ impl LiveFixture {
                 units: &mut self.units,
                 spells: &self.spells,
                 players: &[&self.mage],
+                ais: &self.ais,
+                event_ais: &mut self.event_ais,
+                factions: &self.factions,
             },
         )
+    }
+
+    fn mods(&mut self, hit: &mut SourceDamage) -> Result<()> {
+        self.combat.damage_mods(
+            hit,
+            None,
+            &mut SourceLiveDamage {
+                objects: &self.objects,
+                units: &mut self.units,
+                spells: &self.spells,
+                players: &[&self.mage],
+                ais: &self.ais,
+                event_ais: &mut self.event_ais,
+                factions: &self.factions,
+            },
+        )
+    }
+
+    fn hostile_npc(&mut self) -> ObjectHandle {
+        // pre-start-classicmangos.sql:97582,421134. Entry 68, spawn 19272.
+        let guard = self
+            .objects
+            .construct(9, SourceObjectKind::Creature)
+            .unwrap();
+        let map = self.objects.get(self.victim).unwrap().map.unwrap();
+        self.objects
+            .assign_guid(
+                guard,
+                19272,
+                SourceGuid::with_entry(HighGuid::Creature, 68, 19272),
+            )
+            .unwrap();
+        self.objects
+            .bind_map(guard, map, &SourceCells::new(map).unwrap())
+            .unwrap();
+        self.objects.add_to_world(guard).unwrap();
+        self.objects
+            .set_pose(
+                guard,
+                SourcePose([0xc609_c514, 0x444a_428f, 0x42c5_7368, 0x407a_f909]),
+            )
+            .unwrap();
+        let mut fields = SourceUnitFields::constructed_creature();
+        fields.entry = 68;
+        fields.faction = 11;
+        fields.flags = 36864;
+        fields.pursuit_ms = 15000;
+        self.units.register(&self.objects, guard, fields).unwrap();
+        self.threats.register(guard).unwrap();
+        guard
+    }
+
+    fn install_event_ai(&mut self) {
+        struct EqualBounds;
+        impl UnitAiExecutionOwner for EqualBounds {}
+        impl CreatureRandom for EqualBounds {
+            fn creature_irand(&mut self, min: i32, max: i32) -> Result<i32> {
+                assert_eq!(min, max);
+                Ok(min)
+            }
+            fn creature_urand(&mut self, min: u32, max: u32) -> Result<u32> {
+                assert_eq!(min, max);
+                Ok(min)
+            }
+        }
+        let mut registry = AiRegistryBuilder::builtin();
+        registry.load_scripts(Vec::new()).unwrap();
+        let selected = registry
+            .freeze()
+            .select(
+                &self.objects,
+                self.victim,
+                CreatureAiInputs {
+                    effective_entry: 6,
+                    ai_name: "EventAI".into(),
+                    script_name: String::new(),
+                    control: CreatureAiControl::default(),
+                    guard: false,
+                    no_aggro_on_sight: false,
+                    neutral_to_all: false,
+                },
+                SourceControlGuids::default(),
+            )
+            .unwrap();
+        let config = b"LogFilter_EventAiDev = 0\n";
+        let config = EventAiLoaderConfig::parse(config, Sha256Id::of(config)).unwrap();
+        // pre-start-classicmangos.sql:421114, Kobold Vermin.
+        let template = CreatureAiTemplateOperands {
+            ordinal: 0,
+            entry: 6,
+            faction: 25,
+            extra_flags: 2,
+            unit_flags: 0,
+            type_flags: 0,
+            static_flags: [0; 4],
+            rank: 0,
+            inhabit_type: 3,
+            stats_multipliers: [1.0f32.to_bits(); 3],
+            civilian: false,
+            pursuit_ms: 15000,
+            call_for_help: 5,
+            creature_type: 7,
+            ai_name: "EventAI".into(),
+            script_name: String::new(),
+        };
+        self.ais
+            .install_loaded_creature_ai_base(
+                &self.objects,
+                &mut self.units,
+                &mut self.combat,
+                &selected,
+                &template,
+                &config,
+                &mut EqualBounds,
+            )
+            .unwrap();
+        let event = SourceEventAi::construct(
+            selected,
+            &self.objects,
+            Default::default(),
+            EventAiBuild::Release,
+        )
+        .unwrap();
+        self.event_ais.insert(self.victim, event);
     }
 
     fn fireball(&self) -> SourceDamage {
@@ -500,7 +693,7 @@ fn live_fireball_taps_and_changes_the_health_field_before_attackability() {
     let hit = f.fireball();
     assert_eq!(
         f.hit(hit).unwrap_err().id,
-        "execution.combat.Unit_1211.CanAttack_owner"
+        "execution.relations.Relations_358.PLAYER_FLAGS_owner"
     );
     let fields = f.victim();
     let object = f.objects.get(f.victim).unwrap();
@@ -526,7 +719,7 @@ fn live_damage_keeps_first_tap_and_counts_other_damage() {
     other.amount = 2;
     assert_eq!(
         f.hit(other).unwrap_err().id,
-        "execution.combat.Unit_1211.CanAttack_owner"
+        "execution.combat.Unit_1250.InterruptOrDelaySpell_owner"
     );
     assert_eq!(f.victim().loot_recipient_guid.raw(), 1);
     assert_eq!(f.victim().damage_by_others, 2);
@@ -554,7 +747,11 @@ fn live_damage_excludes_untapped_npc_and_multitap_hits() {
         }
         assert_eq!(
             f.hit(hit).unwrap_err().id,
-            "execution.combat.Unit_1211.CanAttack_owner"
+            if dealer_is_player {
+                "execution.relations.Relations_358.PLAYER_FLAGS_owner"
+            } else {
+                "execution.combat.Unit_1250.InterruptOrDelaySpell_owner"
+            }
         );
         assert_eq!(f.victim().loot_recipient_guid.raw(), 0);
         assert!(!f.objects.get(f.victim).unwrap().field_changed(143).unwrap());
@@ -894,6 +1091,9 @@ fn live_damage_mods_refuse_at_the_installed_ai_callback() {
         units: &mut f.units,
         spells: &f.spells,
         players: &[&f.mage],
+        ais: &f.ais,
+        event_ais: &mut f.event_ais,
+        factions: &f.factions,
     };
     assert_eq!(
         f.combat
@@ -979,6 +1179,9 @@ fn live_damage_refuses_missing_player_state_at_the_source_read() {
         units: &mut f.units,
         spells: &f.spells,
         players: &[],
+        ais: &f.ais,
+        event_ais: &mut f.event_ais,
+        factions: &f.factions,
     };
     let mut deal = |mut hit| {
         f.combat
@@ -1080,6 +1283,9 @@ fn unbound_dealer_suffix_does_not_skip_durability_or_pushback() {
         units: &mut f.units,
         spells: &f.spells,
         players: &[&f.mage],
+        ais: &f.ais,
+        event_ais: &mut f.event_ais,
+        factions: &f.factions,
     };
     hit.durability_loss = false;
     assert_eq!(
@@ -1117,7 +1323,7 @@ fn live_tap_requires_a_player_guid_and_resolves_group_reads_in_order() {
     f.objects.get_mut(mage).unwrap().guid = Some(SourceGuid::from_raw(1));
     assert_eq!(
         f.hit(hit).unwrap_err().id,
-        "execution.combat.Unit_1211.CanAttack_owner"
+        "execution.relations.Relations_358.PLAYER_FLAGS_owner"
     );
 
     let mut npc = hit;
@@ -1167,6 +1373,9 @@ fn live_tap_requires_a_player_guid_and_resolves_group_reads_in_order() {
         units: &mut f.units,
         spells: &f.spells,
         players: &[&f.mage, &other],
+        ais: &f.ais,
+        event_ais: &mut f.event_ais,
+        factions: &f.factions,
     };
     assert_eq!(
         f.combat
@@ -1197,10 +1406,253 @@ fn live_player_damage_cannot_give_a_pet_its_first_tap() {
     hit.victim = pet;
     assert_eq!(
         f.hit(hit).unwrap_err().id,
-        "execution.combat.Unit_1211.CanAttack_owner"
+        "execution.relations.Relations_358.PLAYER_FLAGS_owner"
     );
     let fields = f.units.get(&f.objects, pet).unwrap();
     assert_eq!(fields.loot_recipient_guid.raw(), 0);
     assert_eq!(fields.vitals.unwrap().health, 33);
     assert!(!f.objects.get(pet).unwrap().field_changed(143).unwrap());
+}
+
+#[test]
+fn live_damage_mods_advances_event_ai_before_the_health_write() {
+    let mut f = LiveFixture::vermin();
+    f.install_event_ai();
+    let mut hit = f.fireball();
+    f.mods(&mut hit).unwrap();
+    // Northshire trace.tsv:76057573 dispatches DamageTaken before 76057589.
+    assert_eq!(hit.amount, 22);
+    assert_eq!(f.victim().vitals.unwrap().health, 55);
+    assert_eq!(f.event_ais[&f.victim].throw_step, 1);
+    assert_eq!(
+        f.hit(hit).unwrap_err().id,
+        "execution.relations.Relations_358.PLAYER_FLAGS_owner"
+    );
+    assert_eq!(f.victim().vitals.unwrap().health, 33);
+}
+
+#[test]
+fn live_damage_inserts_npc_threat_before_aggro_linking() {
+    let mut f = LiveFixture::vermin();
+    let attacker = f.hostile_npc();
+    let mut hit = f.fireball();
+    hit.dealer = Some(attacker);
+    assert_eq!(
+        f.hit(hit).unwrap_err().id,
+        "execution.threat.ThreatManager_483.TriggerAggroLinkingEvent_owner"
+    );
+    assert_eq!(f.victim().vitals.unwrap().health, 33);
+    assert_eq!(
+        f.threats.manager(f.victim).unwrap().online()[0].threat,
+        ThreatValue::from_u32(22)
+    );
+    assert!(!f.victim().in_combat());
+}
+
+#[test]
+fn live_damage_refreshes_the_victims_pursuit_timer_after_combat_entry() {
+    let mut f = LiveFixture::vermin();
+    let attacker = f.hostile_npc();
+    // Authored direct damage with SpellDefines.h:178's NO_HARMFUL_THREAT.
+    let hit = npc_hit_without_threat(&mut f, attacker);
+    // The live kernel sets the flag and timer before the initial addon read.
+    assert_eq!(
+        f.hit(hit).unwrap_err().id,
+        "execution.combat.Unit_7973.GetCreatureAddon_owner"
+    );
+    let fields = f.units.get(&f.objects, attacker).unwrap();
+    assert!(fields.in_combat());
+    assert_eq!(fields.combat_tick, 1200);
+    assert!(!f.victim().in_combat());
+    // A separate authored pair already in combat exercises both calls and the refresh.
+    let mut f = LiveFixture::vermin();
+    let attacker = f.hostile_npc();
+    let mut hit = npc_hit_without_threat(&mut f, attacker);
+    for unit in [attacker, f.victim] {
+        f.units
+            .get_mut(&f.objects, unit)
+            .unwrap()
+            .set_flag(&f.objects, unit, 0x80000, true)
+            .unwrap();
+    }
+    f.victim_mut().combat_timer = 100;
+    for (kind, timer) in [
+        (SourceDamageType::Dot, 100),
+        (SourceDamageType::SpellDirect, 15000),
+    ] {
+        hit.kind = kind;
+        assert_eq!(
+            f.hit(hit).unwrap_err().id,
+            "execution.combat.Unit_1250.InterruptOrDelaySpell_owner"
+        );
+        assert_eq!(f.victim().combat_timer, timer);
+    }
+    assert_eq!(
+        f.victim().last_refresh_position,
+        Some(f.objects.pose(f.victim).unwrap().0)
+    );
+    assert!(f.threats.manager(f.victim).unwrap().online().is_empty());
+}
+
+#[test]
+fn live_combat_entry_leaves_combat_and_traveling_spells_in_their_slots() {
+    for (spell_id, state, stop) in [
+        (
+            133,
+            SourceSpellState::Casting,
+            "execution.combat.Unit_7973.GetCreatureAddon_owner",
+        ),
+        (
+            430,
+            SourceSpellState::Traveling,
+            "execution.combat.Unit_7973.GetCreatureAddon_owner",
+        ),
+        (
+            430,
+            SourceSpellState::Casting,
+            "execution.spells.Unit_GetSpellModOwner_cancel_owner",
+        ),
+    ] {
+        let mut f = LiveFixture::vermin();
+        let attacker = f.hostile_npc();
+        // pre-start-classicmangos.sql:837957. Spell 430, Drink, is non-combat.
+        f.spells
+            .insert_template(SpellTemplate {
+                id: 430,
+                attributes: 402653440,
+                ..Default::default()
+            })
+            .unwrap();
+        let fields = f.units.get_mut(&f.objects, attacker).unwrap();
+        let mut spell = SourceSpell::new(
+            1,
+            f.spells.template(spell_id).unwrap(),
+            attacker,
+            SpellTriggerFlags(0),
+            0,
+        )
+        .unwrap();
+        spell.state = state;
+        fields.spell_starts.spells.insert(1, spell);
+        fields
+            .spell_slots
+            .replace_slot(SpellSlot::Generic, 1, &mut fields.spell_starts.spells)
+            .unwrap();
+        assert!(!fields.casting_non_melee);
+        let hit = npc_hit_without_threat(&mut f, attacker);
+        assert_eq!(f.hit(hit).unwrap_err().id, stop);
+        let fields = f.units.get(&f.objects, attacker).unwrap();
+        assert_eq!(fields.spell_slots.current(SpellSlot::Generic), Some(1));
+        assert_eq!(fields.spell_starts.spells[&1].state, state);
+        assert!(fields.in_combat());
+        assert_eq!(fields.combat_timer, 15000);
+    }
+}
+
+fn npc_hit_without_threat(f: &mut LiveFixture, attacker: ObjectHandle) -> SourceDamage {
+    let mut hit = f.fireball();
+    let spell = SpellTemplate {
+        id: 70001,
+        attributesex4: 0x10,
+        school: 2,
+        effect1: 2,
+        ..Default::default()
+    };
+    hit.dealer = Some(attacker);
+    hit.spell = Some(ThreatSpell {
+        id: spell.id,
+        no_harmful_threat: spell.attributesex4 & 0x10 != 0,
+        ..Default::default()
+    });
+    f.spells.insert_template(spell).unwrap();
+    hit
+}
+
+#[test]
+fn live_event_ai_latches_death_prevention_before_health_thresholds() {
+    let mut f = LiveFixture::vermin();
+    f.install_event_ai();
+    f.victim_mut().static_flags[0] |= 8;
+    let mut hit = f.fireball();
+    hit.amount = 55;
+    // CreatureAI.cpp:102-114 latches once. The base callback cannot change damage.
+    f.mods(&mut hit).unwrap();
+    assert!(f.combat.death_prevented(f.victim));
+    assert_eq!(hit.amount, 55);
+    assert_eq!(f.victim().vitals.unwrap().health, 55);
+    assert_eq!(f.event_ais[&f.victim].throw_step, 1);
+
+    let ai = f.event_ais.get_mut(&f.victim).unwrap();
+    ai.throw_mask = 1 << 1;
+    // The next hit crosses the 10% threshold strictly and selects its attached event.
+    hit.amount = 50;
+    assert_eq!(
+        f.mods(&mut hit).unwrap_err().id,
+        "execution.event_ai.CreatureEventAI_1872.SendAIEventAround_owner"
+    );
+    assert_eq!(f.event_ais[&f.victim].throw_step, 1);
+}
+
+#[test]
+fn live_forced_reaction_read_accepts_only_the_empty_constructor_map() {
+    let mut f = LiveFixture::vermin();
+    let read = |f: &mut LiveFixture| {
+        SourceLiveDamage {
+            objects: &f.objects,
+            units: &mut f.units,
+            spells: &f.spells,
+            players: &[&f.mage],
+            ais: &f.ais,
+            event_ais: &mut f.event_ais,
+            factions: &f.factions,
+        }
+        .relation_forced_rank(f.mage.object(), 25)
+    };
+    assert_eq!(read(&mut f).unwrap(), None);
+    f.mage.forced_reactions.insert(25, 1);
+    assert_eq!(
+        read(&mut f).unwrap_err().id,
+        "execution.relations.Relations_172.GetForcedRankIfAny_owner"
+    );
+}
+
+#[test]
+fn live_event_ai_stops_at_a_configured_death_prevention_event() {
+    let mut f = LiveFixture::vermin();
+    f.install_event_ai();
+    f.victim_mut().static_flags[0] |= 8;
+    let event = EventAiDefinition {
+        ordinal: 0,
+        id: 1,
+        entry: 6,
+        guid: 0,
+        kind: 35,
+        inverse_phase: 0,
+        chance: 100,
+        flags: 0,
+        params: [0; 6],
+        actions: [const {
+            EventAiAction {
+                kind: 0,
+                params: None,
+            }
+        }; 3],
+        friendly_hp_target_self: None,
+    };
+    let ai = f.event_ais.get_mut(&f.victim).unwrap();
+    ai.holders.push(EventAiHolder {
+        event,
+        timer: 0,
+        enabled: true,
+        in_progress: false,
+        event_target: None,
+    });
+    let mut hit = f.fireball();
+    hit.amount = 55;
+    assert_eq!(
+        f.mods(&mut hit).unwrap_err().id,
+        "execution.event_ai.CreatureEventAI_1884.CheckAndReadyEventForExecution_owner"
+    );
+    assert!(f.combat.death_prevented(f.victim));
+    assert_eq!(f.event_ais[&f.victim].throw_step, 0);
 }
