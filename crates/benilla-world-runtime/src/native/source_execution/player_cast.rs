@@ -166,7 +166,7 @@ impl SourcePlayer {
             objects,
             units,
             stores,
-            skills: None,
+            skills: map.player_rows.skill_inputs.as_ref(),
             inputs,
             client_map: Some(map),
         };
@@ -295,6 +295,15 @@ impl PlayerCast<'_, '_> {
             .as_ref()
             .map(|power| power.level)
             .ok_or_else(|| refuse("execution.spells.Unit_getLevel_owner"))
+    }
+
+    // Player.cpp:5885-5897. Both power cost and cast time use this skill lookup.
+    fn player_rank(&self, t: &SpellTemplate) -> Result<u32> {
+        self.player.spell_rank(
+            self.skills
+                .ok_or_else(|| refuse("execution.spells.Player_5885.GetSpellRank_owner"))?,
+            t,
+        )
     }
 
     fn range_movement_flags(&self, object: ObjectHandle, missing: &str) -> Result<u32> {
@@ -467,6 +476,76 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
         .apply_spell_mod(self.stores, t, MOD_RANGE, maximum)
     }
 
+    fn power_objects(&mut self) -> Result<&SourceObjects> {
+        Ok(self.objects)
+    }
+    fn power_context(&mut self) -> Result<SpellPowerContext<'_>> {
+        Ok(SpellPowerContext {
+            objects: self.objects,
+            units: self.units,
+        })
+    }
+    fn power_level(&mut self, caster: ObjectHandle) -> Result<u32> {
+        Self::level(self.units.get(self.objects, caster)?)
+    }
+    // Spell.cpp:6331,6339,6342.
+    fn power_rank(&mut self, caster: ObjectHandle, t: &SpellTemplate) -> Result<u32> {
+        require(
+            caster == self.player.object,
+            "execution.spells.Spell_6331.GetSpellRank_owner",
+        )?;
+        self.player_rank(t)
+    }
+    fn power_create_health(&mut self, caster: ObjectHandle) -> Result<u32> {
+        Ok(self.power_context()?.fields(caster)?.power()?.create_health)
+    }
+    fn power_create_mana(&mut self, caster: ObjectHandle) -> Result<u32> {
+        Ok(self.power_context()?.fields(caster)?.power()?.create_mana)
+    }
+    // Spell.cpp:6357,6367. Read the current school words.
+    fn power_flat_modifier(&mut self, caster: ObjectHandle, school: u32) -> Result<i32> {
+        self.units
+            .get(self.objects, caster)?
+            .power_cost_modifier
+            .get(school as usize)
+            .copied()
+            .ok_or_else(|| refuse("execution.spells.Spell_6357.spell_school_owner"))
+    }
+    fn power_multiplier(&mut self, caster: ObjectHandle, school: u32) -> Result<u32> {
+        self.units
+            .get(self.objects, caster)?
+            .power_cost_multiplier
+            .get(school as usize)
+            .copied()
+            .ok_or_else(|| refuse("execution.spells.Spell_6367.spell_school_owner"))
+    }
+    // Spell.cpp:6360-6361. The modifier writer still owns charge consumption.
+    fn power_mod_owner(&mut self, caster: ObjectHandle) -> Result<Option<ObjectHandle>> {
+        world_object_spell_mod_owner(
+            self.objects,
+            caster,
+            self.units.get(self.objects, caster)?.totem,
+        )
+    }
+    fn apply_cost_mod(
+        &mut self,
+        player: ObjectHandle,
+        spell: u32,
+        cost: i32,
+        _final_use: bool,
+    ) -> Result<i32> {
+        let t = self
+            .stores
+            .template(spell)
+            .ok_or_else(|| refuse("execution.spells.Spell_6361.ApplySpellMod_template_owner"))?;
+        spell_mod_player(
+            Some(self.player),
+            player,
+            "execution.spells.Spell_6361.ApplySpellMod_owner",
+        )?
+        .apply_spell_mod(self.stores, t, MOD_COST, cost)
+    }
+
     fn terrain_geometry(&mut self) -> Result<(&SourceObjects, &mut SourceTerrainManager)> {
         Ok((self.objects, self.inputs.terrain))
     }
@@ -621,8 +700,11 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
             SpellCheck::Range(strict) if self.client_map.is_some() => {
                 spell.check_range(t, strict, self)
             }
-            SpellCheck::Power(_) if self.client_map.is_some() => {
-                Err(refuse("execution.spells.Spell_5153.CheckPower_owner"))
+            SpellCheck::Power(strict) if self.client_map.is_some() => {
+                spell.check_power(t, strict, self)
+            }
+            SpellCheck::CasterAuras if self.client_map.is_some() => {
+                Err(refuse("execution.spells.Spell_5158.CheckCasterAuras_owner"))
             }
             _ => Err(check.missing_owner()),
         }
@@ -657,14 +739,7 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
                 |index| live.stores.dbc("SpellCastTimes.dbc", index),
                 spell,
                 t,
-                || {
-                    live.player.spell_rank(
-                        live.skills.ok_or_else(|| {
-                            refuse("execution.spells.Player_5885.GetSpellRank_owner")
-                        })?,
-                        t,
-                    )
-                },
+                || live.player_rank(t),
                 |time| {
                     live.player
                         .apply_spell_mod(live.stores, t, MOD_CASTING_TIME, time)
@@ -1116,7 +1191,7 @@ fn apply_spell_mod_checks_the_client_gate_and_the_selected_operation() {
 }
 
 #[test]
-fn client_fireball_admission_checks_live_range_before_power() {
+fn client_fireball_admission_checks_live_range_and_power_before_caster_auras() {
     use crate::native::production_compiler::VerifiedCatalog;
     use benilla_sim::source_rng::{DrawCursor, Mt19937, SourceRandom};
     use std::path::Path;
@@ -1180,7 +1255,17 @@ fn client_fireball_admission_checks_live_range_before_power() {
         fields.combat_reach = Some(1.5_f32.to_bits());
         fields.faction = faction;
     }
-    units.get_mut(&objects, caster).unwrap().flags |= 8;
+    let live = units.get_mut(&objects, caster).unwrap();
+    live.flags |= 8;
+    live.vitals = Some(SourceUnitVitals {
+        health: 52,
+        max_health: 52,
+        mana: 30,
+        max_mana: 140,
+        has_mana: true,
+        energy: 0,
+        max_energy: 0,
+    });
     mage.native_display = 49;
     mage.scale = 1.;
     let creature = &mut units.get_mut(&objects, victim).unwrap().loaded_creature;
@@ -1196,6 +1281,7 @@ fn client_fireball_admission_checks_live_range_before_power() {
         },
     );
     let stores = SourceSpellStores::load(&mut catalog, &mut SourceSpellScriptRegistry).unwrap();
+    let player_rows = PlayerCreateRows::load(&mut catalog).unwrap();
     let targets = SourceSpellTargetMgr::initialize(&stores);
     let factions = CreatureAiFactions::load_catalog(&mut catalog).unwrap();
     let mut terrain = SourceTerrainManager::default();
@@ -1236,6 +1322,7 @@ fn client_fireball_admission_checks_live_range_before_power() {
             &stores,
             &mut inputs,
             SourceClientCastMap {
+                player_rows: &player_rows,
                 factions: &factions,
                 collision: &collision,
                 dynamic: &mut dynamic,
@@ -1258,7 +1345,7 @@ fn client_fireball_admission_checks_live_range_before_power() {
     mage.spells.get_mut(&133).unwrap().disabled = false;
     assert_eq!(
         invoke(&mut mage, &mut units, &packet).unwrap_err().id,
-        "execution.spells.Spell_5153.CheckPower_owner"
+        "execution.spells.Spell_5158.CheckCasterAuras_owner"
     );
     let live = units.get(&objects, caster).unwrap();
     let spell = &live.spell_starts.spells[&1];
@@ -1269,6 +1356,8 @@ fn client_fireball_admission_checks_live_range_before_power() {
         f32::from_bits(spell.max_range),
         f32::from_bits(range.maximum.0) + 3.0,
     );
+    assert_eq!(spell.power_cost, 30); // pre-start-classicmangos.sql:837896.
+    assert_eq!(live.vitals.unwrap().mana, 30);
     assert_eq!(spell.state, SourceSpellState::Targeting);
     assert_eq!(live.spell_slots.current(SpellSlot::Generic), None);
     // Trace.tsv:75160591-75160593. SpellStart queues before CheckCast.
@@ -1276,6 +1365,23 @@ fn client_fireball_admission_checks_live_range_before_power() {
         spell.event,
         Some(live.unit_events.inventory().queued[0].event_id)
     );
+
+    units
+        .get_mut(&objects, caster)
+        .unwrap()
+        .vitals
+        .as_mut()
+        .unwrap()
+        .mana = 29;
+    assert_eq!(
+        invoke(&mut mage, &mut units, &packet).unwrap_err().id,
+        SpellCall::SendResult(SpellCastResult::NoPower)
+            .missing_owner()
+            .id
+    );
+    let live = units.get(&objects, caster).unwrap();
+    assert_eq!(live.spell_starts.spells[&2].power_cost, 30);
+    assert_eq!(live.vitals.unwrap().mana, 29);
 }
 
 #[test]

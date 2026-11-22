@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Live SpellStart and typed requests to the owners reached by Spell.cpp.
+use super::player::PlayerCreateRows;
 use super::*;
 use std::collections::BTreeMap;
 mod area_aura;
@@ -221,6 +222,7 @@ impl SpellCall {
 
 /// Live map data read by CheckCast for an in-world player cast.
 pub struct SourceClientCastMap<'a> {
+    pub player_rows: &'a PlayerCreateRows,
     pub factions: &'a CreatureAiFactions,
     pub collision: &'a SourceCollisionModels,
     pub dynamic: &'a mut SourceDynamicMap,
