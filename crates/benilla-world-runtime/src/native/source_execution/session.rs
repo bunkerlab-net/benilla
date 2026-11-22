@@ -11,6 +11,14 @@ pub enum SourceWorldSessionState {
     Offline,
 }
 
+// WorldSession.h:121-126,860-861.
+#[derive(Clone, Copy)]
+pub(super) enum TutorialState {
+    Unchanged,
+    Changed,
+    New,
+}
+
 pub struct SourceWorldSession {
     // WorldSession.cpp:102 binds the optional constructor socket.
     socket_present: bool,
@@ -20,6 +28,8 @@ pub struct SourceWorldSession {
     state: SourceWorldSessionState,
     // WorldSession.cpp:105 initializes m_playerLoading to false.
     pub(super) player_loading: bool,
+    pub(super) tutorial_words: [u32; 8],
+    pub(super) tutorial_state: TutorialState,
 }
 
 impl SourceWorldSession {
@@ -29,12 +39,39 @@ impl SourceWorldSession {
             account_id,
             state: SourceWorldSessionState::Created,
             player_loading: false,
+            tutorial_words: [0; 8],
+            tutorial_state: TutorialState::Unchanged, // WorldSession.cpp:107.
         }
     }
 
     // WorldSession.h:244.
     pub fn account_id(&self) -> u32 {
         self.account_id
+    }
+
+    /// WorldSession.cpp:1117-1139. The account query owner supplies the result.
+    pub fn bind_tutorials(&mut self, row: Option<[u32; 8]>) {
+        self.tutorial_words = row.unwrap_or_default();
+        self.tutorial_state = if row.is_some() {
+            TutorialState::Unchanged
+        } else {
+            TutorialState::New
+        };
+    }
+
+    /// WorldSession.h:357-365. A new row keeps its insert state.
+    pub fn set_tutorial_word(&mut self, index: usize, value: u32) -> Result<()> {
+        let word = self
+            .tutorial_words
+            .get_mut(index)
+            .ok_or_else(|| refuse("execution.session.WorldSession_359.tutorial_index_undefined"))?;
+        if *word != value {
+            *word = value;
+            if matches!(self.tutorial_state, TutorialState::Unchanged) {
+                self.tutorial_state = TutorialState::Changed;
+            }
+        }
+        Ok(())
     }
 
     // WorldSession.cpp:160-164. The kick deadline is not a packet-send operand.

@@ -37,6 +37,8 @@ mod player_save;
 pub use player_save::{SourcePlayerSaveInputs, SourcePlayerSaveObservation};
 #[path = "player_save_fields.rs"]
 mod player_save_fields;
+#[path = "player_save_learning.rs"]
+mod player_save_learning;
 #[cfg(test)]
 #[path = "player_save_tests.rs"]
 mod player_save_tests;
@@ -163,6 +165,11 @@ pub struct SourcePlayer {
     pub taxi_mask: [u32; 8],
     pub free_primary_professions: u32,
     skills: Vec<SourcePlayerSkill>,
+    // Player.h:528-545,2372. Slot fields stay in client order.
+    skill_status: identity_table::IdentityTable<player_skills::SkillStatus>,
+    // Player.h:2455,2561. Both maps start empty.
+    forgotten_skills: BTreeMap<u32, u32>,
+    entered_instances: identity_table::IdentityTable<i64>,
     // Player.h:2377,2379; Player.cpp:471. Both maps default to empty.
     spells: BTreeMap<u32, SourcePlayerSpell>,
     action_buttons: BTreeMap<u8, SourcePlayerAction>,
@@ -261,6 +268,9 @@ impl SourcePlayer {
                 taxi_mask: [0; 8],
                 free_primary_professions: 0,
                 skills: Vec::new(),
+                skill_status: identity_table::IdentityTable::default(),
+                forgotten_skills: BTreeMap::new(),
+                entered_instances: identity_table::IdentityTable::default(),
                 spells: BTreeMap::new(),
                 action_buttons: BTreeMap::new(),
                 spell_mods: BTreeMap::new(),

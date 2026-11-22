@@ -1009,6 +1009,20 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         &session,
         Path::new(&trace),
     );
+    super::player_save_learning::tests::assert_learning_recordings(
+        Path::new(&trace),
+        &player,
+        &PlayerLearning {
+            objects: &objects,
+            units: &mut units,
+            cast: None,
+            skills: rows.skill_inputs.as_ref().unwrap(),
+            spells: &spells,
+            items: &items,
+            class: 8,
+        },
+        &mut session,
+    );
     player
         .discard(
             &mut objects,

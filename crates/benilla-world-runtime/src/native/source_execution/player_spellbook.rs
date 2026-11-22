@@ -51,6 +51,16 @@ impl Default for SourcePlayerAction {
     }
 }
 
+impl SourcePlayerAction {
+    // Player.h:157-158,169-170.
+    pub(super) fn action_and_type(self) -> (u32, u8) {
+        (
+            self.packed_data & 0x00ff_ffff,
+            (self.packed_data >> 24) as u8,
+        )
+    }
+}
+
 pub(super) struct PlayerLearning<'a, 'cast> {
     pub objects: &'a SourceObjects,
     pub units: &'a mut SourceUnits,

@@ -19,6 +19,22 @@ pub struct SourcePlayerSkill {
     pub bonus: [i16; 2],
 }
 
+// Player.h:528-545. Hash order is independent of client slot order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SkillState {
+    Unchanged,
+    Changed,
+    New,
+    #[allow(dead_code, reason = "Player.cpp:5388 removal still refuses")]
+    Deleted,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct SkillStatus {
+    pub slot: usize,
+    pub state: SkillState,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct PlayerCreateSkill {
     pub id: u16,
@@ -378,8 +394,65 @@ impl SourcePlayer {
         Ok(())
     }
 
+    fn register_skill(&mut self, id: u16, state: SkillState) -> Result<usize> {
+        let slot = self.skills.len();
+        require(
+            self.skill_status.insert(
+                u64::from(id),
+                SkillStatus { slot, state },
+                PLAYER_MAX_SKILLS,
+            )?,
+            "execution.player.Player_5442.duplicate_skill_owner",
+        )?;
+        self.skills.push(SourcePlayerSkill::default());
+        Ok(slot)
+    }
+
+    /// Player.cpp:19551-19562 binds one validated load row to the next skill slot.
+    pub fn bind_loaded_skill(
+        &mut self,
+        objects: &SourceObjects,
+        id_step: [u16; 2],
+        value_max: [u16; 2],
+    ) -> Result<()> {
+        let index = self.register_skill(id_step[0], SkillState::Unchanged)?;
+        let field = PLAYER_SKILL_INFO + index * 3;
+        let entry = &mut self.skills[index];
+        objects.set_update_value(self.object, field, &mut entry.id_step, id_step)?;
+        objects.set_update_value(self.object, field + 1, &mut entry.value_max, value_max)?;
+        Ok(())
+    }
+
+    /// Player.cpp:5033-5064. Gain changes the skill value word and its save state.
+    pub fn update_skill(&mut self, objects: &SourceObjects, id: u16, diff: u16) -> Result<()> {
+        if id == 0 || diff == 0 {
+            return Ok(());
+        }
+        let Some(status) = self.skill_status.get_mut(u64::from(id)) else {
+            return Ok(());
+        };
+        if status.state == SkillState::Deleted {
+            return Ok(());
+        }
+        let entry = &mut self.skills[status.slot];
+        let [value, max] = entry.value_max;
+        if value == 0 || value >= max {
+            return Ok(());
+        }
+        objects.set_update_value(
+            self.object,
+            PLAYER_SKILL_INFO + status.slot * 3 + 1,
+            &mut entry.value_max,
+            [value.saturating_add(diff).min(max), max],
+        )?;
+        if status.state != SkillState::New {
+            status.state = SkillState::Changed;
+        }
+        Ok(())
+    }
+
     // Player.cpp:5408-5464 and :5365-5405. Use the same slots for re-entry.
-    fn set_skill(
+    pub(super) fn set_skill(
         &mut self,
         live: &mut PlayerLearning<'_, '_>,
         skill: SourcePlayerSkill,
@@ -389,24 +462,21 @@ impl SourcePlayer {
         if id == 0 {
             return Ok(());
         }
-        let (index, inserted) =
-            if let Some(index) = self.skills.iter().position(|entry| entry.id_step[0] == id) {
-                require(
-                    value != 0,
-                    "execution.player.Player_5388.remove_skill_owner",
-                )?;
-                (index, false)
-            } else {
-                if value == 0
-                    || !live.skills.categories.contains_key(&id)
-                    || self.skills.len() == PLAYER_MAX_SKILLS
-                {
-                    return Ok(());
-                }
-                let index = self.skills.len();
-                self.skills.push(SourcePlayerSkill::default());
-                (index, true)
-            };
+        let (index, inserted) = if let Some(status) = self.skill_status.get(u64::from(id)) {
+            require(
+                value != 0,
+                "execution.player.Player_5388.remove_skill_owner",
+            )?;
+            (status.slot, false)
+        } else {
+            if value == 0
+                || !live.skills.categories.contains_key(&id)
+                || self.skills.len() == PLAYER_MAX_SKILLS
+            {
+                return Ok(());
+            }
+            (self.register_skill(id, SkillState::New)?, true)
+        };
         let object = self.object();
         let field = PLAYER_SKILL_INFO + index * 3;
         let entry = &mut self.skills[index];
@@ -416,6 +486,12 @@ impl SourcePlayer {
         }
         live.objects
             .set_update_value(object, field + 1, &mut entry.value_max, skill.value_max)?;
+        // Player.cpp:5383-5384 marks an existing status even if the word did not change.
+        if let Some(status) = self.skill_status.get_mut(u64::from(id)) {
+            if status.state != SkillState::New {
+                status.state = SkillState::Changed;
+            }
+        }
         let current_step = entry.id_step[1];
         self.update_skill_trained_spells(live, id, value, current_step)?;
         if id == SKILL_DEFENSE {
