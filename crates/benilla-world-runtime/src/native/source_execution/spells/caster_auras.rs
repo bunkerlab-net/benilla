@@ -69,16 +69,20 @@ impl SourceSpell {
     ) -> Result<bool> {
         for &ty in types {
             // :6098-6105. CheckCasterAuras already proved a Unit true caster.
-            let auras = owner.caster_auras(self.caster, ty)?;
-            for aura in auras {
-                if spell_cancels_aura_effect(t, aura)? {
-                    continue;
+            let mut blocked = None;
+            owner.visit_caster_auras(self.caster, ty, &mut |aura| {
+                if spell_cancels_aura_effect(t, &aura)? {
+                    return Ok(true);
                 }
-                self.param1 = if aura.effect_mechanic != 0 {
+                blocked = Some(if aura.effect_mechanic != 0 {
                     aura.effect_mechanic
                 } else {
                     aura.mechanic
-                };
+                });
+                Ok(false)
+            })?;
+            if let Some(mechanic) = blocked {
+                self.param1 = mechanic;
                 return Ok(false);
             }
         }

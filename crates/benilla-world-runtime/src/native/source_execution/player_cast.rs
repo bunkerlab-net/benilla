@@ -546,6 +546,38 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
         .apply_spell_mod(self.stores, t, MOD_COST, cost)
     }
 
+    // Spell.cpp:6103-6113. Borrow the live type list in insertion order.
+    fn visit_caster_auras(
+        &mut self,
+        caster: ObjectHandle,
+        ty: u32,
+        visit: &mut dyn FnMut(SpellCasterAura) -> Result<bool>,
+    ) -> Result<()> {
+        let auras = &self.units.get(self.objects, caster)?.auras;
+        for entry in auras.auras_of_type(ty) {
+            let t = self
+                .stores
+                .template(entry.holder.spell())
+                .ok_or_else(|| refuse("execution.spells.Spell_6109.GetSpellProto_owner"))?;
+            let effect_mechanic = [t.effectmechanic1, t.effectmechanic2, t.effectmechanic3]
+                .get(usize::from(entry.effect))
+                .copied()
+                .ok_or_else(|| refuse("execution.spells.Spell_6113.GetEffIndex_owner"))?;
+            if !visit(SpellCasterAura {
+                attributes: t.attributes,
+                attributesex2: t.attributesex2,
+                school: t.school,
+                dispel: t.dispel,
+                mechanic: t.mechanic,
+                effect_mechanic,
+                aura_type: ty,
+            })? {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     fn terrain_geometry(&mut self) -> Result<(&SourceObjects, &mut SourceTerrainManager)> {
         Ok((self.objects, self.inputs.terrain))
     }
@@ -704,7 +736,7 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
                 spell.check_power(t, strict, self)
             }
             SpellCheck::CasterAuras if self.client_map.is_some() => {
-                Err(refuse("execution.spells.Spell_5158.CheckCasterAuras_owner"))
+                spell.check_caster_auras(t, self)
             }
             _ => Err(check.missing_owner()),
         }
@@ -712,6 +744,9 @@ impl SpellExecutionOwner for PlayerCast<'_, '_> {
     fn call(&mut self, spell: &mut SourceSpell, call: SpellCall) -> Result<()> {
         match call {
             SpellCall::PrepareTriggerData => spell.prepare_trigger_data(self.stores),
+            SpellCall::RemoveCastAuras(4) if self.client_map.is_some() => Err(refuse(
+                "execution.spells.Spell_3046.RemoveAurasOnCast_owner",
+            )),
             SpellCall::SendResult(_)
                 if spell.triggered_by_aura.is_some() || self.inputs.session.player_loading =>
             {
@@ -1191,7 +1226,7 @@ fn apply_spell_mod_checks_the_client_gate_and_the_selected_operation() {
 }
 
 #[test]
-fn client_fireball_admission_checks_live_range_and_power_before_caster_auras() {
+fn client_fireball_admission_checks_power_and_caster_auras_before_prepare() {
     use crate::native::production_compiler::VerifiedCatalog;
     use benilla_sim::source_rng::{DrawCursor, Mt19937, SourceRandom};
     use std::path::Path;
@@ -1266,6 +1301,8 @@ fn client_fireball_admission_checks_live_range_and_power_before_caster_auras() {
         energy: 0,
         max_energy: 0,
     });
+    live.cast_speed = 1.0_f32.to_bits();
+    mage.spell_family = 3;
     mage.native_display = 49;
     mage.scale = 1.;
     let creature = &mut units.get_mut(&objects, victim).unwrap().loaded_creature;
@@ -1280,7 +1317,16 @@ fn client_fireball_admission_checks_live_range_and_power_before_caster_auras() {
             disabled: false,
         },
     );
-    let stores = SourceSpellStores::load(&mut catalog, &mut SourceSpellScriptRegistry).unwrap();
+    let mut stores = SourceSpellStores::load(&mut catalog, &mut SourceSpellScriptRegistry).unwrap();
+    let stun = SpellTemplate {
+        id: 1_000_000,
+        mechanic: 12,
+        effect1: 6,
+        effectapplyauraname1: 12,
+        effectmechanic1: 7,
+        ..Default::default()
+    };
+    stores.insert_template(stun).unwrap();
     let player_rows = PlayerCreateRows::load(&mut catalog).unwrap();
     let targets = SourceSpellTargetMgr::initialize(&stores);
     let factions = CreatureAiFactions::load_catalog(&mut catalog).unwrap();
@@ -1301,7 +1347,9 @@ fn client_fireball_admission_checks_live_range_and_power_before_caster_auras() {
     let mut sink = |_| {};
     let mut random = SourceRandom::new(12, &mut mt, &mut cursor, &mut sink).unwrap();
     terrain.load_terrain(0, &mut random).unwrap();
-    let session = SourceWorldSession::construct(1, true);
+    let mut session = SourceWorldSession::construct(1, true);
+    // Spell.cpp:3844-3847. Failed casts can finish without a result packet here.
+    session.player_loading = true;
     let mut inputs = SourcePlayerCastInputs {
         targets: &targets,
         terrain: &mut terrain,
@@ -1345,7 +1393,7 @@ fn client_fireball_admission_checks_live_range_and_power_before_caster_auras() {
     mage.spells.get_mut(&133).unwrap().disabled = false;
     assert_eq!(
         invoke(&mut mage, &mut units, &packet).unwrap_err().id,
-        "execution.spells.Spell_5158.CheckCasterAuras_owner"
+        "execution.spells.Spell_3046.RemoveAurasOnCast_owner"
     );
     let live = units.get(&objects, caster).unwrap();
     let spell = &live.spell_starts.spells[&1];
@@ -1358,7 +1406,9 @@ fn client_fireball_admission_checks_live_range_and_power_before_caster_auras() {
     );
     assert_eq!(spell.power_cost, 30); // pre-start-classicmangos.sql:837896.
     assert_eq!(live.vitals.unwrap().mana, 30);
-    assert_eq!(spell.state, SourceSpellState::Targeting);
+    assert_eq!(spell.state, SourceSpellState::Casting);
+    // northshire-03 A client-packets.jsonl:373.
+    assert_eq!((spell.cast_time, spell.timer), (1500, 1500));
     assert_eq!(live.spell_slots.current(SpellSlot::Generic), None);
     // Trace.tsv:75160591-75160593. SpellStart queues before CheckCast.
     assert_eq!(
@@ -1374,14 +1424,28 @@ fn client_fireball_admission_checks_live_range_and_power_before_caster_auras() {
         .unwrap()
         .mana = 29;
     assert_eq!(
-        invoke(&mut mage, &mut units, &packet).unwrap_err().id,
-        SpellCall::SendResult(SpellCastResult::NoPower)
-            .missing_owner()
-            .id
+        invoke(&mut mage, &mut units, &packet).unwrap(),
+        Some(SpellCastResult::NoPower)
     );
     let live = units.get(&objects, caster).unwrap();
     assert_eq!(live.spell_starts.spells[&2].power_cost, 30);
     assert_eq!(live.vitals.unwrap().mana, 29);
+
+    let live = units.get_mut(&objects, caster).unwrap();
+    live.vitals.as_mut().unwrap().mana = 30;
+    live.flags |= 0x0004_0000;
+    let stun = stores.template(1_000_000).unwrap();
+    let mut holder = SourceAuraHolder::new(stun, caster, 0, 0, -1).unwrap();
+    holder.effects[0] = Some(SourceAura::self_spell_effect(stun, 0, 12, 0, 0, 1, 0).unwrap());
+    live.auras
+        .store_aura_holder(stun.id, &mut Some(holder))
+        .unwrap();
+    assert_eq!(
+        invoke(&mut mage, &mut units, &packet).unwrap(),
+        Some(SpellCastResult::PreventedByMechanic)
+    );
+    let spell = &units.get(&objects, caster).unwrap().spell_starts.spells[&3];
+    assert_eq!((spell.state, spell.param1), (SourceSpellState::Finished, 7));
 }
 
 #[test]

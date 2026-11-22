@@ -338,6 +338,21 @@ pub trait SpellExecutionOwner {
             "execution.spells.Unit_GetAurasByType_CheckCasterAuras_owner",
         ))
     }
+
+    // Spell.cpp:6103-6117. Stop at the first effect the callback rejects.
+    fn visit_caster_auras(
+        &mut self,
+        caster: ObjectHandle,
+        ty: u32,
+        visit: &mut dyn FnMut(SpellCasterAura) -> Result<bool>,
+    ) -> Result<()> {
+        for &aura in self.caster_auras(caster, ty)? {
+            if !visit(aura)? {
+                break;
+            }
+        }
+        Ok(())
+    }
     /// F3 objects supply actual identity, kind, map and pose.
     fn range_objects(&mut self) -> Result<&SourceObjects> {
         Err(refuse("execution.spells.f3_WorldObject_range_owner"))
