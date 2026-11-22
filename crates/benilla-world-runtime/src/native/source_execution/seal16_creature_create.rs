@@ -130,44 +130,108 @@ fn addon_unit_state(live: &SourceUnitFields, position: [u32; 4]) -> Result<Spell
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(in crate::native::source_execution) fn load_temporary_addon(
-    addon: Option<&LoadedCreatureAddon>,
-    map: &mut SourceContinent,
-    object: ObjectHandle,
-    terrain: &mut SourceTerrainManager,
-    random: &mut dyn CreatureRandom,
-    stores: &SourceSpellStores,
-    targets: &SourceSpellTargetMgr,
-    clocks: &mut ActiveClocks,
-    world_clock: &SourceWorldClock,
-    config: &[u8],
-) -> Result<()> {
-    let live = map.units.get(&map.objects, object)?;
-    let unit = addon_unit_state(live, map.objects.pose(object)?.0)?;
-    let level = live.power_fields.as_ref().unwrap().level;
-    let raw = random.creature_raw_position()?;
-    CreatureAddonState::default().load(
-        addon,
-        false,
-        &map.objects,
-        object,
-        &mut map.units,
-        &mut addon_cast::Execution {
-            terrain,
-            stores,
-            targets,
-            unit,
-            level,
-            clocks,
-            world_clock,
+pub(in super::super) struct TemporaryCreatureSpellBinding<'a> {
+    pub stores: &'a SourceSpellStores,
+    pub targets: &'a SourceSpellTargetMgr,
+    pub clocks: &'a mut ActiveClocks,
+    pub world_clock: &'a SourceWorldClock,
+    pub config: &'a [u8],
+}
+
+impl TemporaryCreatureSpellOwner for TemporaryCreatureSpellBinding<'_> {
+    fn apply_addon(
+        &mut self,
+        addon: Option<&LoadedCreatureAddon>,
+        map: &mut SourceContinent,
+        object: ObjectHandle,
+        terrain: &mut SourceTerrainManager,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<()> {
+        let live = map.units.get(&map.objects, object)?;
+        let unit = addon_unit_state(live, map.objects.pose(object)?.0)?;
+        let level = live.power_fields.as_ref().unwrap().level;
+        let raw = random.creature_raw_position()?;
+        CreatureAddonState::default().load(
+            addon,
+            false,
+            &map.objects,
+            object,
+            &mut map.units,
+            &mut addon_cast::Execution {
+                terrain,
+                stores: self.stores,
+                targets: self.targets,
+                unit,
+                level,
+                clocks: self.clocks,
+                world_clock: self.world_clock,
+                random,
+                creature_spells: map.creature_spells.as_ref(),
+                raw,
+                max_casts: addon_cast::max_casts(self.config)?,
+            },
+        )?;
+        Ok(())
+    }
+
+    fn with_script_reset_owner(
+        &mut self,
+        context: TemporaryCreatureCastContext<'_>,
+        construct: impl FnOnce(&mut dyn ScriptedAiResetOwner) -> Result<()>,
+    ) -> Result<()> {
+        construct(&mut TemporaryScriptResetBinding {
+            terrain: context.terrain,
+            stores: self.stores,
+            targets: self.targets,
+            clocks: self.clocks,
+            world_clock: self.world_clock,
+            creature_spells: context.creature_spells,
+            max_casts: addon_cast::max_casts(self.config)?,
+            broadcast: (context.cells, context.visibility.to_bits()),
+        })
+    }
+}
+
+struct TemporaryScriptResetBinding<'a> {
+    terrain: &'a mut SourceTerrainManager,
+    stores: &'a SourceSpellStores,
+    targets: &'a SourceSpellTargetMgr,
+    clocks: &'a mut ActiveClocks,
+    world_clock: &'a SourceWorldClock,
+    creature_spells: Option<&'a CreatureSpellMapData>,
+    max_casts: u32,
+    broadcast: (&'a SourceCells, u32),
+}
+
+impl NearTeleportOwner for TemporaryScriptResetBinding<'_> {}
+impl ScriptedAiResetOwner for TemporaryScriptResetBinding<'_> {
+    fn taerar_reset_cast(
+        &mut self,
+        base: &mut SourceUnitAi,
+        objects: &SourceObjects,
+        units: &mut SourceUnits,
+        random: &mut dyn CreatureRandom,
+        spell: u32,
+        flags: u32,
+    ) -> Result<()> {
+        let object = base.unit;
+        ai_initialize::ai_cast::Binding {
+            object,
+            stores: self.stores,
+            targets: self.targets,
+            terrain: self.terrain,
+            world_clock: self.world_clock,
+            clocks: self.clocks,
             random,
-            creature_spells: map.creature_spells.as_ref(),
-            raw,
-            max_casts: addon_cast::max_casts(config)?,
-        },
-    )?;
-    Ok(())
+            creature_spells: self.creature_spells,
+            max_casts: self.max_casts,
+            broadcast: Some(self.broadcast),
+        }
+        .run_with_base(units, base, objects, |cast| {
+            cast.ai_cast(object, Some(object), spell, flags)
+        })?;
+        Ok(())
+    }
 }
 
 fn map_add_visibility<D: GridDefinitions<Row = SpawnKey>>(

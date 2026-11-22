@@ -16,6 +16,16 @@ const DRAGON_DELETE: &[u8] = b"DELETE FROM world_state WHERE Id='0'";
 const DRAGON_INSERT: &[u8] =
     b"INSERT INTO world_state(Id,Data) VALUES('0','0 0 14890 14888 14887 14889')";
 
+// Trace :61741101-53, call, raw word and result on consecutive lines.
+const TAERAR_DRAWS: [(u64, u64, [u64; 2], u64, u64); 6] = [
+    (61741101, 23, [0, 0], 75745173, 0),
+    (61741111, 23, [0, 0], 1977936151, 0),
+    (61741121, 70, [9000, 12000], 2651444282, 10852),
+    (61741131, 71, [10000, 20000], 2739243785, 16378),
+    (61741141, 70, [9000, 12000], 2056961313, 10437),
+    (61741151, 71, [10000, 20000], 3270547554, 17615),
+];
+
 #[derive(Default)]
 pub(super) struct WorldStateEvidence {
     lines: Vec<u64>,
@@ -29,6 +39,7 @@ pub(super) struct WorldStateEvidence {
     first_display_bounds: Option<[u64; 2]>,
     first_display_result: Option<i64>,
     init_entry_height: bool,
+    taerar_rows: u8,
     next_ai_word: Option<(u64, u64)>,
     addon_clock_site: Option<(u64, [u64; 3], bool)>,
     addon_clocks: Option<ActiveClocks>,
@@ -184,23 +195,44 @@ impl WorldStateEvidence {
                         raw: self.next_word.unwrap().0 + 1,
                     });
             }
-            61741101 => {
-                assert_eq!(kind, "rng_call");
-                assert_eq!(
-                    p,
-                    [
-                        "urand",
-                        "/reference/source/src/game/AI/ScriptDevAI/base/TimerAI.cpp",
-                        "23",
-                        "0",
-                        "0"
-                    ]
-                );
-            }
-            61741102 => {
+            61741261 => {
                 assert_eq!((kind, p[0]), ("mt_raw", "0x200205904f00"));
                 let word = (p[1].parse().unwrap(), p[2].parse().unwrap());
                 assert!(self.next_ai_word.replace(word).is_none());
+            }
+            61741101..=61741153 => {
+                for (i, (start, site, bounds, word, result)) in TAERAR_DRAWS.into_iter().enumerate()
+                {
+                    match line.checked_sub(start) {
+                        Some(0) => {
+                            assert_eq!((kind, p[0]), ("rng_call", "urand"));
+                            let path = if site == 23 {
+                                "/reference/source/src/game/AI/ScriptDevAI/base/TimerAI.cpp"
+                            } else {
+                                "/reference/source/src/game/AI/ScriptDevAI/scripts/world/bosses_emerald_dragons.cpp"
+                            };
+                            assert_eq!(p[1], path);
+                            assert_eq!(
+                                [p[2], p[3], p[4]].map(|n| n.parse::<u64>().unwrap()),
+                                [site, bounds[0], bounds[1]]
+                            );
+                        }
+                        Some(1) => {
+                            assert_eq!((kind, p[0]), ("mt_raw", "0x200205904f00"));
+                            assert_eq!(
+                                [p[1], p[2]].map(|n| n.parse::<u64>().unwrap()),
+                                [8716 + i as u64, word]
+                            );
+                        }
+                        Some(2) => {
+                            assert_eq!((kind, p[0]), ("rng_result", "urand"));
+                            assert_eq!(p[1].parse::<u64>().unwrap(), result);
+                        }
+                        _ => continue,
+                    }
+                    self.taerar_rows += 1;
+                    break;
+                }
             }
             _ => (),
         }
@@ -230,7 +262,7 @@ impl WorldStateEvidence {
 
     pub(super) fn next_dragon_ai_word(&self) -> (u64, u64) {
         let next = self.next_ai_word.unwrap();
-        assert_eq!(next, (8716, 75745173)); // Trace :61741102.
+        assert_eq!(next, (8722, 728388447)); // Trace :61741261.
         next
     }
 
@@ -274,7 +306,8 @@ impl WorldStateEvidence {
         ); // Trace :61741085.
         assert_eq!(map.temporary_creatures.get(&14890), Some(&1));
         assert_eq!(map.motions[&handle].path_id().unwrap(), 1); // WorldState.cpp:588-590.
-        assert!(!live.has_ai); // Trace :61741089-95, factory construction is pending.
+        assert!(!live.has_ai); // The factory has yet to return at trace :61741236.
+        assert!(map.ais.get(&map.objects, handle).is_err());
         let pose = object.pose.unwrap();
         // Trace :61740831-41 and Object.cpp:2062.
         assert_eq!(object.respawn_pose, Some(pose));
@@ -291,9 +324,21 @@ impl WorldStateEvidence {
             assert_eq!(effect.apply_time, 1794314193); // Trace :61740999, :61741082.
         }
         let events = live.unit_events.inventory();
-        assert_eq!(events.queued.len(), 3); // Trace :61740919, :61741002, :61741088.
-        assert!(matches!(events.queued[2].kind, SourceUnitEvent::AiNotify));
-        assert_eq!(events.queued[2].exec_time_ms, 5000); // Trace :61741088.
+        assert_eq!(events.queued.len(), 4); // Trace :61740919, :61741002, :61741088, :61741159.
+        let SourceUnitEvent::Spell { spell } = events.queued[2].kind else {
+            panic!("Taerar's constructor spell event is missing");
+        };
+        assert_eq!(events.queued[2].exec_time_ms, 1); // Trace :61741158-59.
+        let cast = &live.spell_starts.spells[&spell];
+        assert_eq!(cast.spell, 24886); // bosses_emerald_dragons.cpp:366,394.
+        assert_eq!(cast.targets.unit, Some(handle));
+        // Spell.cpp:2407-2412 and the live pose from trace :61740831-41.
+        let SourcePose([x, y, z, _]) = pose;
+        assert_eq!(cast.targets.source, Some([x, y, z]));
+        assert_ne!(cast.targets.mask & super::TARGET_FLAG_SOURCE_LOCATION, 0);
+        assert!(cast.flags.old_triggered() && cast.executing);
+        assert!(matches!(events.queued[3].kind, SourceUnitEvent::AiNotify));
+        assert_eq!(events.queued[3].exec_time_ms, 5000); // Trace :61741088.
         assert!(self.init_entry_height); // Trace :61738535 queries this pre-placement pose.
         assert_eq!(swimming.reached_441, 1);
         assert_eq!(swimming.swimming_set + swimming.swimming_not_set, 1);
@@ -321,9 +366,16 @@ impl WorldStateEvidence {
                 _ => None,
             })
             .collect();
-        assert_eq!(raw, [(position, word)]);
+        assert_eq!(raw.len(), TAERAR_DRAWS.len() + 1);
+        assert_eq!(raw[0], (position, word));
         assert_eq!(
-            trace.last().unwrap().kind,
+            trace
+                .iter()
+                .find_map(|event| match event.kind {
+                    EventKind::End { span: id, .. } if id == span => Some(event.kind),
+                    _ => None,
+                })
+                .unwrap(),
             EventKind::End {
                 span,
                 begin: position,
@@ -331,6 +383,34 @@ impl WorldStateEvidence {
                 result: Ok(Value::I64(result))
             }
         );
+        assert_eq!(usize::from(self.taerar_rows), TAERAR_DRAWS.len() * 3);
+        let mut calls = trace.iter().filter_map(|event| match event.kind {
+            EventKind::Begin {
+                span,
+                parent: None,
+                at,
+                operation: Operation::Urand,
+                args,
+            } => Some((span, at, args)),
+            _ => None,
+        });
+        for ((_, _, bounds, word, result), (at, raw_word)) in
+            TAERAR_DRAWS.into_iter().zip(raw.into_iter().skip(1))
+        {
+            let (span, call_at, args) = calls.next().unwrap();
+            assert_eq!(
+                (call_at, args, raw_word),
+                (at, [bounds[0], bounds[1], 0], word)
+            );
+            assert!(trace.iter().any(|event| event.kind
+                == EventKind::End {
+                    span,
+                    begin: at,
+                    end: at + 1,
+                    result: Ok(Value::U64(result)),
+                }));
+        }
+        assert!(calls.next().is_none());
     }
 
     pub(super) fn bind_rows(&self, recording: &Path) -> &'static [WorldStateRow<'static>] {

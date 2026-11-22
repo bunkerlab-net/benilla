@@ -231,6 +231,25 @@ impl SourceSpell {
         }
         self.check_cast_location_suffix(t, strict, c.player, owner)
     }
+    // Spell.cpp:7387-7396. A GO or dynamic original needs a live map lookup.
+    pub(super) fn casting_object<'a>(
+        &self,
+        objects: &'a SourceObjects,
+    ) -> Result<&'a SourceObject> {
+        let caster = objects.get(self.caster)?;
+        if caster.kind != SourceObjectKind::GameObject && self.original_caster != self.caster {
+            let original = objects.get(self.original_caster)?;
+            require(
+                !matches!(
+                    original.kind,
+                    SourceObjectKind::GameObject | SourceObjectKind::DynamicObject
+                ),
+                "execution.spells.GetCastingObject_original_world_object_owner",
+            )?;
+        }
+        Ok(caster)
+    }
+
     /// Spell.cpp:5075-5088 selects the relation call after GetCastingObject.
     pub fn check_target_filter(
         &self,
@@ -243,18 +262,7 @@ impl SourceSpell {
         let data = SPELL_TARGET_INFO_TABLE
             .get(ty as usize)
             .ok_or_else(|| refuse("execution.spells.SpellTargetInfoTable_index_undefined"))?;
-        let caster = objects.get(self.caster)?;
-        // Spell.cpp:7389-7396 returns trueCaster unless a non-GO caster has a GO/dynamic original.
-        if caster.kind != SourceObjectKind::GameObject && self.original_caster != self.caster {
-            let original = objects.get(self.original_caster)?;
-            require(
-                !matches!(
-                    original.kind,
-                    SourceObjectKind::GameObject | SourceObjectKind::DynamicObject
-                ),
-                "execution.spells.GetCastingObject_original_world_object_owner",
-            )?;
-        }
+        let caster = self.casting_object(objects)?;
         if data.target_type != SpellTargetImplicitType::Unit
             || data.filter == SpellTargetFilter::Script
             || !matches!(

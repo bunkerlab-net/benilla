@@ -77,7 +77,7 @@ impl SelfSpellTargeting<'_> {
 
     fn select(
         &self,
-        s: &SourceSpell,
+        s: &mut SourceSpell,
         t: &SpellTemplate,
         effect: usize,
         implicit_type: SpellTargetImplicitType,
@@ -133,7 +133,7 @@ impl SelfSpellTargeting<'_> {
 
     fn set_target_map(
         &self,
-        s: &SourceSpell,
+        s: &mut SourceSpell,
         t: &SpellTemplate,
         effect: usize,
         mode: u32,
@@ -185,6 +185,9 @@ impl SelfSpellTargeting<'_> {
         self.stores.cone(self.stores.first_rank(t.id));
         let unit = match mode {
             1 => Some(s.caster), // Spell.cpp:2159-2161.
+            TARGET_ENUM_UNITS_SCRIPT_AOE_AT_SRC_LOC => {
+                return Err(refuse("execution.spells.Spell_2323.FillAreaTargets_owner"));
+            }
             20 | 33 | 34 => {
                 return Err(refuse(
                     "execution.spells.Spell_2389.FillRaidOrPartyTargets_owner",
@@ -195,6 +198,16 @@ impl SelfSpellTargeting<'_> {
                 Some(unit) if unit_can_assist_spell(s.caster, unit, self.relations)? => Some(unit),
                 _ => None,
             },
+            TARGET_LOCATION_CASTER_SRC => {
+                // Spell.cpp:2407-2412,163-169. Set the source before evaluating target B.
+                let caster = s.casting_object(self.objects)?;
+                let SourcePose([x, y, z, _]) = caster
+                    .pose
+                    .ok_or_else(|| refuse("execution.spells.Spell_2411.source_position_owner"))?;
+                s.targets.source = Some([x, y, z]);
+                s.targets.mask |= TARGET_FLAG_SOURCE_LOCATION;
+                None
+            }
             _ => return Err(refuse("execution.spells.Spell_1785.SetTargetMap_owner")),
         };
         // Spell.cpp:2693-2696. Exclusion runs after the arm, even for target B.

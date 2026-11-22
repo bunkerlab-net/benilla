@@ -46,8 +46,8 @@ mod world_state;
 #[path = "seal16_world_tail.rs"]
 mod world_tail;
 
-// The first TimerAI draw is pending after the first summon reaches final placement.
-pub(super) const WORLD_TAIL_TRACE_END: u64 = 61741103;
+// Include the first pending JustRespawned draw after the constructor cast.
+pub(super) const WORLD_TAIL_TRACE_END: u64 = 61741262;
 
 const GROUP_QUERIES: [&str; 6] = [
     "SELECT Id, Name, Type, MaxCount, WorldState, WorldStateExpression, Flags, StringId, RespawnOverrideMin, RespawnOverrideMax FROM spawn_group",
@@ -2095,6 +2095,10 @@ struct DragonBindings<'a> {
     addons: &'a LoadedCreatureAddons,
     world_clock: &'a SourceWorldClock,
     scripts: &'a SourceScriptRegistry,
+    ai_registry: &'a SourceAiRegistry,
+    ai_factions: &'a CreatureAiFactions,
+    ai_templates: &'a BTreeMap<u32, CreatureAiTemplateOperands>,
+    ai_config: &'a EventAiLoaderConfig,
     stores: &'a SourceSpellStores,
     targets: SourceSpellTargetMgr,
     addon_clocks: active_init::ActiveClocks,
@@ -2413,6 +2417,10 @@ impl WorldTailOwner for Owner<'_> {
                 addons: bindings.addons,
                 clock: bindings.world_clock,
                 scripts: bindings.scripts,
+                ai_registry: bindings.ai_registry,
+                ai_factions: bindings.ai_factions,
+                ai_templates: bindings.ai_templates,
+                ai_config: bindings.ai_config,
                 force_load: false, // World.cpp:485-493, frozen empty LoadAllGridsOnMaps.
                 respawn_aggro: bindings.respawn_aggro,
             },
@@ -2422,19 +2430,12 @@ impl WorldTailOwner for Owner<'_> {
             |obs| self.dragon_summon_phases.push(obs),
             &mut self.dragon_swimming,
             |obs| self.dragon_create.push(obs),
-            |addon, map, object, terrain, random| {
-                active_init::load_temporary_addon(
-                    addon,
-                    map,
-                    object,
-                    terrain,
-                    random,
-                    bindings.stores,
-                    &bindings.targets,
-                    &mut bindings.addon_clocks,
-                    bindings.world_clock,
-                    bindings.config,
-                )
+            &mut active_init::TemporaryCreatureSpellBinding {
+                stores: bindings.stores,
+                targets: &bindings.targets,
+                clocks: &mut bindings.addon_clocks,
+                world_clock: bindings.world_clock,
+                config: bindings.config,
             },
         )
     }
@@ -7492,6 +7493,10 @@ pub(super) fn continue_startup(
         addons: &creature_addons,
         world_clock: &world_clock,
         scripts: &scripts,
+        ai_registry: &ai_registry,
+        ai_factions: &ai_factions,
+        ai_templates: &ai_templates,
+        ai_config: &ai_config,
         stores: &addon_spells,
         targets: SourceSpellTargetMgr::initialize(&addon_spells),
         addon_clocks: observed.weekly.world_state.bind_addon_clocks(),

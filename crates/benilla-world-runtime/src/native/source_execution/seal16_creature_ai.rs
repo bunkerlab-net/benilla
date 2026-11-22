@@ -22,7 +22,7 @@ impl CreatureRandom for Owner<'_, '_, '_> {
 impl UnitAiExecutionOwner for Owner<'_, '_, '_> {}
 
 #[path = "seal16_ai_cast.rs"]
-mod ai_cast;
+pub(super) mod ai_cast;
 struct LiveOwner<'a> {
     binding: ai_cast::Binding<'a>,
 }

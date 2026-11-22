@@ -26,7 +26,7 @@ pub(in super::super) fn with_solenor_binding<D: GridDefinitions>(
     invoke: impl FnOnce(
         &mut SourceObjects,
         BuiltinAiFactoryOwners<'_>,
-        &mut dyn SolenorResetOwner,
+        &mut dyn ScriptedAiResetOwner,
     ) -> Result<()>,
     template: &CreatureAiTemplateOperands,
 ) -> Result<()> {
@@ -96,7 +96,7 @@ impl<D: GridDefinitions> SolenorBinding<'_, D> {
         invoke(master, context, &mut owner)
     }
 }
-impl<D: GridDefinitions> SolenorResetOwner for SolenorBinding<'_, D> {
+impl<D: GridDefinitions> ScriptedAiResetOwner for SolenorBinding<'_, D> {
     fn solenor_respawn_clock(
         &mut self,
         _: ObjectHandle,

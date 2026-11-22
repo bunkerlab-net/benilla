@@ -5,6 +5,7 @@ use super::*;
 use benilla_sim::creature_init::DisplayChoice;
 use benilla_sim::resident_map::compute_cell_pair;
 use benilla_sim::source_rng::{RawGenerator, SourceRandom, TraceEvent};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
 pub struct CreatureSpawn {
@@ -1714,8 +1715,36 @@ pub struct TemporaryCreatureMapAdd<'a> {
     pub addons: &'a LoadedCreatureAddons,
     pub clock: &'a SourceWorldClock,
     pub scripts: &'a SourceScriptRegistry,
+    pub ai_registry: &'a SourceAiRegistry,
+    pub ai_factions: &'a CreatureAiFactions,
+    pub ai_templates: &'a BTreeMap<u32, CreatureAiTemplateOperands>,
+    pub ai_config: &'a EventAiLoaderConfig,
     pub force_load: bool,
     pub respawn_aggro: i32,
+}
+
+pub trait TemporaryCreatureSpellOwner {
+    fn apply_addon(
+        &mut self,
+        addon: Option<&LoadedCreatureAddon>,
+        map: &mut SourceContinent,
+        object: ObjectHandle,
+        terrain: &mut SourceTerrainManager,
+        random: &mut dyn CreatureRandom,
+    ) -> Result<()>;
+
+    fn with_script_reset_owner(
+        &mut self,
+        context: TemporaryCreatureCastContext<'_>,
+        construct: impl FnOnce(&mut dyn ScriptedAiResetOwner) -> Result<()>,
+    ) -> Result<()>;
+}
+
+pub struct TemporaryCreatureCastContext<'a> {
+    pub terrain: &'a mut SourceTerrainManager,
+    pub cells: &'a SourceCells,
+    pub creature_spells: Option<&'a CreatureSpellMapData>,
+    pub visibility: f32,
 }
 
 struct TemporaryCreatureProtoWork<'a, 'data, C, O> {
@@ -1886,13 +1915,7 @@ pub fn summon_source_emerald_dragon(
     mut observe: impl FnMut(CreatureFactoryObservation),
     swimming: &mut SourceCreatureSwimmingCensus,
     observe_create: impl FnMut(CreatureCreateObservation),
-    apply_addon: impl FnOnce(
-        Option<&LoadedCreatureAddon>,
-        &mut SourceContinent,
-        ObjectHandle,
-        &mut SourceTerrainManager,
-        &mut dyn CreatureRandom,
-    ) -> Result<()>,
+    spells: &mut impl TemporaryCreatureSpellOwner,
 ) -> Result<Option<ObjectHandle>> {
     let Some(original) = definitions.templates.get(settings.entry) else {
         // Object.cpp:2028-2032 returns null before a construction or GUID allocation.
@@ -1986,7 +2009,7 @@ pub fn summon_source_emerald_dragon(
                 database,
                 state.template.entry,
             )?;
-            apply_addon(addon, map, object, terrain, random)?;
+            spells.apply_addon(addon, map, object, terrain, random)?;
             // Object.cpp:2062,2072-2088. WorldState.cpp:617 supplies the fixed flags.
             map.objects
                 .set_respawn_definition(object, map.objects.pose(object)?, false)?;
@@ -2035,20 +2058,54 @@ pub fn summon_source_emerald_dragon(
                 },
                 terrain,
             )?;
-            return match probe_loaded_creature_ai_script(
+            let selected = map_add.ai_registry.select_loaded_db_creature(
                 &map.objects,
                 object,
+                map.units.get(&map.objects, object)?,
+                original,
                 map_add.scripts,
-                original.words[96],
+                map_add.ai_factions,
                 |_| {},
-            )? {
-                LoadedCreatureAiScriptFactory::Ported(_) => Err(refuse(
-                    "execution.ai.ScriptDevAIMgr_370.temporary_constructor_owner",
-                )),
-                LoadedCreatureAiScriptFactory::Null => Err(refuse(
-                    "execution.ai.CreatureAISelector_45.temporary_registry_owner",
-                )),
+            )?;
+            selected.validate(&map.objects)?;
+            let AiExecutable::ScriptDevGetAi(binding) = selected.executable() else {
+                return Err(refuse(
+                    "execution.ai.CreatureAISelector_90.temporary_builtin_factory_owner",
+                ));
             };
+            let kind = SourceScriptedAiKind::for_registered_name(&binding.name)?;
+            let template = map_add
+                .ai_templates
+                .get(&selected.inputs().effective_entry)
+                .ok_or_else(|| refuse("execution.unit_ai.effective_entry"))?;
+            spells.with_script_reset_owner(
+                TemporaryCreatureCastContext {
+                    terrain,
+                    cells: &map.cells,
+                    creature_spells: map.creature_spells.as_ref(),
+                    visibility: map.visibility,
+                },
+                |reset| {
+                    SourceCreatureAis::construct_loaded_script(
+                        &mut map.objects,
+                        &selected,
+                        kind,
+                        binding,
+                        BuiltinAiFactoryOwners {
+                            units: &mut map.units,
+                            ais: &mut map.ais,
+                            random,
+                            base: BuiltinAiBase::Loaded {
+                                combat: &mut map.combat,
+                                template,
+                                config: map_add.ai_config,
+                            },
+                        },
+                        reset,
+                    )
+                },
+            )?;
+            return Err(refuse("execution.ai.Creature_886.SpellListChanged_owner"));
         }
     }
     // Object.cpp:2056-2059 deletes the candidate when Create returns false.

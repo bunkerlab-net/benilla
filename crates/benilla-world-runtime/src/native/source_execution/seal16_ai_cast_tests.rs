@@ -431,7 +431,7 @@ fn contested_slot_leaves_old_spell_live_at_cancel_refusal() {
         object,
         objects: &objects,
         units: &mut units,
-        ai: ais.get_mut(&objects, object).unwrap(),
+        base: &mut ais.get_mut(&objects, object).unwrap().base,
         stores: &stores,
         targets: &SourceSpellTargetMgr::initialize(&stores),
         terrain: &mut SourceTerrainManager::default(),

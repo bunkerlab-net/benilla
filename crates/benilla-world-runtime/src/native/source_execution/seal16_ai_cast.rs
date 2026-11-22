@@ -5,7 +5,7 @@ use super::super::addon_cast;
 use super::*;
 use crate::native::source_execution::main_spell::UnitPowerOwner;
 
-pub(super) struct Binding<'a> {
+pub(in super::super) struct Binding<'a> {
     pub object: ObjectHandle,
     pub stores: &'a SourceSpellStores,
     pub targets: &'a SourceSpellTargetMgr,
@@ -26,26 +26,7 @@ impl Binding<'_> {
         run: impl FnOnce(&mut SpellStartContext<'_>) -> Result<T>,
     ) -> Result<T> {
         let ai = ais.get_mut(objects, self.object)?;
-        units.get(objects, self.object)?;
-        let result = run(&mut SpellStartContext {
-            stores: self.stores,
-            storage: SpellStartStorage::Unit,
-            owner: &mut Owner {
-                object: self.object,
-                objects,
-                units,
-                ai,
-                stores: self.stores,
-                targets: self.targets,
-                terrain: self.terrain,
-                world_clock: self.world_clock,
-                clocks: self.clocks,
-                random: self.random,
-                creature_spells: self.creature_spells,
-                max_casts: self.max_casts,
-                broadcast: self.broadcast,
-            },
-        })?;
+        let result = self.run_with_base(units, &mut ai.base, objects, run)?;
         let object = objects.get(self.object)?;
         let live = units.get(objects, self.object)?;
         let (starts, events) = (&live.spell_starts, &live.unit_events);
@@ -60,13 +41,42 @@ impl Binding<'_> {
         }
         Ok(result)
     }
+
+    pub(in super::super) fn run_with_base<T>(
+        &mut self,
+        units: &mut SourceUnits,
+        base: &mut SourceUnitAi,
+        objects: &SourceObjects,
+        run: impl FnOnce(&mut SpellStartContext<'_>) -> Result<T>,
+    ) -> Result<T> {
+        units.get(objects, self.object)?;
+        run(&mut SpellStartContext {
+            stores: self.stores,
+            storage: SpellStartStorage::Unit,
+            owner: &mut Owner {
+                object: self.object,
+                objects,
+                units,
+                base,
+                stores: self.stores,
+                targets: self.targets,
+                terrain: self.terrain,
+                world_clock: self.world_clock,
+                clocks: self.clocks,
+                random: self.random,
+                creature_spells: self.creature_spells,
+                max_casts: self.max_casts,
+                broadcast: self.broadcast,
+            },
+        })
+    }
 }
 
 struct Owner<'a> {
     object: ObjectHandle,
     objects: &'a SourceObjects,
     units: &'a mut SourceUnits,
-    ai: &'a mut SourceCreatureAi,
+    base: &'a mut SourceUnitAi,
     stores: &'a SourceSpellStores,
     targets: &'a SourceSpellTargetMgr,
     terrain: &'a mut SourceTerrainManager,
@@ -119,7 +129,7 @@ impl SpellSelfCastOwner for Owner<'_> {
     fn cast_checked(&mut self, spell: &mut SourceSpell, t: &SpellTemplate) -> Result<()> {
         let unit = self.unit(spell.caster)?;
         let level = self.power_owner().power_level(spell.caster)?;
-        let base = &self.ai.base;
+        let base = &*self.base;
         let mut effects = addon_cast::Owner {
             object: self.object,
             objects: self.objects,
@@ -244,7 +254,7 @@ impl SpellExecutionOwner for Owner<'_> {
     ) -> Result<(bool, bool)> {
         self.require_unit(original)?;
         // UnitAI.cpp:175 reads AI order, not Unit's evade flags.
-        let evade = self.ai.base.order == 4;
+        let evade = self.base.order == 4;
         if evade && cast_flags & 2 == 0 {
             return Ok((true, false));
         }
@@ -657,7 +667,7 @@ impl SpellExecutionOwner for Owner<'_> {
             SpellCall::AiCastState(state) => {
                 self.require_unit(spell.caster)?;
                 // UnitAI.cpp:352 compares the live Spell identity before reading its template.
-                if !state && self.ai.base.current_spell != Some(spell.id) {
+                if !state && self.base.current_spell != Some(spell.id) {
                     return Ok(());
                 }
                 let t = self
@@ -667,7 +677,7 @@ impl SpellExecutionOwner for Owner<'_> {
                 if !state {
                     let live = self.units.get_mut(self.objects, self.object)?;
                     return finish_ai_cast(
-                        &self.ai.base,
+                        self.base,
                         spell,
                         t,
                         live.victim,
@@ -701,14 +711,14 @@ impl SpellExecutionOwner for Owner<'_> {
                     self.live()?.target.is_none(),
                     "execution.spells.UnitAI_407.SetFacingTo_owner",
                 )?;
-                self.ai.base.current_spell = Some(spell.id);
+                self.base.current_spell = Some(spell.id);
                 Ok(())
             }
             SpellCall::AiChannelState(state) => {
                 self.require_unit(spell.caster)?;
                 if state {
                     // UnitAI.cpp:435-436 clears even when the channel allows another cast.
-                    self.ai.base.current_spell = None;
+                    self.base.current_spell = None;
                 }
                 let t = self
                     .stores
@@ -734,7 +744,7 @@ impl SpellExecutionOwner for Owner<'_> {
                     }));
                 }
                 let live = self.units.get_mut(self.objects, self.object)?;
-                let victim = live.victim.filter(|_| !self.ai.base.combat_script);
+                let victim = live.victim.filter(|_| !self.base.combat_script);
                 self.objects
                     .set_unit_target(self.object, &mut live.target, victim)
             }

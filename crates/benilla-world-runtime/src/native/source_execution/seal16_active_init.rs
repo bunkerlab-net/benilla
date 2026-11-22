@@ -4,15 +4,15 @@ use super::*;
 use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
-pub(super) const STARTUP_NEXT_OWNER: &str =
-    "execution.ai.ScriptDevAIMgr_370.GetAI_owner.boss_taerar";
-pub(super) const STARTUP_NEXT_SOURCE: &str = "ScriptDevAIMgr.cpp:370";
+// The first cast queues its event at trace :61741157-59.
+pub(super) const STARTUP_NEXT_OWNER: &str = "execution.spells.Spell_2323.FillAreaTargets_owner";
+pub(super) const STARTUP_NEXT_SOURCE: &str = "Spell.cpp:2323";
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
 pub(super) use clocks::{ActiveClock, ActiveClocks};
 #[path = "seal16_creature_create.rs"]
 mod creature_create;
-pub(super) use creature_create::load_temporary_addon;
+pub(super) use creature_create::TemporaryCreatureSpellBinding;
 #[path = "seal16_creature_entry.rs"]
 mod creature_entry;
 pub(super) use creature_entry::uint_config as creature_uint_config;

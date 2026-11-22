@@ -2,33 +2,6 @@
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 use super::*;
 
-pub trait SolenorResetOwner: NearTeleportOwner {
-    fn solenor_respawn_clock(
-        &mut self,
-        _unit: ObjectHandle,
-        _random: &dyn CreatureRandom,
-    ) -> Result<ClockSample> {
-        Err(refuse("execution.creature.Creature_801.time_owner"))
-    }
-
-    fn current_motion_type(&self, _unit: ObjectHandle) -> Result<u32> {
-        Err(refuse(
-            "execution.ai.silithus_88.GetCurrentMovementGeneratorType_owner",
-        ))
-    }
-
-    fn reinitialize_motion(
-        &mut self,
-        _unit: ObjectHandle,
-        _context: &mut MotionContext<'_>,
-    ) -> Result<()> {
-        Err(refuse(
-            "execution.ai.silithus_91.MotionMaster_Initialize_owner",
-        ))
-    }
-}
-impl SolenorResetOwner for () {}
-
 #[derive(Clone, Debug)]
 pub struct SolenorAi {
     pub(super) binding: Arc<ScriptDevAiBinding>,
@@ -80,7 +53,7 @@ impl SolenorAi {
         objects: &mut SourceObjects,
         units: &mut SourceUnits,
         random: &mut dyn CreatureRandom,
-        owner: &mut dyn SolenorResetOwner,
+        owner: &mut dyn ScriptedAiResetOwner,
     ) -> Result<Self> {
         let mut ai = Self {
             binding: Arc::clone(binding),
@@ -104,7 +77,7 @@ impl SolenorAi {
         objects: &mut SourceObjects,
         units: &mut SourceUnits,
         random: &mut dyn CreatureRandom,
-        owner: &mut dyn SolenorResetOwner,
+        owner: &mut dyn ScriptedAiResetOwner,
     ) -> Result<()> {
         match units.get(objects, unit)?.entry {
             14536 => {

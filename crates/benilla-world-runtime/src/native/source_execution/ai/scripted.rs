@@ -14,11 +14,55 @@ mod escort;
 mod script_guard;
 #[path = "solenor.rs"]
 mod solenor;
+#[path = "taerar.rs"]
+mod taerar;
 pub use azuregos::BossAzuregosAi;
 pub use combat_ai::{CombatActionInitial, CombatAi};
 pub use escort::{EscortAi, GarmentsOfQuestsAi, GarmentsQuestState};
 pub use script_guard::{GuardStormwindAi, ScriptGuardAi};
-pub use solenor::{SolenorAi, SolenorResetOwner};
+pub use solenor::SolenorAi;
+pub use taerar::BossTaerarAi;
+
+pub trait ScriptedAiResetOwner: NearTeleportOwner {
+    fn solenor_respawn_clock(
+        &mut self,
+        _unit: ObjectHandle,
+        _random: &dyn CreatureRandom,
+    ) -> Result<ClockSample> {
+        Err(refuse("execution.creature.Creature_801.time_owner"))
+    }
+
+    fn current_motion_type(&self, _unit: ObjectHandle) -> Result<u32> {
+        Err(refuse(
+            "execution.ai.silithus_88.GetCurrentMovementGeneratorType_owner",
+        ))
+    }
+
+    fn reinitialize_motion(
+        &mut self,
+        _unit: ObjectHandle,
+        _context: &mut MotionContext<'_>,
+    ) -> Result<()> {
+        Err(refuse(
+            "execution.ai.silithus_91.MotionMaster_Initialize_owner",
+        ))
+    }
+
+    fn taerar_reset_cast(
+        &mut self,
+        _base: &mut SourceUnitAi,
+        _objects: &SourceObjects,
+        _units: &mut SourceUnits,
+        _random: &mut dyn CreatureRandom,
+        _spell: u32,
+        _flags: u32,
+    ) -> Result<()> {
+        Err(refuse(
+            "execution.ai.bosses_emerald_dragons_394.DoCastSpellIfCan_owner",
+        ))
+    }
+}
+impl ScriptedAiResetOwner for () {}
 
 pub(crate) const SCRIPTDEV_GET_AI_OWNER: &str = "execution.ai.ScriptDevAIMgr_370.GetAI_owner";
 
@@ -26,6 +70,7 @@ pub(crate) const SCRIPTDEV_GET_AI_OWNER: &str = "execution.ai.ScriptDevAIMgr_370
 pub enum SourceScriptedAiKind {
     ChickenCluck,
     Azuregos,
+    Taerar,
     Solenor,
     Guard,
     GuardStormwind,
@@ -36,6 +81,8 @@ impl SourceScriptedAiKind {
         match name {
             "npc_chicken_cluck" => Ok(Self::ChickenCluck),
             "boss_azuregos" => Ok(Self::Azuregos),
+            // bosses_emerald_dragons.cpp:569-572 registers GetAI_boss_taerar.
+            "boss_taerar" => Ok(Self::Taerar),
             "npc_solenor" => Ok(Self::Solenor),
             "guard_bluffwatcher" // guards.cpp:45-48,165-167.
             | "guard_contested" // guards.cpp:50-53,170-172.
@@ -58,6 +105,7 @@ impl SourceScriptedAiKind {
     pub(crate) fn action_count(self) -> u32 {
         match self {
             Self::ChickenCluck
+            | Self::Taerar
             | Self::Solenor
             | Self::Guard
             | Self::GuardStormwind
@@ -71,6 +119,7 @@ impl SourceScriptedAiKind {
 pub enum SourceScriptedAi {
     ChickenCluck(ChickenCluckAi),
     Azuregos(BossAzuregosAi),
+    Taerar(BossTaerarAi),
     Solenor(SolenorAi),
     Guard {
         binding: Arc<ScriptDevAiBinding>,
@@ -100,7 +149,7 @@ impl SourceScriptedAi {
         units: &mut SourceUnits,
         base: &mut SourceUnitAi,
         random: &mut dyn CreatureRandom,
-        reset_owner: &mut dyn SolenorResetOwner,
+        reset_owner: &mut dyn ScriptedAiResetOwner,
     ) -> Result<Self> {
         match kind {
             SourceScriptedAiKind::ChickenCluck => {
@@ -115,6 +164,10 @@ impl SourceScriptedAi {
             }
             SourceScriptedAiKind::Azuregos => {
                 BossAzuregosAi::construct(binding, base, random).map(Self::Azuregos)
+            }
+            SourceScriptedAiKind::Taerar => {
+                BossTaerarAi::construct(binding, objects, units, base, random, reset_owner)
+                    .map(Self::Taerar)
             }
             SourceScriptedAiKind::Solenor => {
                 SolenorAi::construct(binding, base.unit, objects, units, random, reset_owner)
@@ -138,6 +191,7 @@ impl SourceScriptedAi {
         match self {
             Self::ChickenCluck(ai) => &ai.binding,
             Self::Azuregos(ai) => &ai.binding,
+            Self::Taerar(ai) => &ai.binding,
             Self::Solenor(ai) => &ai.binding,
             Self::Guard { binding, .. } => binding,
             Self::GuardStormwind(ai) => &ai.binding,
@@ -151,7 +205,7 @@ impl SourceScriptedAi {
         units: &mut SourceUnits,
         base: &mut SourceUnitAi,
         random: &mut dyn CreatureRandom,
-        reset_owner: &mut dyn SolenorResetOwner,
+        reset_owner: &mut dyn ScriptedAiResetOwner,
     ) -> Result<()> {
         match self {
             Self::ChickenCluck(ai) => Self::reset_chicken(objects, units, base.unit, |timer| {
@@ -161,6 +215,7 @@ impl SourceScriptedAi {
                 ai.reset(base);
                 Ok(())
             }
+            Self::Taerar(ai) => ai.reset(objects, units, base, random, reset_owner),
             Self::Solenor(ai) => ai.reset(base.unit, objects, units, random, reset_owner),
             Self::Guard { ai, .. } => {
                 ai.reset();
@@ -211,6 +266,7 @@ impl SourceScriptedAi {
             Self::GuardStormwind(_) => Err(refuse("execution.ai.guards_133.ReceiveEmote_owner")),
             // These scripts inherit the empty UnitAI.h:282 callback.
             Self::Azuregos(_)
+            | Self::Taerar(_)
             | Self::Solenor(_)
             | Self::Guard { .. }
             | Self::GarmentsOfQuests(_) => Ok(()),
@@ -225,6 +281,9 @@ impl SourceScriptedAi {
             )),
             Self::Azuregos(_) => Err(refuse(
                 "execution.ai.UnitAI_1084.UpdateAI_owner.boss_azuregos",
+            )),
+            Self::Taerar(_) => Err(refuse(
+                "execution.ai.bosses_emerald_dragons_104.UpdateAI_owner",
             )),
             Self::Solenor(_) => Err(refuse("execution.ai.silithus_203.UpdateAI_owner")),
             Self::Guard { .. } => Err(refuse("execution.ai.UnitAI_1084.UpdateAI_owner.guardAI")),

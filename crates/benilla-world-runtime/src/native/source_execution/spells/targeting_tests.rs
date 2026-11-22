@@ -11,6 +11,8 @@ impl SourceRelationOwner for Relations {
     }
 }
 
+const CASTER_POSITION: [u32; 4] = [17f32.to_bits(), 23f32.to_bits(), 42f32.to_bits(), 0];
+
 fn area_spell(a: u32, b: u32) -> SpellTemplate {
     SpellTemplate {
         id: 1032,
@@ -36,6 +38,7 @@ fn with_fixture<T>(
     stores.insert_template(t.clone())?;
     let mut objects = SourceObjects::default();
     let caster = objects.construct(7, kind)?;
+    objects.set_pose(caster, SourcePose(CASTER_POSITION))?;
     let mut s = SourceSpell::new(1, t, caster, SpellTriggerFlags(1), 0)?;
     s.affective_caster = Some(caster);
     s.targets.unit = Some(caster);
@@ -59,7 +62,7 @@ fn with_fixture<T>(
         totem: false,
         untargetable: false,
         has_ai: false,
-        position: [0; 4],
+        position: CASTER_POSITION,
     };
     let targets = SourceSpellTargetMgr::initialize(&stores);
     let live = SelfSpellTargeting {
@@ -123,6 +126,33 @@ fn area_target_a_calls_the_party_owner_before_considering_b_or_default() {
         select(area_spell(20, 1), [false; 2], 0).unwrap_err().id,
         "execution.spells.Spell_2389.FillRaidOrPartyTargets_owner"
     );
+}
+
+#[test]
+fn script_area_target_stops_at_source_area_fill() {
+    // initial-classicmangos.sql:857002. Target A is the source of target B's area.
+    let t = SpellTemplate {
+        id: 24886,
+        effect1: 3,
+        effectimplicittargeta1: TARGET_LOCATION_CASTER_SRC,
+        effectimplicittargetb1: TARGET_ENUM_UNITS_SCRIPT_AOE_AT_SRC_LOC,
+        ..Default::default()
+    };
+    with_fixture(&t, 0, SourceObjectKind::Creature, |live, spell| {
+        spell.targets.mask = TARGET_FLAG_UNIT;
+        assert_eq!(
+            live.fill(spell, &t, |_| {}).unwrap_err().id,
+            "execution.spells.Spell_2323.FillAreaTargets_owner"
+        );
+        let [x, y, z, _] = CASTER_POSITION;
+        assert_eq!(spell.targets.source, Some([x, y, z]));
+        assert_eq!(
+            spell.targets.mask,
+            TARGET_FLAG_UNIT | TARGET_FLAG_SOURCE_LOCATION
+        );
+        Ok(())
+    })
+    .unwrap();
 }
 
 #[test]

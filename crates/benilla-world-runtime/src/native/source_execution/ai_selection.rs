@@ -75,7 +75,7 @@ impl CreatureAiInputs {
             control: CreatureAiControl {
                 pet: live.pet_kind,
                 player_controlled: live.flags & 8 != 0,
-                temporary_summon: false,
+                temporary_summon: live.temporary_spawn.is_some(),
                 totem: live.totem,
             },
             guard: template.words[23] & 0x400 != 0,

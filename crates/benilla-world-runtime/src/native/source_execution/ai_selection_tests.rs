@@ -800,6 +800,8 @@ fn retained_catalog04_all_template_selection_census_or_explicit_absence() {
             .collect::<Vec<_>>(),
         [
             ("boss_azuregos", 1),
+            // Entry 14890 at initial-classicmangos.sql:430292; bosses_emerald_dragons.cpp:569-572.
+            ("boss_taerar", 1),
             ("guard_bluffwatcher", 1), // initial-classicmangos.sql :423745.
             // SQL :424154, :425139, :427808, :428606, :430463.
             ("guard_contested", 5),

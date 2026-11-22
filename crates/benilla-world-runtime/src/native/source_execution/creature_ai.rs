@@ -66,8 +66,7 @@ impl SourceCreatureAis {
         let unit = selected.object();
         require(
             objects.get(unit)?.kind == SourceObjectKind::Creature
-                && !units.get(objects, unit)?.control_guids.has_charmer()
-                && !selected.inputs().control.temporary_summon,
+                && !units.get(objects, unit)?.control_guids.has_charmer(),
             "execution.creature.CreatureAI_45.charm_info_owner",
         )?;
         SourceCreatureAi::construct(
@@ -154,7 +153,7 @@ impl SourceCreatureAis {
         kind: SourceScriptedAiKind,
         binding: &std::sync::Arc<ScriptDevAiBinding>,
         owners: BuiltinAiFactoryOwners<'_>,
-        reset_owner: &mut dyn SolenorResetOwner,
+        reset_owner: &mut dyn ScriptedAiResetOwner,
     ) -> Result<()> {
         let unit = selected.object();
         match owners.base {
@@ -244,7 +243,7 @@ impl SourceCreatureAis {
         unit: ObjectHandle,
         random: &mut dyn CreatureRandom,
         spell_stores: Option<&SourceSpellStores>,
-        reset_owner: &mut dyn SolenorResetOwner,
+        reset_owner: &mut dyn ScriptedAiResetOwner,
     ) -> Result<()> {
         self.loaded_initialization_ai(
             objects,
@@ -555,7 +554,7 @@ impl SourceCreatureAi {
         units: &mut SourceUnits,
         random: &mut dyn CreatureRandom,
         spell_stores: Option<&SourceSpellStores>,
-        reset_owner: &mut dyn SolenorResetOwner,
+        reset_owner: &mut dyn ScriptedAiResetOwner,
     ) -> Result<()> {
         self.reset_timers(true, random)?;
         match &mut self.loaded_class {
