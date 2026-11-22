@@ -338,8 +338,18 @@ fn publication_faults_block_until_strict_reopen() {
 #[test]
 fn invalid_path_never_creates_a_world() {
     let temp = Temp::new();
+    // Joining onto a verbatim Windows base can normalize the parent component.
+    let mut raw = temp.0.as_os_str().to_os_string();
+    raw.push(std::path::MAIN_SEPARATOR_STR);
+    raw.push("..");
+    raw.push(std::path::MAIN_SEPARATOR_STR);
+    raw.push("escape");
+    let path = PathBuf::from(raw);
+    assert!(path
+        .components()
+        .any(|part| matches!(part, std::path::Component::ParentDir)));
     assert!(matches!(
-        SourceColdStore::create(temp.0.join("unused/.."), identity()),
+        SourceColdStore::create(path, identity()),
         Err(Error::Invalid(_))
     ));
     assert!(matches!(
