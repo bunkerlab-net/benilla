@@ -43,6 +43,8 @@ const INSERTED: OperationCount = OperationCount {
 const DUPLICATE: Error = Error::Invalid("source INSERT target already exists");
 const MISSING: Error = Error::Invalid("source UPDATE target does not exist");
 const UNSUPPORTED: Error = Error::Invalid("unsupported nonempty source table");
+const WEEKLY_UNSUPPORTED: Error =
+    Error::Invalid("execution.player_save.Player_16180.weekly_quest_store_owner");
 
 impl Rows {
     pub fn inventory(&self) -> &[InventoryRow] {
@@ -193,6 +195,7 @@ impl Rows {
             RowInsert::Skill(row) => insert(&mut self.skills, SKILL_SLOTS, row),
             RowInsert::Action(row) => insert(&mut self.actions, usize::from(ACTION_BUTTONS), row),
             RowInsert::Quest(row) => insert(&mut self.quests, MAX_QUEST_ROWS, row),
+            RowInsert::WeeklyQuest { .. } => Err(WEEKLY_UNSUPPORTED),
             RowInsert::Reputation(row) => insert(&mut self.reputation, MAX_REPUTATION_ROWS, row),
             RowInsert::Tutorial(row) => insert_one(&mut self.tutorial, row),
             RowInsert::Homebind(row) => insert_one(&mut self.homebind, row),
@@ -251,6 +254,7 @@ impl Rows {
             RowDelete::Action { guid, button } if guid == selected.guid => {
                 remove(&mut self.actions, (guid, button))
             }
+            RowDelete::WeeklyQuestsByGuid(_) => return Err(WEEKLY_UNSUPPORTED),
             RowDelete::Reputation { guid, faction } if guid == selected.guid => {
                 remove(&mut self.reputation, (guid, faction))
             }

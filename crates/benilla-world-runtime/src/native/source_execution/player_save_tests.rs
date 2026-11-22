@@ -28,6 +28,7 @@ pub(super) fn assert_recorded_create_save(
     objects: &SourceObjects,
     units: &SourceUnits,
     items: &SourceItems,
+    spells: &SourceSpellStores,
     session: &SourceWorldSession,
     trace: &Path,
 ) {
@@ -52,6 +53,9 @@ pub(super) fn assert_recorded_create_save(
         units,
         items,
         session,
+        quests: &SourceQuestMap::default(),
+        spells,
+        clock: &SourceWorldClock::default(),
         world: &world,
         calendar: Calendar::new(CalendarOwner::World, game_seconds),
         maintenance_weekday: 3, // Northshire-01 A mangosd.conf:832.
@@ -68,7 +72,7 @@ pub(super) fn assert_recorded_create_save(
         .unwrap_err();
     assert_eq!(
         stop.id,
-        "execution.player_save.Player_15767.quest_status_owner"
+        "execution.player_save.Player_15775.reputation_owner"
     );
     assert_eq!(read_wall.next(), None);
     assert_eq!(work.0, [game_seconds; 3]);
@@ -110,7 +114,19 @@ pub(super) fn assert_recorded_create_save(
     assert!(!row.online);
     assert_eq!(logout[18].bytes, 1u32.to_le_bytes()); // Live logout saves before detach.
     assert_eq!(logout[23].bytes, 1795250531u64.to_le_bytes());
+    let (inventory, learning) = inventory.split_at(16); // C:p1519-1552.
     super::player_items::save_inventory::tests::assert_create_recording(c, inventory);
+    assert_eq!(learning.len(), 18); // C:p1557-1600; :15777 has not run yet.
+    assert_eq!(
+        learning[0],
+        SourcePlayerSaveObservation::Row(RowOperation::Delete(RowDelete::CooldownsByGuid(*guid)))
+    );
+    assert_eq!(
+        learning[17],
+        SourcePlayerSaveObservation::Row(RowOperation::Delete(
+            RowDelete::EnteredInstancesByAccount(row.account)
+        ))
+    );
 }
 
 // Northshire-01 A trace :68134692-68134694 and :68134746-68134747.
@@ -370,6 +386,9 @@ fn create_applies_cinematics_and_first_login_before_save() {
             units: &units,
             items: &items,
             session: &session,
+            quests: &SourceQuestMap::default(),
+            spells: &SourceSpellStores::default(),
+            clock: &SourceWorldClock::default(),
             world: &world,
             calendar: Calendar::new(CalendarOwner::World, 10),
             maintenance_weekday: 3,
@@ -489,7 +508,7 @@ fn save_refuses_in_source_order_without_a_commit() {
             0,
             false,
             false,
-            "Player_15767.quest_status_owner",
+            "Player_15775.reputation_owner",
             true,
             true,
         ),
@@ -506,6 +525,9 @@ fn save_refuses_in_source_order_without_a_commit() {
             units: &units,
             items: &items,
             session: &session,
+            quests: &SourceQuestMap::default(),
+            spells: &SourceSpellStores::default(),
+            clock: &SourceWorldClock::default(),
             world: &world,
             calendar: Calendar::new(CalendarOwner::World, 10),
             maintenance_weekday: 3,
@@ -531,7 +553,16 @@ fn save_refuses_in_source_order_without_a_commit() {
             effects[1],
             SourcePlayerSaveObservation::Row(RowOperation::Delete(RowDelete::Character(5)))
         );
-        assert_eq!(effects.len(), if has_row { 3 } else { 2 });
+        assert_eq!(
+            effects.len(),
+            if reason == "Player_15775.reputation_owner" {
+                6 // Includes the unconditional cooldown, aura and timer deletes.
+            } else if has_row {
+                3
+            } else {
+                2
+            }
+        );
         if has_row {
             let SourcePlayerSaveObservation::Row(RowOperation::Insert(RowInsert::Character(row))) =
                 &effects[2]

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CMaNGOS Classic 8ec338a1 contributors; upstream GPL-2.0-or-later.
 use super::{objects::*, *};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[path = "player_create_rows.rs"]
 mod player_rows;
@@ -39,6 +39,8 @@ pub use player_save::{SourcePlayerSaveInputs, SourcePlayerSaveObservation};
 mod player_save_fields;
 #[path = "player_save_learning.rs"]
 mod player_save_learning;
+#[path = "player_save_progress.rs"]
+mod player_save_progress;
 #[cfg(test)]
 #[path = "player_save_tests.rs"]
 mod player_save_tests;
@@ -177,6 +179,10 @@ pub struct SourcePlayer {
     // Player.h:2377,2379; Player.cpp:471. Both maps default to empty.
     spells: BTreeMap<u32, SourcePlayerSpell>,
     action_buttons: BTreeMap<u8, SourcePlayerAction>,
+    // Player.h:510,2271,2370; the map and set start empty.
+    quest_status: BTreeMap<u32, player_save_progress::QuestStatusData>,
+    weekly_quests: BTreeSet<u32>,
+    weekly_quests_changed: bool,
     // Player.h:2385. Default construction leaves every operation's list empty.
     spell_mods: BTreeMap<u32, Vec<player_cast::PlayerSpellModifier>>,
     // Player.h:2556-2557; Player.cpp:640-641. One identity names the in-flight Spell and its charges.
@@ -286,6 +292,9 @@ impl SourcePlayer {
                 entered_instances: identity_table::IdentityTable::default(),
                 spells: BTreeMap::new(),
                 action_buttons: BTreeMap::new(),
+                quest_status: BTreeMap::new(),
+                weekly_quests: BTreeSet::new(),
+                weekly_quests_changed: false, // Player.cpp:555.
                 spell_mods: BTreeMap::new(),
                 active_mod_spell: None,
                 honor: player_honor::PlayerHonor::default(),

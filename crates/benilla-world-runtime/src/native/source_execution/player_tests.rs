@@ -1006,6 +1006,7 @@ fn private_catalog_human_mage_matches_seal16_packets() {
         &objects,
         &units,
         &live_items,
+        &spells,
         &session,
         Path::new(&trace),
     );

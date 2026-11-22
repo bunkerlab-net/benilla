@@ -120,6 +120,32 @@ fn image() -> Rows {
 }
 
 #[test]
+fn weekly_batch_refuses_before_publication_without_blocking_store() {
+    use benilla_world_runtime::native::source_execution::source_rows::{RowDelete, RowInsert};
+
+    let temp = Temp::new();
+    let (mut store, _) = temp.create();
+    let staged = store.prepare_rows(&image()).unwrap();
+    let receipt = store.commit(staged).unwrap();
+    let old = fs::read(temp.file(CURRENT)).unwrap();
+    for operation in [
+        RowOperation::Delete(RowDelete::WeeklyQuestsByGuid(1)),
+        RowOperation::Insert(RowInsert::WeeklyQuest { guid: 1, quest: 42 }),
+    ] {
+        assert!(matches!(
+            store.prepare([RowOperation::Delete(RowDelete::Character(1)), operation]),
+            Err(Error::Invalid(
+                "execution.player_save.Player_16180.weekly_quest_store_owner"
+            ))
+        ));
+        assert_eq!(fs::read(temp.file(CURRENT)).unwrap(), old);
+        assert_eq!(store.generation(), receipt.generation());
+        assert!(!store.requires_reopen());
+        assert_eq!(store.read_rows().unwrap().character(), image().character());
+    }
+}
+
+#[test]
 fn checked_publish_uses_source_subdirectory_and_reopens_exact_rows() {
     let temp = Temp::new();
     let (mut store, initial) = temp.create();

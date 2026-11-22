@@ -274,6 +274,7 @@ pub enum RowInsert {
     Action(ActionRow),
     Spell(SpellRow),
     Quest(QuestRow),
+    WeeklyQuest { guid: u32, quest: u32 },
     Reputation(RepRow),
     Tutorial(TutorialRow),
     Homebind(HomebindRow),
@@ -316,6 +317,7 @@ pub enum RowDelete {
         guid: u32,
         spell: u32,
     },
+    WeeklyQuestsByGuid(u32),
     Reputation {
         guid: u32,
         faction: u32,

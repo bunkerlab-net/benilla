@@ -19,6 +19,9 @@ pub struct SourcePlayerSaveInputs<'a, W> {
     pub units: &'a SourceUnits,
     pub items: &'a SourceItems,
     pub session: &'a SourceWorldSession,
+    pub quests: &'a SourceQuestMap,
+    pub spells: &'a SourceSpellStores,
+    pub clock: &'a SourceWorldClock,
     pub world: &'a SourceWorld,
     pub calendar: Calendar,
     pub maintenance_weekday: i32,
@@ -46,7 +49,7 @@ impl SourcePlayer {
         self.save_to_db_prefix(inputs, observe)
     }
 
-    /// Player.cpp:15602-15767. This prefix never commits a transaction.
+    /// Player.cpp:15602-15775. This prefix never commits a transaction.
     pub fn save_to_db_prefix(
         &mut self,
         inputs: &mut SourcePlayerSaveInputs<'_, impl WorldStartupWork>,
@@ -86,8 +89,28 @@ impl SourcePlayer {
             "execution.player_save.Player_19840.battleground_save_owner",
         )?;
         self.save_inventory(inputs.objects, inputs.items, guid, &mut observe)?;
+        self.save_quest_status(inputs.quests, inputs.calendar, guid, &mut observe)?;
+        self.save_weekly_quest_status(guid, &mut observe)?;
+        self.save_spells()?;
+        self.save_spell_cooldowns(
+            inputs.objects,
+            inputs.units,
+            guid,
+            &mut inputs.clock,
+            &mut observe,
+        )?;
+        self.save_actions(guid, &mut observe)?;
+        self.save_auras(
+            inputs.objects,
+            inputs.units,
+            inputs.spells,
+            guid,
+            &mut observe,
+        )?;
+        self.save_skills(guid, &mut observe)?;
+        self.save_entered_instance_timers(inputs.session, &mut observe)?;
         Err(refuse(
-            "execution.player_save.Player_15767.quest_status_owner",
+            "execution.player_save.Player_15775.reputation_owner",
         ))
     }
 }
