@@ -256,9 +256,10 @@ impl SourceSpawnGroups {
         P: ResidencyProductOwner,
     {
         let map = context.grid.cells.map();
+        // SpawnGroup.cpp:76,515-516 identifies the creature by its live GetDbGuid().
         let key = SpawnKey {
             kind: GridSpawnKind::Creature,
-            guid: creature.construction.spawn.database_guid,
+            guid: context.grid.objects.get(creature.object())?.database_guid,
         };
         let group = self
             .group_for(map, key)?

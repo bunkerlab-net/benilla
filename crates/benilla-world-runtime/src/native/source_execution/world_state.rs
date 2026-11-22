@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use super::EmeraldDragonSummon;
 use super::{
     refuse, Result, SourceWorldClock, WorldStartupObservation, WorldStartupSql, WorldStartupWork,
     WorldTailOwner,
@@ -270,8 +271,28 @@ pub(super) fn respawn_emerald_dragons(
         while let Some(map) = owner.event_next_map(Some(map_id), after)? {
             for (slot, site) in summons {
                 let state = &owner.ready_world()?.world_state;
-                if state.is_dragon_spawned(state.dragon_positions[slot])? {
+                let entry = state.dragon_positions[slot];
+                if !state.is_dragon_spawned(entry)? {
+                    continue;
+                }
+                if slot != 0 {
                     return Err(refuse(site));
+                }
+                // WorldState.cpp:582,590,617 uses the Twilight Grove pose and path.
+                if owner
+                    .summon_emerald_dragon(
+                        map,
+                        EmeraldDragonSummon {
+                            entry,
+                            position: [-10428.8, -392.176, 43.7411, 0.932375],
+                            path_id: 1,
+                        },
+                    )?
+                    .is_some()
+                {
+                    return Err(refuse(
+                        "execution.world.WorldState_618.dragon_waypoint_owner",
+                    ));
                 }
             }
             after = Some(map);

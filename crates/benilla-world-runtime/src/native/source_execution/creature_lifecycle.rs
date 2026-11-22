@@ -285,11 +285,16 @@ impl SourceCreatureLifecycle {
         objects: &SourceObjects,
     ) -> Result<Self> {
         let object = objects.get(construction.object)?;
+        // Creature.cpp:1608 binds the original identity before construction finishes.
+        let data_bound = match &construction.spawn {
+            Some(spawn) => object.database_guid == spawn.database_guid,
+            None => !object.database_spawn_data,
+        };
         require(
             matches!(
                 object.kind,
                 SourceObjectKind::Creature | SourceObjectKind::Pet
-            ) && object.database_guid == construction.spawn.database_guid,
+            ) && data_bound,
             "execution.creature_lifecycle.construction_binding",
         )?;
         let runtime = object
@@ -435,10 +440,11 @@ impl SourceCreatureLifecycle {
             None
         };
         if let Some(deadline) = deadline {
+            // Creature.cpp:2291,2293 reads GetDbGuid() from the live creature.
             context.persistent.save_respawn(
                 context.spawns.persistent(),
                 GridSpawnKind::Creature,
-                self.construction.spawn.database_guid,
+                object.database_guid,
                 deadline,
                 owner.world_game_seconds()?,
                 owner,
@@ -483,6 +489,10 @@ impl SourceCreatureLifecycle {
                     let delay = this
                         .construction
                         .spawn
+                        .as_ref()
+                        .ok_or_else(|| {
+                            refuse("execution.creature.Creature_1872.respawn_data_owner")
+                        })?
                         .random_respawn_time(owner.lifecycle_random()?)?;
                     this.live(context, owner)?.respawn_delay = delay;
                 }
@@ -510,11 +520,13 @@ impl SourceCreatureLifecycle {
                 let live = this.live(context, owner)?;
                 live.respawn_time = i64::MAX;
                 if live.respawn_delay != 0 && this.construction.group.is_none() {
+                    // Creature.cpp:1892 uses the live GetDbGuid().
+                    let database_guid = context.grid.objects.get(this.object())?.database_guid;
                     context.spawns.add(
                         context.persistent,
                         SpawnKey {
                             kind: GridSpawnKind::Creature,
-                            guid: this.construction.spawn.database_guid,
+                            guid: database_guid,
                         },
                         owner,
                     )?;

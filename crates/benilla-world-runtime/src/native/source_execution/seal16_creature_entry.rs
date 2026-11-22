@@ -51,7 +51,10 @@ pub(in crate::native::source_execution) struct EntryFields {
     pub chain_immune: bool,
     pub settings: SourceCreatureSettings,
 }
-fn uint_config(config: &[u8], key: CreatureEntryConfig) -> Result<u32> {
+pub(in crate::native::source_execution) fn uint_config(
+    config: &[u8],
+    key: CreatureEntryConfig,
+) -> Result<u32> {
     use CreatureEntryConfig::*;
     let name = match key {
         NormalCorpseDecay => "Corpse.Decay.NORMAL",
@@ -181,16 +184,17 @@ pub(super) fn finish_init_entry(
     let live = prefix.units.get_mut(objects, object)?;
     let addon = CreatureAddonState::default();
     let result = state.load_entry_equipment(live, entry, prefix.equipment);
-    prefix.equipment_writes.insert(
-        state.spawn.database_guid,
-        live.loaded_creature.equipment.clone(),
-    );
+    if let Some(spawn) = &state.spawn {
+        prefix
+            .equipment_writes
+            .insert(spawn.database_guid, live.loaded_creature.equipment.clone());
+    }
     if let Err(error) = result {
         prefix.creature_entry = Some(EntryFields::observe(live, state, addon, None));
         return Err(error);
     }
     prefix.lookups.push("creature_equipment_name_cast_levitate");
-    let [x, y, z, _] = state.spawn.position;
+    let [x, y, z, _] = state.respawn_position;
     let result = state.finish_loaded_init_entry(
         live,
         objects,

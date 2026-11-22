@@ -300,7 +300,7 @@ impl CreatureLifecycleOwner<Definitions, Products> for Host {
                 context.grid.cells.map(),
                 SpawnKey {
                     kind: GridSpawnKind::Creature,
-                    guid: life.construction.spawn.database_guid,
+                    guid: life.construction.spawn.as_ref().unwrap().database_guid,
                 },
                 work,
             );

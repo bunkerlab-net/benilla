@@ -258,6 +258,13 @@ mod ai_initialize;
 #[path = "seal16_creature_motion.rs"]
 mod motion_initialize;
 
+fn db_creature_spawn(state: &CreatureConstruction) -> Result<&CreatureSpawn> {
+    state
+        .spawn
+        .as_ref()
+        .ok_or_else(|| refuse("execution.creature.Creature_1676.spawn_data_owner"))
+}
+
 impl<'a> Prefix<'a> {
     pub(super) fn loaded_creature_spawn(&self, guid: u32) -> Result<&'a EffectiveSpawnData> {
         self.spawns
@@ -278,7 +285,7 @@ impl<'a> Prefix<'a> {
         &self,
         state: &CreatureConstruction,
     ) -> Result<LoadedCreatureEntry<'a>> {
-        let data = self.loaded_creature_spawn(state.spawn.database_guid)?;
+        let data = self.loaded_creature_spawn(db_creature_spawn(state)?.database_guid)?;
         let spawn = data
             .spawn_template
             .and_then(|entry| self.spawn_templates.rows().get(&entry))
@@ -286,7 +293,7 @@ impl<'a> Prefix<'a> {
         Ok(LoadedCreatureEntry {
             original: self.loaded_creature_template(state.original_entry)?,
             effective: self.loaded_creature_template(state.template.entry)?,
-            spawn,
+            spawn: Some(spawn),
             movement: u32::from(data.row.movement),
             map: self.map_entry.id,
         })
@@ -553,7 +560,7 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
             .get(state.object)?
             .map
             .ok_or_else(|| refuse("execution.creature.map_binding"))?;
-        let [x, y, z, _] = state.spawn.position;
+        let [x, y, z, _] = db_creature_spawn(state)?.position;
         // Creature.cpp:1708,1731 and GridDefines.h:63 use static height, no VMaps, range 10.
         context
             .products
@@ -564,8 +571,12 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
     }
 
     fn creature_spawn_relay(&mut self, state: &CreatureConstruction) -> Result<u32> {
+        // Creature.cpp:1742 skips relay for null CreatureData.
+        let Some(spawn) = &state.spawn else {
+            return Ok(0);
+        };
         let template = self
-            .loaded_creature_spawn(state.spawn.database_guid)?
+            .loaded_creature_spawn(spawn.database_guid)?
             .spawn_template
             .and_then(|entry| self.spawn_templates.rows().get(&entry))
             .ok_or_else(|| refuse("execution.creature.Creature_1742.spawn_template_undefined"))?;
@@ -748,14 +759,14 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
                 create_notifications(
                     self,
                     state.object,
-                    state.spawn.database_guid,
+                    db_creature_spawn(state)?.database_guid,
                     template,
                     context,
                 )
             }
             CreaturePhase::LinkingRegistration => bind_linking(self, state, context.objects),
             CreaturePhase::LoadAddon => {
-                let data = self.loaded_creature_spawn(state.spawn.database_guid)?;
+                let data = self.loaded_creature_spawn(db_creature_spawn(state)?.database_guid)?;
                 let template = self.loaded_creature_template(state.template.entry)?;
                 apply_addon(self, state.object, data, template, context)
             }
@@ -763,7 +774,7 @@ impl<D: GridDefinitions<Row = SpawnKey>> CreatureFactoryOwner<D, SourceTerrainMa
                 "execution.creature.Creature_1681.loaded_creature_group_owner",
             )),
             CreaturePhase::RespawnDefinition => {
-                let radius = state.spawn.respawn_radius;
+                let radius = db_creature_spawn(state)?.respawn_radius;
                 self.motions
                     .get_mut(&state.object)
                     .ok_or_else(|| refuse("execution.creature.respawn_motion_binding"))?

@@ -152,6 +152,14 @@ pub trait WorldTailOwner: GameEventOwner + EventEffectOwner {
     fn world_dragon_urand(&mut self, _upper: u32) -> Result<u32> {
         Err(refuse("execution.world.WorldState_598.dragon_urand_owner"))
     }
+
+    fn summon_emerald_dragon(
+        &mut self,
+        _map: MapIdentity,
+        _settings: EmeraldDragonSummon,
+    ) -> Result<Option<ObjectHandle>> {
+        Err(refuse("execution.world.WorldState_617.dragon_summon_owner"))
+    }
 }
 
 pub struct WorldTailConfig {

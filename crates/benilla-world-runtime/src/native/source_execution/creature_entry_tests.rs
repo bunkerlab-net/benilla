@@ -51,7 +51,7 @@ fn construction(template: &LoadedCreatureInfo) -> CreatureConstruction {
             thread: 6,
             construction: 1,
         },
-        CreatureSpawn {
+        Some(CreatureSpawn {
             database_guid: 42,
             entry: template.words[0],
             position: [0.; 4],
@@ -59,7 +59,8 @@ fn construction(template: &LoadedCreatureInfo) -> CreatureConstruction {
             respawn_seconds: [90; 2],
             respawn_radius: 5.,
             relay: 0,
-        },
+        }),
+        [0.; 4],
         template.words[0],
         CreatureTemplate {
             entry: template.words[0],
@@ -91,7 +92,7 @@ fn fresh_loaded_init_and_update_entry_write_live_fields_in_order() {
     let entry = LoadedCreatureEntry {
         original: &row,
         effective: &row,
-        spawn: &spawn,
+        spawn: Some(&spawn),
         movement: 31,
         map: 0,
     };
@@ -283,7 +284,7 @@ fn corpse_decay_precedes_interaction_config_and_world_boss_immunity() {
         let entry = LoadedCreatureEntry {
             original: &row,
             effective: &row,
-            spawn: &spawn,
+            spawn: Some(&spawn),
             movement: 0,
             map,
         };
@@ -349,7 +350,7 @@ fn update_entry_repeats_rogue_damage_with_live_agility_and_disarm() {
     let entry = LoadedCreatureEntry {
         original: &row,
         effective: &row,
-        spawn: &spawn,
+        spawn: Some(&spawn),
         movement: 0,
         map: 0,
     };
@@ -542,7 +543,7 @@ fn loaded_update_applies_immunity_before_critter_and_refuses_event_before_string
     let entry = LoadedCreatureEntry {
         original: &row,
         effective: &row,
-        spawn: &spawn,
+        spawn: Some(&spawn),
         movement: 0,
         map: 0,
     };

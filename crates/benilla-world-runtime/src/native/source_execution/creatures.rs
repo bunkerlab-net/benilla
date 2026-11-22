@@ -122,11 +122,11 @@ pub(super) fn select_source_creature_model<O: ?Sized, T>(
     Ok(selection)
 }
 
-/// The definitions selected for a fresh ordinary DB creature's entry.
+/// Loaded definitions for a fresh creature's InitEntry and UpdateEntry.
 pub struct LoadedCreatureEntry<'a> {
     pub original: &'a LoadedCreatureInfo,
     pub effective: &'a LoadedCreatureInfo,
-    pub spawn: &'a LoadedCreatureSpawnTemplate,
+    pub spawn: Option<&'a LoadedCreatureSpawnTemplate>,
     pub movement: u32,
     pub map: u32,
 }
@@ -247,7 +247,7 @@ impl CreaturePhase {
 #[derive(Clone, Debug)]
 pub struct CreatureConstruction {
     pub object: ObjectHandle,
-    pub spawn: CreatureSpawn,
+    pub spawn: Option<CreatureSpawn>,
     pub original_entry: u32,
     pub template: CreatureTemplate,
     pub event: Option<CreatureEventData>,
@@ -268,14 +268,14 @@ pub struct CreatureConstruction {
 impl CreatureConstruction {
     fn new(
         object: ObjectHandle,
-        spawn: CreatureSpawn,
+        spawn: Option<CreatureSpawn>,
+        position: [f32; 4],
         original_entry: u32,
         template: CreatureTemplate,
         event: Option<CreatureEventData>,
         group: Option<CreatureGroup>,
     ) -> Self {
         let corpse_delay = template.corpse_seconds;
-        let position = spawn.position;
         Self {
             object,
             spawn,
@@ -312,16 +312,16 @@ impl CreatureConstruction {
     ) -> Result<()> {
         units.register(objects, object, Self::construct_loaded_unit())?;
         passengers.construct(object, objects)?;
-        motions.insert(
+        let mut motion = SourceMotionMaster::new(
             object,
-            SourceMotionMaster::new(
-                object,
-                MotionDefault {
-                    movement_type: 0,
-                    default_path: 0,
-                },
-            ),
+            MotionDefault {
+                movement_type: 0,
+                default_path: 0,
+            },
         );
+        // Creature.cpp:141 initializes this live value before the DB override at :1688.
+        motion.bind_respawn_radius(5.0);
+        motions.insert(object, motion);
         Ok(())
     }
 
@@ -438,9 +438,10 @@ impl CreatureConstruction {
         entry: &LoadedCreatureEntry<'_>,
         equipment: &LoadedEquipmentTemplates,
     ) -> Result<()> {
+        // Creature.cpp:396 accepts null CreatureData and uses template equipment.
         live.loaded_creature.equipment.init_entry(
             self.event.map(|event| (event.equipment, event.entry)),
-            Some(entry.spawn.equipment_id),
+            entry.spawn.map(|spawn| spawn.equipment_id),
             entry.original.words[93],
             entry.effective.words[93],
             live.static_flags[0] & 0x80 != 0,
@@ -453,7 +454,7 @@ impl CreatureConstruction {
         Ok(())
     }
 
-    /// Creature.cpp:435-501, on the fresh ordinary DB path.
+    /// Creature.cpp:435-501 on a fresh ordinary or temporary creature.
     pub fn finish_loaded_init_entry(
         &mut self,
         live: &mut SourceUnitFields,
@@ -472,7 +473,8 @@ impl CreatureConstruction {
                 [w[17], w[23]],
                 false,
                 false,
-                Ok(Some(entry.spawn)),
+                // Creature.cpp:444-456 has no spawn flags when CreatureData is null.
+                Ok(entry.spawn),
                 || {
                     let scale = fields
                         .scale
@@ -492,7 +494,11 @@ impl CreatureConstruction {
                     Ok(())
                 },
             )?;
-        fields.default_movement = movement_enum(entry.movement)?;
+        // Creature.cpp:444-456 reads the template movement type without CreatureData.
+        fields.default_movement = movement_enum(match entry.spawn {
+            Some(_) => entry.movement,
+            None => w[79],
+        })?;
         fields.damage_school = school_enum(w[62])?;
         // Creature.cpp:460-461 writes the shared Unit capabilities.
         let object = objects.get(self.object)?;
@@ -565,18 +571,21 @@ impl CreatureConstruction {
     ) -> Result<benilla_sim::creature_init::SourceLevelStats> {
         let mut stats = definitions.stats(self.template.entry, self.level, false, config)?;
         let class = entry.effective.words[36];
-        stats.apply_spawn(
-            entry.spawn.cur_health,
-            entry.spawn.cur_mana,
-            true,
-            class,
-            entry.effective.words[18],
-        );
+        // Creature.cpp:524-538 only applies the spawn's health and mana overrides with data.
+        if let Some(spawn) = entry.spawn {
+            stats.apply_spawn(
+                spawn.cur_health,
+                spawn.cur_mana,
+                true,
+                class,
+                entry.effective.words[18],
+            );
+        }
         live.apply_source_level(objects, self.object, &stats, class)?;
         Ok(stats)
     }
 
-    /// Creature.cpp:541-607 on fresh DB construction, before spell-list selection.
+    /// Creature.cpp:541-607 on fresh construction, before spell-list selection.
     pub fn update_loaded_entry_flags(
         objects: &SourceObjects,
         unit: ObjectHandle,
@@ -586,23 +595,23 @@ impl CreatureConstruction {
     ) -> Result<()> {
         let w = &entry.effective.words;
         let spawn = entry.spawn;
-        live.faction = if spawn.faction != 0 {
-            spawn.faction
-        } else {
-            w[13]
+        // Creature.cpp:541-543 uses the template faction except for a nonzero override.
+        live.faction = match spawn {
+            Some(spawn) if spawn.faction != 0 => spawn.faction,
+            _ => w[13],
         };
         let fields = &mut live.loaded_creature;
         fields.gossip = w[86];
-        fields.npc_flags = if spawn.npc_flags == -1 {
-            w[20]
-        } else {
-            spawn.npc_flags as u32
+        // Creature.cpp:550-553 only reads NPC flags when there is a spawn override.
+        fields.npc_flags = match spawn {
+            Some(spawn) if spawn.npc_flags != -1 => spawn.npc_flags as u32,
+            _ => w[20],
         };
         fields.attack_times = [w[60], w[60], w[61]];
-        live.flags = if spawn.unit_flags == -1 {
-            w[21]
-        } else {
-            spawn.unit_flags as u32
+        // Creature.cpp:561-563 only reads unit flags when there is a spawn override.
+        live.flags = match spawn {
+            Some(spawn) if spawn.unit_flags != -1 => spawn.unit_flags as u32,
+            _ => w[21],
         };
         fields.dynamic_flags = w[22];
         live.resistances
@@ -655,10 +664,11 @@ impl CreatureConstruction {
             self.event.is_none(),
             "execution.creature.loaded_game_event_spells_owner",
         )?;
+        // Creature.cpp:627-628 only checks the spawn string ID if data is non-null.
         require(
             entry.effective.words[91] == 0
                 && entry.effective.words[92] == 0
-                && entry.spawn.string_id == 0,
+                && entry.spawn.is_none_or(|spawn| spawn.string_id == 0),
             "execution.creature.loaded_string_id_owner",
         )
     }
@@ -1017,7 +1027,8 @@ pub trait CreatureFactoryOwner<D: GridDefinitions, P: GridProductOwner>:
     fn creature_units(&self) -> &SourceUnits;
     fn creature_units_mut(&mut self) -> &mut SourceUnits;
     fn creature_spawn_relay(&mut self, state: &CreatureConstruction) -> Result<u32> {
-        Ok(state.spawn.relay)
+        // Creature.cpp:1742 treats null CreatureData as no relay.
+        Ok(state.spawn.as_ref().map_or(0, |spawn| spawn.relay))
     }
     fn creature_respawn_time(
         &mut self,
@@ -1276,6 +1287,8 @@ where
     factory.creature_phase(CreaturePhase::RespawnDefinition, &mut state, context)?;
     let respawn_delay = state
         .spawn
+        .as_ref()
+        .ok_or_else(|| refuse("execution.creature.Creature_1690.respawn_data_owner"))?
         .random_respawn_time(factory.creature_random()?)?;
     factory
         .creature_units_mut()
@@ -1540,11 +1553,14 @@ where
         SourcePose(spawn.position.map(f32::to_bits)),
         true,
     )?;
+    let position = spawn.position;
     let state = create_source_creature_from_proto(
         &mut DbCreatureProtoWork { factory, context },
         object,
         allocation.counter,
-        spawn,
+        Some(spawn),
+        position,
+        attempt.guid,
         original,
         event,
         group,
@@ -1553,11 +1569,14 @@ where
 }
 
 // Creature.cpp:1602-1610 assigns the original identity before UpdateEntry.
+#[allow(clippy::too_many_arguments)]
 fn create_source_creature_from_proto(
     work: &mut impl CreatureProtoWork,
     object: ObjectHandle,
     counter: u32,
-    spawn: CreatureSpawn,
+    spawn: Option<CreatureSpawn>,
+    position: [f32; 4],
+    database: u32,
     original: CreatureTemplate,
     event: Option<CreatureEventData>,
     group: Option<CreatureGroup>,
@@ -1566,7 +1585,7 @@ fn create_source_creature_from_proto(
     // Creature.cpp:1604-1610,322-324 uses the original entry before the event override.
     work.assign_proto_guid(
         object,
-        spawn.database_guid,
+        database,
         SourceGuid::with_entry(HighGuid::Creature, entry, counter),
     )?;
     work.observe_proto(CreatureFactoryObservation::CreateFromProto);
@@ -1583,11 +1602,15 @@ fn create_source_creature_from_proto(
         )?;
         template
     };
-    let mut state = CreatureConstruction::new(object, spawn, entry, template, event, group);
+    let mut state =
+        CreatureConstruction::new(object, spawn, position, entry, template, event, group);
     work.proto_phase(CreaturePhase::InitEntryBase, &mut state)?;
     let mut display = event.map_or(0, |event| event.model);
+    // Creature.cpp:659-668 checks event then spawn overrides before template selection.
     if display == 0 {
-        display = work.proto_spawn_model(&state.spawn)?;
+        if let Some(spawn) = &state.spawn {
+            display = work.proto_spawn_model(spawn)?;
+        }
     }
     if display == 0 {
         let choices = state.template.displays;
@@ -1639,6 +1662,260 @@ fn create_source_creature_from_proto(
     work.proto_phase(CreaturePhase::SelectLevelStats, &mut state)?;
     work.proto_phase(CreaturePhase::UpdateEntryFlagsAndSpells, &mut state)?;
     Ok(Some(state))
+}
+
+/// The fixed, null-spawner call from WorldState.cpp:617.
+#[derive(Clone, Copy)]
+pub struct EmeraldDragonSummon {
+    pub entry: u32,
+    pub position: [f32; 4],
+    pub path_id: u32,
+}
+
+pub struct TemporaryCreatureDefinitions<'a> {
+    pub templates: &'a LoadedCreatureTemplates,
+    pub models: &'a LoadedCreatureModels,
+    pub equipment: &'a LoadedEquipmentTemplates,
+    pub collision_models: &'a SourceCollisionModels,
+    pub encounters: &'a LoadedInstanceEncounters,
+    pub level_definitions: &'a CreatureLevelDefinitions,
+    pub level_config: &'a CreatureLevelConfig,
+    pub faction_flags: &'a std::collections::BTreeMap<u32, u32>,
+    pub immunities: &'a LoadedCreatureImmunities,
+}
+
+struct TemporaryCreatureProtoWork<'a, 'data, C, O> {
+    map: &'a mut SourceContinent,
+    definitions: &'a TemporaryCreatureDefinitions<'data>,
+    template: &'data LoadedCreatureInfo,
+    terrain: &'a mut SourceTerrainManager,
+    thread: u64,
+    random: &'a mut dyn CreatureRandom,
+    config: C,
+    observe: O,
+    swimming: &'a mut SourceCreatureSwimmingCensus,
+}
+
+impl<C, O> CreatureProtoWork for TemporaryCreatureProtoWork<'_, '_, C, O>
+where
+    C: FnMut(CreatureEntryConfig) -> Result<u32>,
+    O: FnMut(CreatureFactoryObservation),
+{
+    fn assign_proto_guid(
+        &mut self,
+        object: ObjectHandle,
+        database: u32,
+        guid: SourceGuid,
+    ) -> Result<()> {
+        let objects = &mut self.map.objects;
+        objects.assign_guid(object, database, guid)?;
+        CreatureConstruction::reset_loaded_proto_fields(self.map.units.get_mut(objects, object)?);
+        Ok(())
+    }
+    fn proto_template(&mut self, entry: u32) -> Result<Option<CreatureTemplate>> {
+        Ok(self
+            .definitions
+            .templates
+            .get(entry)
+            .map(CreatureTemplate::from))
+    }
+    fn proto_spawn_model(&mut self, _: &CreatureSpawn) -> Result<u32> {
+        Err(refuse(
+            "execution.creature.Creature_666.temporary_spawn_data_owner",
+        ))
+    }
+    fn proto_model(&mut self, display: u32) -> Result<Option<CreatureModel>> {
+        Ok(self
+            .definitions
+            .models
+            .get(display)
+            .map(CreatureModel::from))
+    }
+    fn proto_random(&mut self) -> Result<&mut dyn CreatureRandom> {
+        Ok(self.random)
+    }
+    fn proto_thread(&self) -> u64 {
+        self.thread
+    }
+    fn proto_phase(
+        &mut self,
+        phase: CreaturePhase,
+        state: &mut CreatureConstruction,
+    ) -> Result<()> {
+        let definitions = self.definitions;
+        let template = self.template;
+        let objects = &mut self.map.objects;
+        let live = self.map.units.get_mut(objects, state.object)?;
+        let entry = LoadedCreatureEntry {
+            original: template,
+            effective: template,
+            spawn: None,
+            movement: template.words[79],
+            map: self.map.identity.map,
+        };
+        match phase {
+            CreaturePhase::InitEntryBase => {
+                CreatureConstruction::init_loaded_entry_base(live, template)
+            }
+            CreaturePhase::ModelAndDisplay => {
+                let model = state
+                    .model
+                    .and_then(|model| definitions.models.get(model.id))
+                    .ok_or_else(|| {
+                        refuse("execution.creature.Creature_353.temporary_model_owner")
+                    })?;
+                CreatureConstruction::apply_loaded_model(live, template, model.words)?;
+            }
+            CreaturePhase::InitEntryEquipmentAndFlags => {
+                state.load_entry_equipment(live, &entry, definitions.equipment)?;
+                let [x, y, z, _] = state.respawn_position;
+                state.finish_loaded_init_entry(
+                    live,
+                    objects,
+                    &entry,
+                    definitions.encounters,
+                    &mut self.config,
+                    |display, scale| {
+                        definitions.collision_models.init_entry_swimmable(
+                            display,
+                            scale,
+                            |height| {
+                                self.terrain
+                                    .is_swimmable(entry.map, [x, y, z], height, None)
+                            },
+                            self.swimming,
+                        )
+                    },
+                )?;
+                CreatureConstruction::begin_loaded_update_entry(objects, state.object, live)?;
+            }
+            CreaturePhase::SelectLevelStats => {
+                state.apply_loaded_level(
+                    objects,
+                    live,
+                    &entry,
+                    definitions.level_definitions,
+                    definitions.level_config,
+                )?;
+            }
+            CreaturePhase::UpdateEntryFlagsAndSpells => {
+                let object = state.object;
+                CreatureConstruction::update_loaded_entry_flags(
+                    objects,
+                    object,
+                    live,
+                    &entry,
+                    definitions.faction_flags,
+                )?;
+                let key =
+                    source_creature_spell_list_key(live.entry, template.words[89]).unwrap_or(0);
+                live.set_fresh_creature_spell_list(
+                    key,
+                    self.map.creature_spells.as_ref(),
+                    self.random,
+                )?;
+                CreatureConstruction::update_loaded_entry_immunities(
+                    live,
+                    template,
+                    Some(definitions.immunities),
+                )?;
+                state.require_loaded_entry_callbacks(&entry)?;
+                let words = &template.words;
+                SourceCreatureSettings::reset_live(
+                    live,
+                    [words[25], words[26], words[27], words[28]],
+                    object,
+                    objects,
+                )?;
+            }
+            _ => return Err(phase.missing_owner()),
+        }
+        Ok(())
+    }
+    fn observe_proto(&mut self, observation: CreatureFactoryObservation) {
+        (self.observe)(observation);
+    }
+}
+
+// Object.cpp:2028-2060 and Creature.cpp:900-906 create a creature with null CreatureData.
+#[allow(clippy::too_many_arguments)]
+pub fn summon_source_emerald_dragon(
+    map: &mut SourceContinent,
+    settings: EmeraldDragonSummon,
+    definitions: &TemporaryCreatureDefinitions<'_>,
+    terrain: &mut SourceTerrainManager,
+    thread: u64,
+    random: &mut dyn CreatureRandom,
+    config: impl FnMut(CreatureEntryConfig) -> Result<u32>,
+    observe: impl FnMut(CreatureFactoryObservation),
+    swimming: &mut SourceCreatureSwimmingCensus,
+) -> Result<Option<ObjectHandle>> {
+    let Some(original) = definitions.templates.get(settings.entry) else {
+        // Object.cpp:2028-2032 returns null before a construction or GUID allocation.
+        return Ok(None);
+    };
+    let object = map.objects.construct(thread, SourceObjectKind::Creature)?;
+    CreatureConstruction::construct_loaded_candidate(
+        object,
+        &map.objects,
+        &mut map.units,
+        &mut map.passengers,
+        &mut map.motions,
+    )?;
+    map.units.get_mut(&map.objects, object)?.temporary_spawn =
+        Some(SourceTemporarySpawn::construct());
+    // Object.cpp:2055-2056 uses one new map-local low GUID for both identities.
+    let guid = map
+        .guids
+        .as_mut()
+        .ok_or_else(|| refuse("execution.creature.Object_2055.temporary_guid_owner"))?
+        .allocate(map.identity, HighGuid::Creature)?;
+    require(
+        !guid.stop_now,
+        "execution.creature.Object_2055.temporary_guid_exhausted",
+    )?;
+    // Creature.cpp:900-901 binds map and respawn pose before _Create.
+    map.objects.bind_map(object, map.identity, &map.cells)?;
+    map.objects.set_respawn_definition(
+        object,
+        SourcePose(settings.position.map(f32::to_bits)),
+        false,
+    )?;
+    let state = create_source_creature_from_proto(
+        &mut TemporaryCreatureProtoWork {
+            map,
+            definitions,
+            template: original,
+            terrain,
+            thread,
+            random,
+            config,
+            observe,
+            swimming,
+        },
+        object,
+        guid.counter,
+        None,
+        settings.position,
+        guid.counter,
+        original.into(),
+        None,
+        None,
+    )?;
+    if state.is_none() {
+        // Object.cpp:2056-2059 deletes the candidate when Create returns false.
+        CreatureConstruction::discard_loaded_candidate(
+            object,
+            &mut map.units,
+            &mut map.passengers,
+            &mut map.motions,
+        )?;
+        map.objects.destroy(object, &mut map.cells)?;
+        return Ok(None);
+    }
+    Err(refuse(
+        "execution.creature.Creature_906.select_final_point_owner",
+    ))
 }
 
 /// Selected construction only. EventAI keeps its existing definition/build/base owner path.
@@ -1813,7 +2090,11 @@ where
             .get(context.objects, state.object)?,
     )? {
         let height = factory.creature_dead_flying_height(state, context)?;
-        let [x, y, z, orientation] = state.spawn.position;
+        let [x, y, z, orientation] = state
+            .spawn
+            .as_ref()
+            .ok_or_else(|| refuse("execution.creature.Creature_1708.respawn_data_owner"))?
+            .position;
         if f64::from(z - height) > 0.1 {
             state.position = [x, y, height, orientation];
             context
@@ -1834,8 +2115,12 @@ pub fn resolve_supported_creature_kernel(
         state.event.is_none() && state.group.is_none() && !state.template.can_fly,
         "execution.creature.kernel_domain_owner",
     )?;
+    let spawn = state
+        .spawn
+        .as_ref()
+        .ok_or_else(|| refuse("execution.creature.kernel_spawn_template_owner"))?;
     require(
-        input.spawn_id == u64::from(state.spawn.database_guid)
+        input.spawn_id == u64::from(spawn.database_guid)
             && input.template.entry == state.template.entry
             && input.template.displays == state.template.displays
             && [
@@ -1848,7 +2133,7 @@ pub fn resolve_supported_creature_kernel(
         return Err(refuse("execution.creature.kernel_spawn_template_owner"));
     };
     require(
-        spawns.len() == 1 && spawns[0].model_id == state.spawn.model,
+        spawns.len() == 1 && spawns[0].model_id == spawn.model,
         "execution.creature.kernel_spawn_template_owner",
     )?;
     let value = init::prepare(input)

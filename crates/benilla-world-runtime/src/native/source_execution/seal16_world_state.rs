@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-use super::{unhex, WorldStartupSql, WorldStateRow};
+use super::{
+    unhex, ObjectHandle, SourceContinent, SourceCreatureSwimmingCensus, SourcePose,
+    WorldStartupSql, WorldStateRow,
+};
+use benilla_sim::source_rng::{EventKind, Operation, TraceEvent, Value};
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -19,6 +23,11 @@ pub(super) struct WorldStateEvidence {
     dragon_results: Vec<u32>,
     dragon_words: Vec<(u64, u64)>,
     next_word: Option<(u64, u64)>,
+    first_summon_identity: Option<[u32; 3]>,
+    first_display_bounds: Option<[u64; 2]>,
+    first_display_result: Option<i64>,
+    init_entry_height: bool,
+    next_ai_word: Option<(u64, u64)>,
     save: VecDeque<Vec<u8>>,
     affected: Vec<u64>,
 }
@@ -103,6 +112,14 @@ impl WorldStateEvidence {
                 assert_eq!(p[1], if line == 61738465 { "203682" } else { "203683" });
                 self.affected.push(p[2].parse().unwrap());
             }
+            61738512 => {
+                assert_eq!(
+                    (kind, p[0]),
+                    ("constructor_creature_original_entry", "4294967687")
+                );
+                self.first_summon_identity =
+                    Some([p[1], p[2], p[3]].map(|item| item.parse().unwrap()));
+            }
             61738519 => {
                 assert_eq!(kind, "rng_call");
                 assert_eq!(
@@ -115,6 +132,47 @@ impl WorldStateEvidence {
                         "99"
                     ]
                 );
+                self.first_display_bounds = Some([p[3], p[4]].map(|item| item.parse().unwrap()));
+            }
+            61738523 => {
+                assert_eq!((kind, p[0]), ("rng_result", "irand"));
+                assert!(self
+                    .first_display_result
+                    .replace(p[1].parse().unwrap())
+                    .is_none());
+            }
+            61738535 => {
+                assert_eq!(kind, "terrain_height");
+                assert_eq!(
+                    p,
+                    [
+                        "0",
+                        "-0x1.45e666p+13",
+                        "-0x1.882d0ep+8",
+                        "0x1.5dedc6p+5",
+                        "1",
+                        "0x1.9p+5"
+                    ]
+                );
+                self.init_entry_height = true;
+            }
+            61741101 => {
+                assert_eq!(kind, "rng_call");
+                assert_eq!(
+                    p,
+                    [
+                        "urand",
+                        "/reference/source/src/game/AI/ScriptDevAI/base/TimerAI.cpp",
+                        "23",
+                        "0",
+                        "0"
+                    ]
+                );
+            }
+            61741102 => {
+                assert_eq!((kind, p[0]), ("mt_raw", "0x200205904f00"));
+                let word = (p[1].parse().unwrap(), p[2].parse().unwrap());
+                assert!(self.next_ai_word.replace(word).is_none());
             }
             _ => (),
         }
@@ -140,6 +198,74 @@ impl WorldStateEvidence {
         let next = self.next_word.unwrap();
         assert_eq!(next, (8715, 174174399)); // Trace :61738521.
         next
+    }
+
+    pub(super) fn next_dragon_ai_word(&self) -> (u64, u64) {
+        let next = self.next_ai_word.unwrap();
+        assert_eq!(next, (8716, 75745173)); // Trace :61741102.
+        next
+    }
+
+    pub(super) fn assert_first_summon(
+        &self,
+        map: &SourceContinent,
+        handle: ObjectHandle,
+        trace: &[TraceEvent],
+        swimming: &SourceCreatureSwimmingCensus,
+    ) {
+        let object = map.objects.get(handle).unwrap();
+        let live = map.units.get(&map.objects, handle).unwrap();
+        let guid = object.guid.unwrap();
+        let identity = [object.database_guid, guid.counter(), guid.entry()];
+        assert_eq!(identity, [5341346, 5341346, 14890]); // Trace :61738512-13.
+        assert_eq!(Some(identity), self.first_summon_identity);
+        assert_eq!(object.map, Some(map.identity));
+        assert_eq!(live.entry, guid.entry());
+        assert_eq!(live.loaded_creature.native_display, 15363); // initial-classicmangos.sql:430292.
+        assert!(live.temporary_spawn.is_some() && live.spawner.is_none());
+        assert!(!object.in_world && !object.database_spawn_data && object.pose.is_none());
+        let pose = object.respawn_pose.unwrap();
+        assert_eq!(
+            pose,
+            SourcePose([0xc622f333, 0xc3c41687, 0x422ef6e3, 0x3f6eb021])
+        );
+        assert!(self.init_entry_height); // Trace :61738535 queries this pre-placement pose.
+        assert_eq!(swimming.reached_441, 1);
+        assert_eq!(swimming.swimming_set + swimming.swimming_not_set, 1);
+
+        let (position, word) = self.next_dragon_word();
+        let bounds = self.first_display_bounds.unwrap();
+        let result = self.first_display_result.unwrap();
+        assert_eq!((bounds, result), ([0, 99], 4)); // Trace :61738519-23.
+        assert!(trace.iter().all(|event| event.stream == 1));
+        let EventKind::Begin {
+            span,
+            parent: None,
+            at,
+            operation: Operation::Irand,
+            args,
+        } = trace[0].kind
+        else {
+            panic!("first dragon display helper diverged");
+        };
+        assert_eq!((at, args), (position, [bounds[0], bounds[1], 0]));
+        let raw: Vec<_> = trace
+            .iter()
+            .filter_map(|event| match event.kind {
+                EventKind::Raw { position, word, .. } => Some((position, word)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(raw, [(position, word)]);
+        assert_eq!(
+            trace.last().unwrap().kind,
+            EventKind::End {
+                span,
+                begin: position,
+                end: position + 1,
+                result: Ok(Value::I64(result))
+            }
+        );
     }
 
     pub(super) fn bind_rows(&self, recording: &Path) -> &'static [WorldStateRow<'static>] {

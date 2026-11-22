@@ -46,8 +46,8 @@ mod world_state;
 #[path = "seal16_world_tail.rs"]
 mod world_tail;
 
-// The first display result closes the projection of the first pending draw.
-pub(super) const WORLD_TAIL_TRACE_END: u64 = 61738523;
+// The first TimerAI draw is pending after the first summon reaches final placement.
+pub(super) const WORLD_TAIL_TRACE_END: u64 = 61741103;
 
 const GROUP_QUERIES: [&str; 6] = [
     "SELECT Id, Name, Type, MaxCount, WorldState, WorldStateExpression, Flags, StringId, RespawnOverrideMin, RespawnOverrideMax FROM spawn_group",
@@ -2085,6 +2085,12 @@ impl PersistentEffects for InitialEffects<'_> {
         Err(refuse("execution.persistent.dungeon_reset_owner"))
     }
 }
+struct DragonBindings<'a> {
+    definitions: TemporaryCreatureDefinitions<'a>,
+    terrain: &'a mut SourceTerrainManager,
+    config: &'a [u8],
+}
+
 struct Owner<'a> {
     world: SourceWorld,
     spawns: &'a SourceEffectiveSpawns,
@@ -2109,6 +2115,10 @@ struct Owner<'a> {
     cursor: &'a mut DrawCursor,
     raw: Vec<(u64, u64)>,
     dragon_rolls: Vec<(u32, u32)>,
+    dragon_bindings: Option<DragonBindings<'a>>,
+    dragon_summon_trace: Vec<TraceEvent>,
+    dragon_summon_phases: Vec<CreatureFactoryObservation>,
+    dragon_swimming: SourceCreatureSwimmingCensus,
 }
 impl GameEventOwner for Owner<'_> {
     fn clock(&mut self, site: EventClockSite) -> Result<ClockSample> {
@@ -2369,6 +2379,28 @@ impl WorldTailOwner for Owner<'_> {
             .map_err(|_| refuse("execution.world.WorldState_605.dragon_urand"))?;
         self.dragon_rolls.push((upper, roll));
         Ok(roll)
+    }
+
+    fn summon_emerald_dragon(
+        &mut self,
+        identity: MapIdentity,
+        settings: EmeraldDragonSummon,
+    ) -> Result<Option<ObjectHandle>> {
+        let bindings = self.dragon_bindings.as_mut().unwrap();
+        let map = self.continents.as_mut().unwrap().map_mut(identity)?;
+        let mut sink = |event| self.dragon_summon_trace.push(event);
+        let mut random = SourceRandom::new(1, self.engine, self.cursor, &mut sink).unwrap();
+        summon_source_emerald_dragon(
+            map,
+            settings,
+            &bindings.definitions,
+            bindings.terrain,
+            1,
+            &mut random,
+            |key| active_init::creature_uint_config(bindings.config, key),
+            |obs| self.dragon_summon_phases.push(obs),
+            &mut self.dragon_swimming,
+        )
     }
 }
 impl PersistentEffects for Owner<'_> {
@@ -2992,6 +3024,10 @@ pub(super) fn continue_startup(
         cursor,
         raw: Vec::new(),
         dragon_rolls: Vec::new(),
+        dragon_bindings: None,
+        dragon_summon_trace: Vec::new(),
+        dragon_summon_phases: Vec::new(),
+        dragon_swimming: SourceCreatureSwimmingCensus::default(),
     };
     let mut events = SourceGameEventManager::default();
     let mut pools = std::mem::take(&mut owner.pools);
@@ -7384,6 +7420,29 @@ pub(super) fn continue_startup(
     assert_eq!(owner.cursor.raw, 8712);
     assert_eq!(next_word, (8712, 3411341330));
     assert_eq!(u64::from(owner.engine.clone().next_u32()), next_word.1);
+    let before = owner
+        .continents
+        .as_ref()
+        .unwrap()
+        .map(map0)
+        .unwrap()
+        .objects
+        .construction_count(1);
+    owner.dragon_bindings = Some(DragonBindings {
+        definitions: TemporaryCreatureDefinitions {
+            templates: &creature_templates,
+            models: &creature_models,
+            equipment: &equipment,
+            collision_models: &collision_models,
+            encounters: &encounters,
+            level_definitions: &level_definitions,
+            level_config: &level_config,
+            faction_flags: &faction_flags,
+            immunities: &creature_immunities,
+        },
+        terrain: geometry,
+        config: &config,
+    });
     let refusal = initialize_world_tail(
         &mut owner,
         WorldTailConfig {
@@ -7423,7 +7482,27 @@ pub(super) fn continue_startup(
         .weekly
         .world_state
         .assert_dragon_draws(&owner.dragon_rolls, &owner.raw);
-    let next_word = observed.weekly.world_state.next_dragon_word();
+    let map = owner.continents.as_ref().unwrap().map(map0).unwrap();
+    assert_eq!(map.objects.construction_count(1), before + 1); // Trace :61738509-13.
+    observed.weekly.world_state.assert_first_summon(
+        map,
+        ObjectHandle {
+            thread: 1,
+            construction: before + 1,
+        },
+        &owner.dragon_summon_trace,
+        &owner.dragon_swimming,
+    );
+    assert_eq!(
+        owner.dragon_summon_phases,
+        [
+            CreatureFactoryObservation::CreateFromProto,
+            CreatureFactoryObservation::DisplayChance(100),
+            CreatureFactoryObservation::DisplayDrawn,
+            CreatureFactoryObservation::ModelSelected,
+        ]
+    ); // Trace :61738512, :61738519-23 and initial-classicmangos.sql:430292.
+    let next_word = observed.weekly.world_state.next_dragon_ai_word();
     assert_eq!(owner.cursor.raw, next_word.0);
     assert_eq!(u64::from(owner.engine.clone().next_u32()), next_word.1);
     assert_eq!(matched_map_sql, 4);

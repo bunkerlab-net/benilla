@@ -49,22 +49,6 @@ impl SourceMotions {
             .formation(command, context, owner)
     }
 }
-impl CreatureConstruction {
-    /// Creature.cpp:880, MotionMaster.cpp:57-99, before AI selection.
-    /// The factory supplies the effective InitEntry movement type and path.
-    pub fn initialize_motion(
-        &self,
-        motions: &mut SourceMotions,
-        default: MotionDefault,
-        context: &mut MotionContext<'_>,
-        owner: &mut dyn MotionExecutionOwner,
-    ) -> Result<()> {
-        motions.construct(context.objects, self.object, default)?;
-        let master = motions.get_mut(context.objects, self.object)?;
-        master.bind_respawn_radius(self.spawn.respawn_radius);
-        master.initialize(context, owner)
-    }
-}
 /// Compose this with SourceAiDependencies to retain concrete threat ownership.
 pub struct SourceMotionDependencies<'a, O> {
     pub motions: &'a mut SourceMotions,

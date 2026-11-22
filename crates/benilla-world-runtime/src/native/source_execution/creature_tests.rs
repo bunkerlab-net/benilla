@@ -560,8 +560,10 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
         if self.refuse == Some(phase) {
             return Err(phase.missing_owner());
         }
-        self.observations
-            .push(Observation::Phase(state.spawn.database_guid, phase));
+        self.observations.push(Observation::Phase(
+            state.spawn.as_ref().unwrap().database_guid,
+            phase,
+        ));
         match phase {
             CreaturePhase::AiSpellListChanged | CreaturePhase::AiJustRespawned
                 if self.builtin_dispatch_name.as_deref() == Some("npc_chicken_cluck") =>
@@ -717,8 +719,9 @@ impl CreatureFactoryOwner<Definitions, Products> for Factory {
         state: CreatureConstruction,
         _: &mut GridFactoryContext<'_, Definitions, Products>,
     ) -> Result<()> {
-        self.observations
-            .push(Observation::Complete(state.spawn.database_guid));
+        self.observations.push(Observation::Complete(
+            state.spawn.as_ref().unwrap().database_guid,
+        ));
         self.states.insert(state.object, state);
         Ok(())
     }
@@ -1424,7 +1427,7 @@ fn linking_denial_kills_before_add_and_active_add_does_not_recurse_into_loaded_g
     assert!(state.spawning_linked);
     assert!(!world.objects.get(state.object).unwrap().alive);
     assert_eq!(state.respawn_position, [0.0, 0.0, 4.0, 0.0]);
-    assert_eq!(state.spawn.respawn_radius, 5.0);
+    assert_eq!(state.spawn.as_ref().unwrap().respawn_radius, 5.0);
     assert_eq!(world.products.0, 1);
     let death = factory
         .observations

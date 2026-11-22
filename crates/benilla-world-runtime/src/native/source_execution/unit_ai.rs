@@ -63,6 +63,32 @@ pub struct SourceUnitVisibility {
     pub stealth_strength: [u32; 2],
 }
 
+/// TemporarySpawn.cpp:23-26 initializes the temporary subtype before Creature::Create.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SourceTempSpawnType {
+    TimedOutOfCombatOrCorpse,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceTemporarySpawn {
+    pub spawn_type: SourceTempSpawnType,
+    pub lifetime_ms: u32,
+    pub expiration_ms: i64,
+    pub linked_to_owner_aura: u32,
+}
+
+impl SourceTemporarySpawn {
+    pub(super) fn construct() -> Self {
+        // TemporarySpawn.h:45-49; Common.h:59 defaults TimePoint to the epoch.
+        Self {
+            spawn_type: SourceTempSpawnType::TimedOutOfCombatOrCorpse,
+            lifetime_ms: 0,
+            expiration_ms: 0,
+            linked_to_owner_aura: 0,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct SourceUnitFields {
     pub entry: u32,
@@ -117,6 +143,9 @@ pub struct SourceUnitFields {
     /// Object.cpp:105-108 clears UNIT_CREATED_BY_SPELL.
     #[serde(skip)]
     pub unit_created_by_spell: u32,
+    /// TemporarySpawn.cpp:23-26,217-233 owns live summon properties.
+    #[serde(skip)]
+    pub temporary_spawn: Option<SourceTemporarySpawn>,
     #[serde(skip)]
     pub controlled: SourceControlledUnits,
     pub pet_kind: Option<CreaturePetKind>,
@@ -497,6 +526,8 @@ impl SourceUnitFields {
             respawn_override_once: false,
             last_notified_position: [0.; 3],
             unit_created_by_spell: 0,
+            // Creature.h:569-574 distinguishes ordinary creatures from temporary summons.
+            temporary_spawn: None,
             controlled: SourceControlledUnits::default(),
             pet_kind: None,
             totem: false,

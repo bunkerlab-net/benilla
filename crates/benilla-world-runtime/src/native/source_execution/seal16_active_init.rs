@@ -4,8 +4,9 @@ use super::*;
 use benilla_sim::corpse_appearance::EquippedItem;
 use benilla_sim::resident_map::CellPair;
 
-pub(super) const STARTUP_NEXT_OWNER: &str = "execution.world.WorldState_617.dragon_summon_owner";
-pub(super) const STARTUP_NEXT_SOURCE: &str = "WorldState.cpp:617";
+pub(super) const STARTUP_NEXT_OWNER: &str =
+    "execution.creature.Creature_906.select_final_point_owner";
+pub(super) const STARTUP_NEXT_SOURCE: &str = "Creature.cpp:906";
 #[path = "seal16_active_clocks.rs"]
 mod clocks;
 pub(super) use clocks::{ActiveClock, ActiveClocks};
@@ -13,6 +14,7 @@ pub(super) use clocks::{ActiveClock, ActiveClocks};
 mod creature_create;
 #[path = "seal16_creature_entry.rs"]
 mod creature_entry;
+pub(super) use creature_entry::uint_config as creature_uint_config;
 #[path = "seal16_gameobject_init.rs"]
 mod gameobject_init;
 
